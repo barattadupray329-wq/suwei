@@ -264,7 +264,161 @@ class RentalManagementFrame(ttk.Frame):
         rid = self._selected_id()
         if not rid or not (rec := self._find_record(rid)):
             return
-        messagebox.showinfo("提示", "编辑功能已简化为弹窗确认。点击确定后返回主页。")
+        
+        win = tk.Toplevel(self)
+        win.title(f"编辑记录 — {rid}")
+        win.geometry("560x620")
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        self._center(win, 560, 620)
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text=f"✏️ 编辑租赁记录 ({rid})", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_YELLOW, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
+
+        renter = rec.get("renter", {})
+        lease = rec.get("lease_info", {})
+
+        form = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        form.pack(fill=tk.BOTH, expand=True)
+
+        def make_row(parent, label, default="", width=28):
+            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
+            row.pack(fill=tk.X, pady=4)
+            tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                     bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
+            ent = ttk.Entry(row, width=width, font=DarkTheme.FONT_NORMAL)
+            ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            if default is not None:
+                ent.insert(0, str(default))
+            return ent
+
+        name_e = make_row(form, "租赁人*", renter.get("name", ""))
+        phone_e = make_row(form, "联系电话*", renter.get("phone", ""))
+        id_e = make_row(form, "身份证", renter.get("id_card", ""))
+
+        addr_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
+        addr_row.pack(fill=tk.BOTH, pady=4)
+        tk.Label(addr_row, text="地址", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.NW).pack(side=tk.LEFT, pady=(4, 0))
+        addr_t = tk.Text(addr_row, height=3, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
+                         bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
+        addr_t.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        addr_t.insert("1.0", renter.get("address", ""))
+
+        start_e = make_row(form, "起租日期", lease.get("start_date", ""))
+        end_e = make_row(form, "到期日期", lease.get("end_date", ""))
+        monthly_e = make_row(form, "月租", lease.get("monthly_rent", "0"))
+        total_e = make_row(form, "总租金", lease.get("total_rent", "0"))
+        deposit_e = make_row(form, "押金", lease.get("deposit", "0"))
+        paid_e = make_row(form, "已付金额", rec.get("paid_amount", "0"))
+
+        st_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
+        st_row.pack(fill=tk.X, pady=4)
+        tk.Label(st_row, text="状态", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
+        status_var = tk.StringVar(value=rec.get("status", "在租"))
+        st_combo = ttk.Combobox(st_row, textvariable=status_var, state="readonly",
+                                values=["在租", "已退租", "已丢失", "已买断", "已逾期"], width=26)
+        st_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        settle_e = make_row(form, "结算金额", rec.get("settlement_amount", ""))
+
+        tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
+                       font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
+        tip.pack(anchor=tk.W, pady=(8, 6))
+
+        def parse_num(label, text):
+            if text == "":
+                return 0.0
+            try:
+                value = float(text)
+            except ValueError:
+                raise ValueError(f"{label}必须是数字")
+            if value < 0:
+                raise ValueError(f"{label}不能为负数")
+            return value
+
+        def check_date(label, text):
+            if not text:
+                return None
+            try:
+                return datetime.strptime(text, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"{label}格式错误，应为 YYYY-MM-DD")
+
+        def save_edit():
+            try:
+                name = name_e.get().strip()
+                phone = phone_e.get().strip()
+                if not name:
+                    messagebox.showwarning("提示", "租赁人不能为空")
+                    return
+                if not phone:
+                    messagebox.showwarning("提示", "联系电话不能为空")
+                    return
+                if not phone.isdigit() or len(phone) != 11:
+                    messagebox.showwarning("提示", "联系电话应为11位数字")
+                    return
+
+                start = start_e.get().strip()
+                end = end_e.get().strip()
+                start_dt = check_date("起租日期", start)
+                end_dt = check_date("到期日期", end)
+                if start_dt and end_dt and start_dt > end_dt:
+                    messagebox.showwarning("提示", "起租日期不能晚于到期日期")
+                    return
+
+                monthly = parse_num("月租", monthly_e.get().strip())
+                total = parse_num("总租金", total_e.get().strip())
+                deposit = parse_num("押金", deposit_e.get().strip())
+                paid = parse_num("已付金额", paid_e.get().strip())
+                if paid > total:
+                    messagebox.showwarning("提示", "已付金额不能大于总租金")
+                    return
+
+                rec.setdefault("renter", {})
+                rec.setdefault("lease_info", {})
+                rec["renter"]["name"] = name
+                rec["renter"]["phone"] = phone
+                rec["renter"]["id_card"] = id_e.get().strip()
+                rec["renter"]["address"] = addr_t.get("1.0", tk.END).strip()
+
+                rec["lease_info"]["start_date"] = start
+                rec["lease_info"]["end_date"] = end
+                rec["lease_info"]["monthly_rent"] = monthly
+                rec["lease_info"]["total_rent"] = total
+                rec["lease_info"]["deposit"] = deposit
+
+                rec["paid_amount"] = paid
+                rec["status"] = status_var.get()
+
+                settle_text = settle_e.get().strip()
+                if settle_text:
+                    rec["settlement_amount"] = parse_num("结算金额", settle_text)
+                    rec["settlement_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    rec.pop("settlement_amount", None)
+                    rec.pop("settlement_date", None)
+
+                self.dm.save()
+                messagebox.showinfo("成功", "记录已更新")
+                win.destroy()
+                self._refresh()
+            except Exception as e:
+                messagebox.showerror("错误", f"保存失败：{e}")
+
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X, pady=(8, 0))
+        tk.Button(btn, text="💾 保存", font=DarkTheme.FONT_LABEL, fg="white",
+                  bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                  command=save_edit).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn, text="取消", font=DarkTheme.FONT_LABEL, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=win.destroy).pack(side=tk.LEFT)
 
     def delete_record(self):
         rid = self._selected_id()

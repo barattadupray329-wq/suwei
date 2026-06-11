@@ -87,9 +87,71 @@ class AIAssistantDialog:
     def _validate_data(self, data):
         errors, warns = [], []
         for f in ["租赁人", "联系电话", "起租日期", "到期日期"]:
-            if not data.get(f):
-                errors.append(f"缺少: {f}")
+            if not str(data.get(f, "")).strip():
+                errors.append(f"缺少必填字段: {f}")
+
+        phone = str(data.get("联系电话", "")).strip()
+        if phone and (not phone.isdigit() or len(phone) != 11):
+            errors.append(f"联系电话格式错误: {phone}")
+
+        id_card = str(data.get("身份证", "")).strip()
+        if id_card:
+            if not re.match(r"^\d{17}[\dXx]$", id_card):
+                warns.append(f"身份证格式可疑: {id_card}")
+
+        def parse_date(label):
+            text = str(data.get(label, "")).strip()
+            if not text:
+                return None
+            norm = text.replace("年", "-").replace("月", "-").replace("日", "")
+            try:
+                return datetime.strptime(norm, "%Y-%m-%d")
+            except ValueError:
+                errors.append(f"{label}格式错误: {text} (应为 YYYY-MM-DD)")
+                return None
+
+        start_dt = parse_date("起租日期")
+        end_dt = parse_date("到期日期")
+        if start_dt and end_dt and start_dt > end_dt:
+            errors.append("起租日期晚于到期日期")
+
+        def parse_amount(label):
+            text = str(data.get(label, "")).strip()
+            if not text:
+                return None
+            try:
+                val = float(text)
+            except ValueError:
+                errors.append(f"{label}不是数字: {text}")
+                return None
+            if val < 0:
+                errors.append(f"{label}不能为负数")
+            return val
+
+        m = parse_amount("月租")
+        t = parse_amount("总租金")
+        d = parse_amount("押金")
+        if m is not None and t is not None and t < m:
+            warns.append("总租金小于月租，请确认数据是否正确")
+        if d is not None and m is not None and d > m * 6:
+            warns.append("押金明显偏高，请确认")
+
         return errors, warns
+
+    def _record_to_flat(self, record):
+        renter = record.get("renter", {})
+        lease = record.get("lease_info", {})
+        return {
+            "租赁人": renter.get("name", ""),
+            "联系电话": renter.get("phone", ""),
+            "身份证": renter.get("id_card", ""),
+            "地址": renter.get("address", ""),
+            "起租日期": lease.get("start_date", ""),
+            "到期日期": lease.get("end_date", ""),
+            "月租": lease.get("monthly_rent", ""),
+            "总租金": lease.get("total_rent", ""),
+            "押金": lease.get("deposit", ""),
+        }
 
     def _tab_auto_fill(self, nb):
         fr = ttk.Frame(nb, padding=12)
@@ -188,7 +250,57 @@ class AIAssistantDialog:
 
     def _validate_all(self):
         records = self.dm.get_records()
-        txt = f"【验证报告】\n\n共 {len(records)} 条记录\n✅ 数据验证模块就绪"
+        report = []
+        report.append("【数据验证报告】")
+        report.append("")
+        report.append(f"记录总数: {len(records)}")
+
+        valid_count = 0
+        warn_count = 0
+        error_count = 0
+
+        if self.extracted:
+            e, w = self._validate_data(self.extracted)
+            report.append("")
+            report.append("【当前提取数据】")
+            if not e and not w:
+                report.append("  ✅ 通过")
+            else:
+                for item in e:
+                    report.append(f"  ❌ {item}")
+                for item in w:
+                    report.append(f"  ⚠️ {item}")
+
+        for idx, rec in enumerate(records, 1):
+            rid = rec.get("id", f"#{idx}")
+            data = self._record_to_flat(rec)
+            errors, warns = self._validate_data(data)
+            if errors:
+                error_count += 1
+                report.append("")
+                report.append(f"[记录 {rid}]")
+                for item in errors:
+                    report.append(f"  ❌ {item}")
+                for item in warns:
+                    report.append(f"  ⚠️ {item}")
+            elif warns:
+                warn_count += 1
+                report.append("")
+                report.append(f"[记录 {rid}]")
+                for item in warns:
+                    report.append(f"  ⚠️ {item}")
+            else:
+                valid_count += 1
+
+        report.append("")
+        report.append("【汇总】")
+        report.append(f"  ✅ 完全通过: {valid_count}")
+        report.append(f"  ⚠️ 仅警告: {warn_count}")
+        report.append(f"  ❌ 存在错误: {error_count}")
+        if error_count == 0:
+            report.append("  🎉 未发现阻断性错误")
+
+        txt = "\n".join(report)
         self.val_output.config(state=tk.NORMAL)
         self.val_output.delete("1.0", tk.END)
         self.val_output.insert("1.0", txt)
