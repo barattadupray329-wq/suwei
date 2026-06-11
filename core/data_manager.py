@@ -7,6 +7,8 @@
 
 import json
 import os
+import hashlib
+import base64
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -35,14 +37,62 @@ class DataManager:
 
     def _get_default_data(self) -> Dict:
         """获取默认数据结构"""
+        salt_b64, hash_b64 = self._build_password_hash("admin123")
         return {
             "rental_records": [],
             "settings": {
                 "default_admin": "admin",
-                "default_password": "admin123",
+                "password_salt": salt_b64,
+                "password_hash": hash_b64,
+                "failed_login_count": 0,
+                "locked_until": None,
                 "last_backup": None
             }
         }
+
+    def _build_password_hash(self, password: str):
+        """生成密码盐值和哈希（Base64）"""
+        salt = os.urandom(16)
+        pwd_hash = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            120000
+        )
+        return (
+            base64.b64encode(salt).decode("utf-8"),
+            base64.b64encode(pwd_hash).decode("utf-8")
+        )
+
+    def verify_password(self, password: str) -> bool:
+        """验证密码哈希"""
+        settings = self.data.setdefault("settings", {})
+        salt_b64 = settings.get("password_salt")
+        hash_b64 = settings.get("password_hash")
+
+        if not salt_b64 or not hash_b64:
+            legacy_password = settings.get("default_password", "admin123")
+            if password != legacy_password:
+                return False
+            salt_b64, hash_b64 = self._build_password_hash(legacy_password)
+            settings["password_salt"] = salt_b64
+            settings["password_hash"] = hash_b64
+            settings.pop("default_password", None)
+            self.save()
+            return True
+
+        try:
+            salt = base64.b64decode(salt_b64.encode("utf-8"))
+            expected_hash = base64.b64decode(hash_b64.encode("utf-8"))
+            actual_hash = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                salt,
+                120000
+            )
+            return actual_hash == expected_hash
+        except Exception:
+            return False
 
     def save(self):
         """保存数据到文件"""
