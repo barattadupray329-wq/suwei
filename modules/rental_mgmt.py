@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import csv
 from theme.colors import DarkTheme
+from modules.hardware_mgmt import HardwareDialog
 
 
 class RentalManagementFrame(ttk.Frame):
@@ -186,6 +187,18 @@ class RentalManagementFrame(ttk.Frame):
                                 values=["在租", "已退租", "已丢失", "已买断", "已逾期"], width=26)
         st_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # 硬件信息
+        hw_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
+        hw_row.pack(fill=tk.X, pady=4)
+        tk.Label(hw_row, text="硬件信息", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
+        
+        hardware_data = {}
+        hw_btn = tk.Button(hw_row, text="⚙️ 编辑硬件信息", font=DarkTheme.FONT_NORMAL, fg="white",
+                          bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                          command=lambda: self._edit_hardware_in_dialog(hardware_data))
+        hw_btn.pack(side=tk.LEFT)
+
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
         tip.pack(anchor=tk.W, pady=(8, 6))
@@ -257,7 +270,7 @@ class RentalManagementFrame(ttk.Frame):
                     "status": status_var.get(),
                     "paid_amount": paid,
                     "renew_history": [],
-                    "hardware": {}
+                    "hardware": hardware_data
                 }
 
                 self.dm.add_record(rec)
@@ -700,6 +713,13 @@ class RentalManagementFrame(ttk.Frame):
             AIAssistantDialog(self, self.app)
         except (ImportError, Exception):
             messagebox.showwarning("提示", "AI 助手模块未就绪")
+
+    def _edit_hardware_in_dialog(self, hardware_dict):
+        """打开硬件编辑对话框"""
+        dlg = HardwareDialog(self, hardware_dict)
+        result = dlg.show()
+        if result is not None:
+            hardware_dict.update(result)
 
     def _center(self, win, w, h):
         x = (win.winfo_screenwidth() // 2) - (w // 2)
