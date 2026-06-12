@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 3
+    DB_VERSION = 4
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -48,6 +48,9 @@ class DataManager:
         if current < 3:
             self._migration_003_hardware_models()
             self._set_schema_version(3)
+        if current < 4:
+            self._migration_004_brand_library_refactor()
+            self._set_schema_version(4)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -141,6 +144,75 @@ class DataManager:
         self.conn.commit()
         # 初始化硬件型号数据
         self._init_hardware_model_defaults()
+
+    def _migration_004_brand_library_refactor(self):
+        """Migration 004：重构品牌库，分离品牌和型号"""
+        # 备份旧数据
+        old_brands = self.conn.execute(
+            "SELECT category, name FROM hardware_brands"
+        ).fetchall()
+        
+        # 清空旧表
+        self.conn.execute("DELETE FROM hardware_brands")
+        
+        # 导入新品牌数据
+        from modules.hardware_brands import BRAND_MAP
+        inserted = set()
+        for category, brands in BRAND_MAP.items():
+            for idx, brand in enumerate(brands):
+                key = (category, brand)
+                if key not in inserted:
+                    try:
+                        self.conn.execute(
+                            "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                            (category, brand, idx)
+                        )
+                        inserted.add(key)
+                    except sqlite3.IntegrityError:
+                        pass
+        
+        self.conn.commit()
+        
+        # 从旧数据中提取可能遗漏的品牌
+        for row in old_brands:
+            category, full_name = row["category"], row["name"]
+            # 简单处理：如果旧名称包含型号，提取品牌部分
+            brand_name = self._extract_brand_from_full_name(full_name)
+            if brand_name:
+                try:
+                    self.conn.execute(
+                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                        (category, brand_name, 999)
+                    )
+                    inserted.add((category, brand_name))
+                except sqlite3.IntegrityError:
+                    pass
+        
+        self.conn.commit()
+
+    def _extract_brand_from_full_name(self, full_name: str) -> str:
+        """从完整名称中提取品牌"""
+        # 常见品牌关键词
+        brand_keywords = [
+            "Intel", "AMD", "NVIDIA", "华硕", "技嘉", "微星", "华擎", 
+            "铭瑄", "七彩虹", "映泰", "金士顿", "芝奇", "海盗船", "威刚",
+            "金百达", "宇瞻", "光威", "玖合", "三星", "西数", "铠侠",
+            "致态", "希捷", "长江存储", "航嘉", "长城", "酷冷至尊",
+            "振华", "安钛克", "海韵", "先马", "联力", "恩杰", "乔思伯",
+            "追风者", "九州风神", "利民", "猫头鹰", "瓦尔基里", "雅浚",
+            "戴尔", "AOC", "飞利浦", "LG", "小米", "HKC", "商途"
+        ]
+        
+        for keyword in brand_keywords:
+            if full_name.startswith(keyword):
+                return keyword
+        
+        # 尝试按空格分割取第一部分
+        parts = full_name.split()
+        if len(parts) > 0:
+            return parts[0]
+        
+        return full_name
 
     # ── 硬件品牌库 ───────────────────────────────────────────────────
 
