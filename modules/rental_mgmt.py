@@ -324,6 +324,8 @@ class RentalManagementFrame(ttk.Frame):
                 sv.trace_add("write", _auto_calc)
             else:
                 w.bind("<KeyRelease>", _auto_calc)
+        # 表单初始化时立即触发一次计算
+        _auto_calc()
 
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
@@ -662,6 +664,7 @@ class RentalManagementFrame(ttk.Frame):
                 sv.trace_add("write", _auto_calc_edit)
             else:
                 w.bind("<KeyRelease>", _auto_calc_edit)
+        _auto_calc_edit()
 
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
