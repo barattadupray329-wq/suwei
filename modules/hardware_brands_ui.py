@@ -33,7 +33,7 @@ class HardwareBrandFrame(ttk.Frame):
         head = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         head.pack(fill=tk.X, pady=(0, 14))
         tk.Label(head, text="💻 硬件品牌库", font=DarkTheme.FONT_TITLE,
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
+                 fg=DarkTheme.ACCENT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
 
         # 分类选项卡区域
         cat_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
@@ -150,7 +150,7 @@ class HardwareBrandFrame(ttk.Frame):
 
         # 操作按钮
         btn_opts = [
-            ("➕ 添加品牌", self._add_brand, DarkTheme.ACCENT_BLUE),
+            ("➕ 添加品牌", self._add_brand, DarkTheme.ACCENT_PRIMARY),
             ("🗑 删除选中", self._delete_selected, DarkTheme.ACCENT_RED),
             ("📥 从文本导入", self._import_from_text, DarkTheme.ACCENT_GREEN),
             ("📄 从 CSV 导入", self._import_csv, DarkTheme.ACCENT_GREEN),
@@ -171,7 +171,7 @@ class HardwareBrandFrame(ttk.Frame):
         # 高亮当前分类按钮
         for key, btn in self.cat_buttons.items():
             if key == category_key:
-                btn.config(bg=DarkTheme.ACCENT_BLUE, fg="white")
+                btn.config(bg=DarkTheme.ACCENT_PRIMARY, fg="white")
             else:
                 btn.config(bg=DarkTheme.BG_TERTIARY, fg=DarkTheme.TEXT_SECONDARY)
         self._load_brands()

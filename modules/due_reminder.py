@@ -33,10 +33,10 @@ class DueReminderFrame(ttk.Frame):
                  fg=DarkTheme.ACCENT_YELLOW, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
 
         refresh_btn = tk.Button(head, text="🔄 刷新", font=DarkTheme.FONT_BUTTON, fg="white",
-                                bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                                bg=DarkTheme.ACCENT_SECONDARY, relief=tk.FLAT, cursor="hand2",
                                 command=self.refresh, padx=12, pady=6)
         refresh_btn.pack(side=tk.RIGHT)
-        DarkTheme.bind_hover(refresh_btn, DarkTheme.ACCENT_BLUE)
+        DarkTheme.bind_hover(refresh_btn, DarkTheme.ACCENT_SECONDARY)
 
         # 统计卡片
         cards_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)

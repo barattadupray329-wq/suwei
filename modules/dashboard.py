@@ -33,7 +33,7 @@ class DashboardFrame(ttk.Frame):
         ).pack(side=tk.LEFT)
 
         self.clock_label = tk.Label(head, text="", font=DarkTheme.FONT_LABEL,
-                                     fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY)
+            fg=DarkTheme.ACCENT_PRIMARY, bg=DarkTheme.BG_PRIMARY)
         self.clock_label.pack(side=tk.RIGHT, pady=6)
 
         # 4列布局: 统计卡片(左) + 财务卡片(右)
@@ -47,7 +47,7 @@ class DashboardFrame(ttk.Frame):
         unpaid_amount = total_rent - paid_amount
 
         stat_cards = [
-            ("📦 总记录", stats["total"], DarkTheme.ACCENT_BLUE),
+            ("📦 总记录", stats["total"], DarkTheme.ACCENT_PRIMARY),
             ("✅ 在租", stats["active"], DarkTheme.STATUS_ACTIVE),
             ("⚠️ 逾期", stats["expired"], DarkTheme.STATUS_EXPIRED),
             ("🔙 退租", stats["returned"], DarkTheme.STATUS_RETURNED),
@@ -69,7 +69,7 @@ class DashboardFrame(ttk.Frame):
         tk.Label(c2, text="💰 财务概览", font=DarkTheme.FONT_SUBTITLE,
                  fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=16, pady=(14, 8))
         for lbl, val, color in [
-            ("总租金", total_rent, DarkTheme.ACCENT_BLUE),
+            ("总租金", total_rent, DarkTheme.ACCENT_PRIMARY),
             ("已收金额", paid_amount, DarkTheme.ACCENT_GREEN),
             ("未收金额", unpaid_amount, DarkTheme.ACCENT_RED),
         ]:

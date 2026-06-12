@@ -33,7 +33,7 @@ class RentalManagementFrame(ttk.Frame):
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
 
         tk.Label(main, text="📋 租赁管理", font=DarkTheme.FONT_TITLE,
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 12))
+                 fg=DarkTheme.ACCENT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 12))
 
         ctrl = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         ctrl.pack(fill=tk.X, pady=(0, 10))
@@ -81,8 +81,8 @@ class RentalManagementFrame(ttk.Frame):
         btns.pack(fill=tk.X)
 
         for txt, cmd, sty in [
-            ("➕ 新增记录", self.add_new_record, DarkTheme.ACCENT_CYAN),
-            ("🔄 续租", self.renew_lease, DarkTheme.ACCENT_BLUE),
+            ("➕ 新增记录", self.add_new_record, DarkTheme.ACCENT_PRIMARY),
+            ("🔄 续租", self.renew_lease, DarkTheme.ACCENT_SECONDARY),
             ("✏️ 编辑", self.edit_record, DarkTheme.ACCENT_YELLOW),
             ("🗑️ 删除", self.delete_record, DarkTheme.ACCENT_RED),
             ("📥 批量导入", self.import_rentals, DarkTheme.ACCENT_GREEN),

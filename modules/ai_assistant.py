@@ -41,7 +41,7 @@ class AIAssistantDialog:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         tk.Label(header, text="🤖 AI 租赁信息助手", font=("微软雅黑", 15, "bold"),
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY).pack(side=tk.LEFT, padx=16, pady=8)
+                 fg=DarkTheme.ACCENT_PRIMARY, bg=DarkTheme.BG_SECONDARY).pack(side=tk.LEFT, padx=16, pady=8)
 
         nb = ttk.Notebook(self.win)
         nb.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
@@ -58,7 +58,7 @@ class AIAssistantDialog:
         t.pack(fill=tk.BOTH, expand=True)
         return t
 
-    def _btn(self, parent, text, cmd, color=DarkTheme.ACCENT_BLUE):
+    def _btn(self, parent, text, cmd, color=DarkTheme.ACCENT_SECONDARY):
         b = tk.Button(parent, text=text, font=DarkTheme.FONT_BUTTON, fg="white",
                       bg=color, relief=tk.FLAT, cursor="hand2", command=cmd, padx=12, pady=6)
         b.pack(side=tk.LEFT, padx=3)
@@ -165,7 +165,7 @@ class AIAssistantDialog:
 
         bf = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
         bf.pack(fill=tk.X, pady=(6, 0))
-        self._btn(bf, "🚀 智能提取", self._do_smart_fill, DarkTheme.ACCENT_BLUE)
+        self._btn(bf, "🚀 智能提取", self._do_smart_fill, DarkTheme.ACCENT_PRIMARY)
         self._btn(bf, "🗑 清空", lambda: self.af_input.delete("1.0", tk.END), DarkTheme.BG_HOVER)
 
         right = tk.Frame(top, bg=DarkTheme.BG_PRIMARY, width=380)
