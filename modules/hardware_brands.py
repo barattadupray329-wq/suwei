@@ -71,14 +71,14 @@ class HardwareBrandManager:
     def get_categories(self):
         """返回所有分类标识和显示名。"""
         return [(key, label, fallback)
-                for key, (label, fallback) in self.CATEGORY_LABELS.items()]
+                for key, (label, fallback) in CATEGORY_LABELS.items()]
 
     def get_brands(self, category: str) -> List[str]:
         """获取指定分类的品牌列表（优先数据库，回退静态常量）。"""
         db_list = self.dm.get_brands(category)
         if db_list:
             return db_list
-        _, fallback = self.CATEGORY_LABELS.get(category, ("", []))
+        _, fallback = CATEGORY_LABELS.get(category, ("", []))
         return list(fallback)
 
     def add_brand(self, category: str, name: str) -> bool:
