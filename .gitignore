@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (包含用户隐私数据，建议不提交)
+data/
+*.json
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Backup files
+*.bak
+*.backup
