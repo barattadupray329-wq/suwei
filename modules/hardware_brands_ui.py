@@ -179,21 +179,34 @@ class HardwareBrandFrame(ttk.Frame):
     # ── 品牌数据加载 ─────────────────────────────────────────────────
 
     def _load_brands(self):
-        brands = self.manager.get_brands(self.current_category)
-        self._refresh_table(brands)
+        # 获取品牌及其关联型号数量
+        brands_with_models = self.manager.get_all_brands_with_models(self.current_category)
+        self._refresh_table_with_model_count(brands_with_models)
 
-    def _refresh_table(self, brands):
+    def _refresh_table_with_model_count(self, brands_with_models):
+        """显示品牌列表及其关联型号数量"""
         self.tree.delete(*self.tree.get_children())
-        for i, name in enumerate(brands, 1):
-            self.tree.insert("", tk.END, iid=str(i), values=(i, name))
-        self.stat_total.config(text=str(len(brands)))
+        for i, item in enumerate(brands_with_models, 1):
+            brand_name = item["brand"]
+            model_count = item["model_count"]
+            display_text = f"{brand_name} ({model_count} 个型号)" if model_count > 0 else brand_name
+            self.tree.insert("", tk.END, iid=str(i), values=(i, display_text))
+        self.stat_total.config(text=str(len(brands_with_models)))
+        # 保存原始数据用于搜索
+        self._brands_data = brands_with_models
 
     def _do_search(self):
         query = self.search_var.get().strip().lower()
-        brands = self.manager.get_brands(self.current_category)
-        if query:
-            brands = [b for b in brands if query in b.lower()]
-        self._refresh_table(brands)
+        if not hasattr(self, '_brands_data'):
+            return
+        
+        filtered = []
+        for item in self._brands_data:
+            brand_name = item["brand"].lower()
+            if query in brand_name:
+                filtered.append(item)
+        
+        self._refresh_table_with_model_count(filtered)
 
     # ── 增删改 ───────────────────────────────────────────────────────
 

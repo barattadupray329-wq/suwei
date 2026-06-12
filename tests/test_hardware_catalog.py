@@ -84,10 +84,10 @@ class TestHardwareCatalogDatabase(unittest.TestCase):
             self.assertIn(idx, indexes, f"索引 {idx} 应该被创建")
 
     def test_db_version_is_updated(self):
-        """测试数据库版本号正确更新到 3"""
-        self.assertEqual(self.dm.DB_VERSION, 3, "数据库版本应该为 3")
+        """测试数据库版本号正确更新到 4"""
+        self.assertEqual(self.dm.DB_VERSION, 4, "数据库版本应该为 4")
         version = self.dm._get_schema_version()
-        self.assertEqual(version, 3, "数据库 schema 版本应该为 3")
+        self.assertEqual(version, 4, "数据库 schema 版本应该为 4")
 
 
 class TestHardwareDataInitialization(unittest.TestCase):
@@ -169,6 +169,16 @@ class TestHardwareDataInitialization(unittest.TestCase):
             # 应该可以解析为 JSON
             specs = json.loads(row["specs"])
             self.assertIsInstance(specs, dict, "规格应该是字典格式")
+
+    def test_brands_are_refactored(self):
+        """测试品牌库已重构为纯品牌名称"""
+        brands = self.dm.get_brands("cpu")
+        # 应该只有 Intel 和 AMD，不包含型号
+        self.assertIn("Intel", brands)
+        self.assertIn("AMD", brands)
+        # 不应该包含型号信息
+        for brand in brands:
+            self.assertNotIn(" ", brand, f"品牌名称不应包含空格：{brand}")
 
 
 class TestHardwareModelSearch(unittest.TestCase):
