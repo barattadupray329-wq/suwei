@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import csv
 from theme.colors import DarkTheme
 from modules.hardware_mgmt import HardwareDialog
+from modules.reports import RenewHistoryDialog, AdvancedFilterDialog, ReportDialog
 
 
 class RentalManagementFrame(ttk.Frame):
@@ -51,6 +52,8 @@ class RentalManagementFrame(ttk.Frame):
         self.status_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
         ttk.Button(ctrl, text="🔄 刷新", command=self._refresh).pack(side=tk.LEFT)
+        ttk.Button(ctrl, text="🤍 高级筛选", command=self._advanced_filter).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(ctrl, text="📋 报表", command=self._show_report).pack(side=tk.LEFT, padx=4)
 
         table_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -128,6 +131,69 @@ class RentalManagementFrame(ttk.Frame):
             if r.get("id") == rid:
                 return r
         return None
+
+    def _advanced_filter(self):
+        """打开高级筛选对话框"""
+        dlg = AdvancedFilterDialog(self, {})
+        filters = dlg.show()
+        if filters is None:
+            return
+        # 根据筛选条件过滤
+        kw = filters.get("keyword", "").lower()
+        start_from = filters.get("start_date_from", "")
+        start_to = filters.get("start_date_to", "")
+        end_from = filters.get("end_date_from", "")
+        end_to = filters.get("end_date_to", "")
+        rent_min_str = filters.get("total_rent_min", "")
+        rent_max_str = filters.get("total_rent_max", "")
+        paid_min_str = filters.get("paid_min", "")
+        paid_max_str = filters.get("paid_max", "")
+
+        rent_min = float(rent_min_str) if rent_min_str else 0
+        rent_max = float(rent_max_str) if rent_max_str else float('inf')
+        paid_min = float(paid_min_str) if paid_min_str else 0
+        paid_max = float(paid_max_str) if paid_max_str else float('inf')
+
+        filtered = []
+        for r in self._all:
+            # 关键词筛选
+            if kw:
+                renter = r.get("renter", {})
+                haystack = (str(r.get("id", "")) + str(renter.get("name", "")) + str(renter.get("phone", ""))).lower()
+                if kw not in haystack:
+                    continue
+
+            lease = r.get("lease_info", {})
+            start_date = lease.get("start_date", "")
+            end_date = lease.get("end_date", "")
+
+            # 日期范围筛选
+            if start_from and start_date < start_from:
+                continue
+            if start_to and start_date > start_to:
+                continue
+            if end_from and end_date < end_from:
+                continue
+            if end_to and end_date > end_to:
+                continue
+
+            # 金额范围筛选
+            total_rent = float(lease.get("total_rent", 0) or 0)
+            paid_amount = float(r.get("paid_amount", 0) or 0)
+            if total_rent < rent_min or total_rent > rent_max:
+                continue
+            if paid_amount < paid_min or paid_amount > paid_max:
+                continue
+
+            filtered.append(r)
+
+        self._shown = filtered
+        self._render_tree()
+        messagebox.showinfo("筛选结果", f"筛选得到 {len(filtered)} 条记录")
+
+    def _show_report(self):
+        """显示报表窗口"""
+        ReportDialog(self, self.dm)
 
     def add_new_record(self):
         """添加新的租赁记录"""
@@ -629,9 +695,14 @@ class RentalManagementFrame(ttk.Frame):
             tk.Label(row, text=val, font=DarkTheme.FONT_NORMAL, fg=color,
                      bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Button(mf, text="关闭", font=DarkTheme.FONT_LABEL, fg="white",
+        btn_row = tk.Frame(mf, bg=DarkTheme.BG_PRIMARY)
+        btn_row.pack(anchor=tk.E, pady=(10, 0), fill=tk.X)
+        tk.Button(btn_row, text="📜 续租历史", font=DarkTheme.FONT_LABEL, fg="white",
+                  bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                  command=lambda: self._show_renew_history(rec)).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(btn_row, text="关闭", font=DarkTheme.FONT_LABEL, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy).pack(anchor=tk.E, pady=(10, 0))
+                  command=win.destroy).pack(side=tk.LEFT)
 
     def export_rentals(self):
         if not self._all:
@@ -713,6 +784,11 @@ class RentalManagementFrame(ttk.Frame):
             AIAssistantDialog(self, self.app)
         except (ImportError, Exception):
             messagebox.showwarning("提示", "AI 助手模块未就绪")
+
+    def _show_renew_history(self, rec):
+        """显示租赁历史对话框"""
+        dlg = RenewHistoryDialog(self, rec)
+        dlg.show()
 
     def _edit_hardware_in_dialog(self, hardware_dict):
         """打开硬件编辑对话框"""
