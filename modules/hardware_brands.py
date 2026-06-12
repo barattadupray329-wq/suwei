@@ -5,6 +5,8 @@
 提供常见电脑配件的品牌和型号数据，供下拉选择和自动补全
 """
 
+from typing import List
+
 CPU_BRANDS = [
     "Intel i3-12100F", "Intel i3-13100F", "Intel i5-12400F", "Intel i5-13400F",
     "Intel i5-13600KF", "Intel i5-14400F", "Intel i5-14600KF",
@@ -99,6 +101,48 @@ BRAND_MAP = {
 }
 
 # 配件价格参考 (元)
+class HardwareBrandManager:
+    """硬件品牌库管理器 — 封装 DataManager 的品牌操作。"""
+
+    # 分类显示名映射
+    CATEGORY_LABELS = {
+        "cpu":    ("🧠 CPU",        CPU_BRANDS),
+        "mb":     ("🔧 主板",       MB_BRANDS),
+        "gpu":    ("🎮 显卡",       GPU_BRANDS),
+        "ram":    ("💾 内存",       RAM_BRANDS),
+        "disk":   ("💿 硬盘",       DISK_BRANDS),
+        "psu":    ("⚡ 电源",       PSU_BRANDS),
+        "case":   ("🖥️ 机箱",       CASE_BRANDS),
+        "cooler": ("❄️ 散热器",     COOLER_BRANDS),
+        "os":     ("🪟 操作系统",   OS_OPTIONS),
+    }
+
+    def __init__(self, data_manager):
+        self.dm = data_manager
+
+    def get_categories(self):
+        """返回所有分类标识和显示名。"""
+        return [(key, label, fallback)
+                for key, (label, fallback) in self.CATEGORY_LABELS.items()]
+
+    def get_brands(self, category: str):
+        """获取指定分类的品牌列表（优先数据库，回退静态常量）。"""
+        db_list = self.dm.get_brands(category)
+        if db_list:
+            return db_list
+        _, fallback = self.CATEGORY_LABELS.get(category, ("", []))
+        return list(fallback)
+
+    def add_brand(self, category: str, name: str) -> bool:
+        return self.dm.add_brand(category, name)
+
+    def delete_brand(self, category: str, name: str) -> bool:
+        return self.dm.delete_brand(category, name)
+
+    def import_brands(self, category: str, names: List[str]) -> int:
+        return self.dm.import_brands(category, names)
+
+
 REFERENCE_PRICES = {
     "Intel i5-13400F": 895, "Intel i5-12400F": 680,
     "Intel i7-13700F": 1800, "Intel i9-13900K": 3200,

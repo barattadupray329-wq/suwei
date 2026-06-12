@@ -10,6 +10,7 @@
 # 包含的标准库模块：
 #   - tkinter (GUI 界面)
 #   - json (数据持久化)
+#   - sqlite3 (SQL 数据库存储、Migration、版本回溯)
 #   - csv (导入导出)
 #   - re (正则表达式/AI 提取)
 #   - datetime (日期处理)
