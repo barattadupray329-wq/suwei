@@ -12,6 +12,7 @@ from core.data_manager import DataManager
 from modules.dashboard import DashboardFrame
 from modules.rental_mgmt import RentalManagementFrame
 from modules.due_reminder import DueReminderFrame
+from modules.hardware_brands_ui import HardwareBrandFrame
 
 
 class MainWindow:
@@ -148,6 +149,7 @@ class MainWindow:
             ("📊  仪表板", "dashboard"),
             ("📋  租赁管理", "rental"),
             ("⏰  到期提醒", "reminder"),
+            ("💻  硬件品牌库", "hardware_brands"),
         ]
         
         for i, (text, key) in enumerate(nav_items):
@@ -226,6 +228,8 @@ class MainWindow:
             self.current_module = RentalManagementFrame(self.content_frame, self)
         elif module_key == "reminder":
             self.current_module = DueReminderFrame(self.content_frame, self.data_manager)
+        elif module_key == "hardware_brands":
+            self.current_module = HardwareBrandFrame(self.content_frame, self.data_manager)
         
         self.current_module.pack(fill=tk.BOTH, expand=True)
     

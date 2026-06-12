@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 1
+    DB_VERSION = 2
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -32,6 +32,7 @@ class DataManager:
         self._migrate()
         self._import_json_if_needed()
         self.data = self._load_data()
+        self._init_brand_defaults()
 
     # ── Migration ──────────────────────────────────────────────────────
 
@@ -41,6 +42,9 @@ class DataManager:
         if current < 1:
             self._migration_001_initial_schema()
             self._set_schema_version(1)
+        if current < 2:
+            self._migration_002_brand_library()
+            self._set_schema_version(2)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -94,6 +98,109 @@ class DataManager:
             """
         )
         self.conn.commit()
+
+    def _migration_002_brand_library(self):
+        """Migration 002：硬件品牌库表。"""
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hardware_brands (
+                category TEXT NOT NULL,
+                name TEXT NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                PRIMARY KEY (category, name)
+            )
+            """
+        )
+        self.conn.commit()
+
+    # ── 硬件品牌库 ───────────────────────────────────────────────────
+
+    def _init_brand_defaults(self, force=False):
+        """首次初始化品牌库默认数据。"""
+        row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_brands").fetchone()
+        if row and row["total"] > 0 and not force:
+            return
+        from modules.hardware_brands import BRAND_MAP
+        for category, items in BRAND_MAP.items():
+            for idx, name in enumerate(items):
+                try:
+                    self.conn.execute(
+                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                        (category, name, idx),
+                    )
+                except sqlite3.IntegrityError:
+                    pass
+        self.conn.commit()
+
+    def get_brands(self, category: str) -> List[str]:
+        """获取指定分类的品牌列表。"""
+        rows = self.conn.execute(
+            "SELECT name FROM hardware_brands WHERE category = ? ORDER BY sort_order, name",
+            (category,),
+        ).fetchall()
+        return [r["name"] for r in rows]
+
+    def get_all_brands(self) -> Dict[str, List[str]]:
+        """获取所有分类品牌。"""
+        rows = self.conn.execute(
+            "SELECT category, name FROM hardware_brands ORDER BY category, sort_order, name"
+        ).fetchall()
+        result: Dict[str, List[str]] = {}
+        for r in rows:
+            result.setdefault(r["category"], []).append(r["name"])
+        return result
+
+    def add_brand(self, category: str, name: str) -> bool:
+        """添加品牌条目。"""
+        try:
+            row = self.conn.execute(
+                "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
+                (category,),
+            ).fetchone()
+            next_order = (row["mx"] or 0) + 1 if row else 0
+            self.conn.execute(
+                "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                (category, name, next_order),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_brand(self, category: str, name: str) -> bool:
+        """删除品牌条目。"""
+        self.conn.execute(
+            "DELETE FROM hardware_brands WHERE category = ? AND name = ?",
+            (category, name),
+        )
+        self.conn.commit()
+        return self.conn.total_changes > 0
+
+    def import_brands(self, category: str, names: List[str]) -> int:
+        """批量导入品牌，返回新增数量。"""
+        existing = set(self.get_brands(category))
+        added = 0
+        row = self.conn.execute(
+            "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
+            (category,),
+        ).fetchone()
+        next_order = (row["mx"] or 0) + 1 if row else 0
+        for name in names:
+            name = name.strip()
+            if not name or name in existing:
+                continue
+            try:
+                self.conn.execute(
+                    "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                    (category, name, next_order),
+                )
+                next_order += 1
+                existing.add(name)
+                added += 1
+            except sqlite3.IntegrityError:
+                pass
+        self.conn.commit()
+        return added
 
     # ── 兼容数据结构 ─────────────────────────────────────────────────
 
