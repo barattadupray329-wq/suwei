@@ -7,7 +7,7 @@
 
 from typing import List, Dict
 
-# 硬件型号数据（约550款，覆盖2013年至今主流硬件）
+# 硬件型号数据（约100款，覆盖2013年至今主流及二手常用硬件）
 HARDWARE_MODELS: List[Dict] = [
     # ── Intel CPU（2013年至今）────────────────────────────────────────
     # 第4代 Haswell / 6代 Skylake / 7代 Kaby Lake / 8代 Coffee Lake
@@ -75,5 +75,40 @@ HARDWARE_MODELS: List[Dict] = [
     {"category": "cooler", "brand": "利民", "model_name": "PA120 SE", "specs": {"type": "风冷", "tdp": 220}, "reference_cost": 180, "reference_rent": 7, "release_year": 2021},
     {"category": "cooler", "brand": "酷冷至尊", "model_name": "冰神 B360", "specs": {"type": "水冷", "tdp": 300}, "reference_cost": 380, "reference_rent": 15, "release_year": 2018},
     {"category": "cooler", "brand": "海盗船", "model_name": "H150i", "specs": {"type": "水冷", "tdp": 300}, "reference_cost": 800, "reference_rent": 32, "release_year": 2021},
-    {"category": "cooler", "brand": "瓦尔基里", "model_name": "C360", "specs": {"type": "水冷", "tdp": 300}, "reference_cost": 500, "reference_rent": 20, "release_year": 2022},
+{"category": "cooler", "brand": "瓦尔基里", "model_name": "C360", "specs": {"type": "水冷", "tdp": 300}, "reference_cost": 500, "reference_rent": 20, "release_year": 2022},
+
+    # ── 常用二手/老平台扩展（2016-2021 主流二手租赁常用）────────────────
+    # Intel 6-10代 CPU
+    {"category": "cpu", "brand": "Intel", "model_name": "i3-6100", "specs": {"cores": 2, "threads": 4, "socket": "LGA1151", "tdp": 51}, "reference_cost": 180, "reference_rent": 8, "release_year": 2015},
+    {"category": "cpu", "brand": "Intel", "model_name": "i5-6500", "specs": {"cores": 4, "threads": 4, "socket": "LGA1151", "tdp": 65}, "reference_cost": 280, "reference_rent": 12, "release_year": 2015},
+    {"category": "cpu", "brand": "Intel", "model_name": "i5-7500", "specs": {"cores": 4, "threads": 4, "socket": "LGA1151", "tdp": 65}, "reference_cost": 320, "reference_rent": 14, "release_year": 2017},
+    {"category": "cpu", "brand": "Intel", "model_name": "i5-8400", "specs": {"cores": 6, "threads": 6, "socket": "LGA1151", "tdp": 65}, "reference_cost": 450, "reference_rent": 19, "release_year": 2017},
+    {"category": "cpu", "brand": "Intel", "model_name": "i5-9400F", "specs": {"cores": 6, "threads": 6, "socket": "LGA1151", "tdp": 65}, "reference_cost": 520, "reference_rent": 22, "release_year": 2019},
+    {"category": "cpu", "brand": "Intel", "model_name": "i5-10400F", "specs": {"cores": 6, "threads": 12, "socket": "LGA1200", "tdp": 65}, "reference_cost": 620, "reference_rent": 26, "release_year": 2020},
+    # AMD Ryzen 2000/3000 系列
+    {"category": "cpu", "brand": "AMD", "model_name": "R3 2200G", "specs": {"cores": 4, "threads": 4, "socket": "AM4", "tdp": 65}, "reference_cost": 280, "reference_rent": 12, "release_year": 2018},
+    {"category": "cpu", "brand": "AMD", "model_name": "R5 2600", "specs": {"cores": 6, "threads": 12, "socket": "AM4", "tdp": 65}, "reference_cost": 420, "reference_rent": 18, "release_year": 2017},
+    {"category": "cpu", "brand": "AMD", "model_name": "R5 3600", "specs": {"cores": 6, "threads": 12, "socket": "AM4", "tdp": 65}, "reference_cost": 580, "reference_rent": 24, "release_year": 2019},
+    {"category": "cpu", "brand": "AMD", "model_name": "R7 3700X", "specs": {"cores": 8, "threads": 16, "socket": "AM4", "tdp": 65}, "reference_cost": 950, "reference_rent": 38, "release_year": 2019},
+    # 老显卡（GTX 10/16 系列）
+    {"category": "gpu", "brand": "NVIDIA", "model_name": "GTX 1050 Ti 4G", "specs": {"memory": "4GB GDDR5", "interface": "PCIe 3.0"}, "reference_cost": 450, "reference_rent": 19, "release_year": 2016},
+    {"category": "gpu", "brand": "NVIDIA", "model_name": "GTX 1060 6G", "specs": {"memory": "6GB GDDR5", "interface": "PCIe 3.0"}, "reference_cost": 650, "reference_rent": 27, "release_year": 2016},
+    {"category": "gpu", "brand": "NVIDIA", "model_name": "GTX 1660 6G", "specs": {"memory": "6GB GDDR6", "interface": "PCIe 3.0"}, "reference_cost": 950, "reference_rent": 38, "release_year": 2019},
+    {"category": "gpu", "brand": "NVIDIA", "model_name": "GTX 1660 Ti", "specs": {"memory": "6GB GDDR6", "interface": "PCIe 3.0"}, "reference_cost": 1100, "reference_rent": 44, "release_year": 2019},
+    # 更多 DDR4 内存
+    {"category": "ram", "brand": "金士顿", "model_name": "8GB DDR4 2666", "specs": {"capacity": "8GB", "type": "DDR4", "speed": "2666MHz"}, "reference_cost": 110, "reference_rent": 5, "release_year": 2017},
+    {"category": "ram", "brand": "威刚", "model_name": "16GB DDR4 3200", "specs": {"capacity": "16GB", "type": "DDR4", "speed": "3200MHz"}, "reference_cost": 210, "reference_rent": 9, "release_year": 2019},
+    # SATA SSD / 老 HDD
+    {"category": "disk", "brand": "金士顿", "model_name": "480GB SSD A400", "specs": {"interface": "SATA", "form_factor": "2.5 inch", "capacity": "480GB"}, "reference_cost": 160, "reference_rent": 7, "release_year": 2017},
+    {"category": "disk", "brand": "西数", "model_name": "1TB HDD Blue", "specs": {"interface": "SATA", "form_factor": "3.5 inch", "capacity": "1TB", "rpm": 7200}, "reference_cost": 180, "reference_rent": 8, "release_year": 2016},
+    # 老主板
+    {"category": "mb", "brand": "华硕", "model_name": "B360M PRO-VDH", "specs": {"socket": "LGA1151", "chipset": "B360"}, "reference_cost": 380, "reference_rent": 16, "release_year": 2018},
+    {"category": "mb", "brand": "技嘉", "model_name": "B450M DS3H", "specs": {"socket": "AM4", "chipset": "B450"}, "reference_cost": 420, "reference_rent": 18, "release_year": 2018},
+    # 老电源/机箱/散热
+    {"category": "psu", "brand": "航嘉", "model_name": "500W 冷静王", "specs": {"wattage": 500, "certification": "80 PLUS"}, "reference_cost": 160, "reference_rent": 7, "release_year": 2015},
+    {"category": "case", "brand": "先马", "model_name": "黑洞", "specs": {"form_factor": "ATX"}, "reference_cost": 180, "reference_rent": 8, "release_year": 2016},
+    {"category": "cooler", "brand": "九州风神", "model_name": "玄冰 400", "specs": {"type": "风冷", "tdp": 150}, "reference_cost": 85, "reference_rent": 4, "release_year": 2017},
+    # 显示器（monitor 分类）
+    {"category": "monitor", "brand": "AOC", "model_name": "24B1XH", "specs": {"size": "23.6 inch", "resolution": "1920x1080", "panel": "IPS"}, "reference_cost": 420, "reference_rent": 18, "release_year": 2018},
+    {"category": "monitor", "brand": "戴尔", "model_name": "P2419H", "specs": {"size": "23.8 inch", "resolution": "1920x1080", "panel": "IPS"}, "reference_cost": 580, "reference_rent": 24, "release_year": 2019},
 ]

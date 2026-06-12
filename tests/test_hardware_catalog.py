@@ -84,10 +84,10 @@ class TestHardwareCatalogDatabase(unittest.TestCase):
             self.assertIn(idx, indexes, f"索引 {idx} 应该被创建")
 
     def test_db_version_is_updated(self):
-        """测试数据库版本号正确更新到 4"""
-        self.assertEqual(self.dm.DB_VERSION, 4, "数据库版本应该为 4")
+        """测试数据库版本号正确更新到 5"""
+        self.assertEqual(self.dm.DB_VERSION, 5, "数据库版本应该为 5")
         version = self.dm._get_schema_version()
-        self.assertEqual(version, 4, "数据库 schema 版本应该为 4")
+        self.assertEqual(version, 5, "数据库 schema 版本应该为 5")
 
 
 class TestHardwareDataInitialization(unittest.TestCase):

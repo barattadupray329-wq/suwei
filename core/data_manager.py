@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 4
+    DB_VERSION = 5
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -51,6 +51,9 @@ class DataManager:
         if current < 4:
             self._migration_004_brand_library_refactor()
             self._set_schema_version(4)
+        if current < 5:
+            self._migration_005_sync_models()
+            self._set_schema_version(5)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -189,6 +192,70 @@ class DataManager:
                     pass
         
         self.conn.commit()
+
+    def _migration_005_sync_models(self):
+        """Migration 005：同步硬件型号库，补充常用二手/老平台型号"""
+        from modules.hardware_models import HARDWARE_MODELS
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 获取数据库中已有型号的 (category, brand, model_name) 组合
+        existing = set()
+        rows = self.conn.execute(
+            "SELECT category, brand, model_name FROM hardware_models"
+        ).fetchall()
+        for r in rows:
+            existing.add((r["category"], r["brand"], r["model_name"]))
+        
+        added, updated = 0, 0
+        for model in HARDWARE_MODELS:
+            key = (model["category"], model["brand"], model["model_name"])
+            if key not in existing:
+                try:
+                    self.conn.execute(
+                        """INSERT INTO hardware_models(
+                            category, brand, model_name, specs, reference_cost,
+                            reference_rent, release_year, is_active, updated_at
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            model["category"],
+                            model["brand"],
+                            model["model_name"],
+                            json.dumps(model.get("specs", {}), ensure_ascii=False),
+                            model.get("reference_cost"),
+                            model.get("reference_rent"),
+                            model.get("release_year"),
+                            1,
+                            now,
+                        ),
+                    )
+                    added += 1
+                except sqlite3.IntegrityError:
+                    pass
+            else:
+                # 更新已有型号的参考价格/月租
+                try:
+                    self.conn.execute(
+                        """UPDATE hardware_models 
+                           SET specs = ?, reference_cost = ?, reference_rent = ?, 
+                               release_year = ?, is_active = 1, updated_at = ?
+                           WHERE category = ? AND brand = ? AND model_name = ?""",
+                        (
+                            json.dumps(model.get("specs", {}), ensure_ascii=False),
+                            model.get("reference_cost"),
+                            model.get("reference_rent"),
+                            model.get("release_year"),
+                            now,
+                            model["category"],
+                            model["brand"],
+                            model["model_name"],
+                        ),
+                    )
+                    updated += 1
+                except sqlite3.IntegrityError:
+                    pass
+        
+        self.conn.commit()
+        print(f"[Migration 005] 型号同步完成：新增 {added} 条，更新 {updated} 条")
 
     def _extract_brand_from_full_name(self, full_name: str) -> str:
         """从完整名称中提取品牌"""
