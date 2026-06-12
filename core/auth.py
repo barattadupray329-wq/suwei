@@ -93,9 +93,10 @@ class LoginWindow:
         
         self.root = tk.Tk()
         self.root.title("速维电脑租赁管理系统 - 登录")
-        self.root.geometry("460x600")
+        self.root.geometry("860x560")
         self.root.resizable(False, False)
         self.root.configure(bg=DarkTheme.BG_PRIMARY)
+        self.password_visible = False
         
         # 居中显示
         self._center_window()
@@ -105,100 +106,193 @@ class LoginWindow:
     def _center_window(self):
         """窗口居中"""
         self.root.update_idletasks()
-        width = 460
-        height = 600
+        width = 860
+        height = 560
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
     
     def _create_widgets(self):
         """创建登录界面组件"""
-        # Logo/标题区域
-        title_frame = tk.Frame(self.root, bg=DarkTheme.BG_PRIMARY)
-        title_frame.pack(fill=tk.X, pady=(50, 30))
-        
+        self._configure_login_styles()
+
+        outer = tk.Frame(self.root, bg=DarkTheme.BG_PRIMARY)
+        outer.pack(fill=tk.BOTH, expand=True, padx=28, pady=28)
+
+        hero = tk.Frame(outer, bg=DarkTheme.BG_SECONDARY, width=330)
+        hero.pack(side=tk.LEFT, fill=tk.BOTH)
+        hero.pack_propagate(False)
+        hero.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+
         tk.Label(
-            title_frame,
-            text="💻 速维电脑",
-            font=("微软雅黑", 28, "bold"),
-            fg=DarkTheme.ACCENT_CYAN,
-            bg=DarkTheme.BG_PRIMARY
-        ).pack(pady=(0, 8))
-        
+            hero, text="💻", font=("微软雅黑", 54),
+            fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY
+        ).pack(anchor=tk.W, padx=30, pady=(44, 10))
         tk.Label(
-            title_frame,
-            text="租赁管理系统 V2",
-            font=("微软雅黑", 14),
+            hero, text="速维电脑租赁", font=("微软雅黑", 24, "bold"),
+            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_SECONDARY
+        ).pack(anchor=tk.W, padx=30)
+        tk.Label(
+            hero, text="管理系统 V2.1", font=("微软雅黑", 17, "bold"),
+            fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY
+        ).pack(anchor=tk.W, padx=30, pady=(4, 18))
+        tk.Label(
+            hero,
+            text="SQLite 本地数据库 · 自动 Migration · 版本回溯",
+            font=DarkTheme.FONT_SMALL,
             fg=DarkTheme.TEXT_SECONDARY,
-            bg=DarkTheme.BG_PRIMARY
-        ).pack()
-        
-        # 登录表单区域
-        form_frame = tk.Frame(self.root, bg=DarkTheme.BG_CARD, relief=tk.FLAT)
-        form_frame.pack(fill=tk.X, padx=50, pady=20)
-        form_frame.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        
-        # 用户名
-        tk.Label(
-            form_frame,
-            text="👤 用户名",
-            font=("微软雅黑", 12),
-            fg=DarkTheme.TEXT_SECONDARY,
-            bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=24, pady=(24, 8))
-        
-        uname_frame = tk.Frame(form_frame, bg=DarkTheme.BG_CARD)
-        uname_frame.pack(fill=tk.X, padx=24, pady=(0, 16))
-        self.username_entry = ttk.Entry(
-            uname_frame,
-            font=("微软雅黑", 13),
-            width=28
+            bg=DarkTheme.BG_SECONDARY,
+            wraplength=260,
+            justify=tk.LEFT
+        ).pack(anchor=tk.W, padx=30, pady=(0, 26))
+
+        for icon, title, desc in [
+            ("🗄️", "本地数据安全", "数据保存在本机 data 目录"),
+            ("🔄", "自动升级", "启动时自动检查数据库结构"),
+            ("🧬", "记录可回溯", "关键变更保留历史版本"),
+        ]:
+            item = tk.Frame(hero, bg=DarkTheme.BG_SECONDARY)
+            item.pack(fill=tk.X, padx=30, pady=8)
+            tk.Label(item, text=icon, font=("微软雅黑", 16), fg=DarkTheme.ACCENT_CYAN,
+                     bg=DarkTheme.BG_SECONDARY, width=3, anchor=tk.W).pack(side=tk.LEFT)
+            text_box = tk.Frame(item, bg=DarkTheme.BG_SECONDARY)
+            text_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(text_box, text=title, font=DarkTheme.FONT_BUTTON, fg=DarkTheme.TEXT_PRIMARY,
+                     bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W)
+            tk.Label(text_box, text=desc, font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
+                     bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W)
+
+        footer = tk.Label(
+            hero, text="Enter 登录 · Esc 清空密码", font=DarkTheme.FONT_SMALL,
+            fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_SECONDARY
         )
-        self.username_entry.pack(fill=tk.X, ipady=3)
-        self.username_entry.insert(0, "admin")
-        
-        # 密码
+        footer.pack(side=tk.BOTTOM, anchor=tk.W, padx=30, pady=24)
+
+        form_card = tk.Frame(outer, bg=DarkTheme.BG_CARD)
+        form_card.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(18, 0))
+        form_card.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+
         tk.Label(
-            form_frame,
-            text="🔒 密码",
-            font=("微软雅黑", 12),
-            fg=DarkTheme.TEXT_SECONDARY,
-            bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=24, pady=(0, 8))
-        
-        pwd_frame = tk.Frame(form_frame, bg=DarkTheme.BG_CARD)
-        pwd_frame.pack(fill=tk.X, padx=24, pady=(0, 24))
-        self.password_entry = ttk.Entry(
-            pwd_frame,
-            font=("微软雅黑", 13),
-            width=28,
-            show="●"
+            form_card, text="欢迎回来", font=("微软雅黑", 24, "bold"),
+            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD
+        ).pack(anchor=tk.W, padx=42, pady=(46, 6))
+        tk.Label(
+            form_card, text="请输入管理员账号，继续管理租赁业务",
+            font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD
+        ).pack(anchor=tk.W, padx=42, pady=(0, 28))
+
+        self.username_entry = self._build_entry(form_card, "👤 用户名", "admin")
+        self.password_entry = self._build_entry(form_card, "🔒 密码", "admin123", show="●")
+
+        action_row = tk.Frame(form_card, bg=DarkTheme.BG_CARD)
+        action_row.pack(fill=tk.X, padx=42, pady=(2, 20))
+        show_btn = tk.Button(
+            action_row, text="👁 显示密码", font=DarkTheme.FONT_SMALL,
+            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_TERTIARY,
+            activeforeground="white", activebackground=DarkTheme.ACCENT_BLUE,
+            relief=tk.FLAT, cursor="hand2", command=self._toggle_password
         )
-        self.password_entry.pack(fill=tk.X, ipady=3)
-        self.password_entry.insert(0, "admin123")
-        
-        # 登录按钮
+        show_btn.pack(side=tk.LEFT)
+        self.show_password_btn = show_btn
+        DarkTheme.bind_hover(show_btn, DarkTheme.BG_TERTIARY, DarkTheme.BG_HOVER)
+
+        clear_btn = tk.Button(
+            action_row, text="清空", font=DarkTheme.FONT_SMALL,
+            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD,
+            activeforeground="white", activebackground=DarkTheme.BG_HOVER,
+            relief=tk.FLAT, cursor="hand2", command=self._clear_form
+        )
+        clear_btn.pack(side=tk.RIGHT)
+        DarkTheme.bind_hover(clear_btn, DarkTheme.BG_CARD, DarkTheme.BG_HOVER)
+
+        self.status_var = tk.StringVar(value=self._initial_status_text())
+        self.status_label = tk.Label(
+            form_card, textvariable=self.status_var, font=DarkTheme.FONT_SMALL,
+            fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD, anchor=tk.W
+        )
+        self.status_label.pack(fill=tk.X, padx=42, pady=(0, 12))
+
         login_btn = tk.Button(
-            form_frame,
-            text="🚀  登  录",
-            font=("微软雅黑", 15, "bold"),
-            fg="white",
-            bg=DarkTheme.ACCENT_BLUE,
-            activebackground=DarkTheme.ACCENT_CYAN,
-            activeforeground="white",
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self._handle_login
+            form_card, text="🚀  登录系统", font=("微软雅黑", 15, "bold"),
+            fg="white", bg=DarkTheme.ACCENT_BLUE,
+            activebackground=DarkTheme.ACCENT_CYAN, activeforeground="white",
+            relief=tk.FLAT, cursor="hand2", command=self._handle_login
         )
-        login_btn.pack(fill=tk.X, padx=24, pady=(0, 28))
-        login_btn.config(height=2)
-        DarkTheme.bind_hover(login_btn, DarkTheme.ACCENT_BLUE)
-        
-        # 绑定回车键
+        login_btn.pack(fill=tk.X, padx=42, pady=(0, 18), ipady=8)
+        DarkTheme.bind_hover(login_btn, DarkTheme.ACCENT_BLUE, DarkTheme.ACCENT_CYAN)
+
+        tk.Label(
+            form_card, text="默认账号：admin / 默认密码：admin123",
+            font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD
+        ).pack(anchor=tk.W, padx=42)
         self.root.bind('<Return>', lambda e: self._handle_login())
+        self.root.bind('<Escape>', lambda e: self._clear_password())
         
         # 聚焦到用户名输入框
         self.username_entry.focus()
+
+    def _configure_login_styles(self):
+        """配置登录页输入控件样式"""
+        style = ttk.Style()
+        style.configure(
+            "Login.TEntry",
+            fieldbackground=DarkTheme.BG_INPUT,
+            foreground=DarkTheme.TEXT_PRIMARY,
+            insertcolor=DarkTheme.TEXT_PRIMARY,
+            borderwidth=0,
+            padding=(10, 8)
+        )
+
+    def _build_entry(self, parent, label, default="", show=None):
+        """创建统一样式输入框"""
+        tk.Label(
+            parent, text=label, font=DarkTheme.FONT_LABEL,
+            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD
+        ).pack(anchor=tk.W, padx=42, pady=(0, 8))
+        wrap = tk.Frame(parent, bg=DarkTheme.BG_INPUT)
+        wrap.pack(fill=tk.X, padx=42, pady=(0, 18))
+        wrap.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        entry = ttk.Entry(wrap, font=("微软雅黑", 13), style="Login.TEntry", show=show)
+        entry.pack(fill=tk.X, ipady=3)
+        entry.insert(0, default)
+        entry.bind("<FocusIn>", lambda e, frame=wrap: frame.configure(highlightbackground=DarkTheme.BORDER_FOCUS))
+        entry.bind("<FocusOut>", lambda e, frame=wrap: frame.configure(highlightbackground=DarkTheme.BORDER_COLOR))
+        return entry
+
+    def _initial_status_text(self):
+        """初始状态提示"""
+        if self.auth_manager.is_locked():
+            return self.auth_manager.lock_remaining_text()
+        settings = self.auth_manager.data_manager.data.get("settings", {})
+        failed_count = int(settings.get("failed_login_count", 0))
+        if failed_count:
+            remain = max(0, self.auth_manager.max_failed_attempts - failed_count)
+            return f"上次登录失败，还可尝试 {remain} 次"
+        return "数据库已就绪，按 Enter 快速登录"
+
+    def _set_status(self, text, color=None):
+        """更新非弹窗状态提示"""
+        self.status_var.set(text)
+        self.status_label.configure(fg=color or DarkTheme.TEXT_MUTED)
+
+    def _toggle_password(self):
+        """显示/隐藏密码"""
+        self.password_visible = not self.password_visible
+        self.password_entry.configure(show="" if self.password_visible else "●")
+        self.show_password_btn.configure(text="🙈 隐藏密码" if self.password_visible else "👁 显示密码")
+
+    def _clear_password(self):
+        """清空密码"""
+        self.password_entry.delete(0, tk.END)
+        self.password_entry.focus()
+        self._set_status("已清空密码，Esc 可再次清空", DarkTheme.TEXT_SECONDARY)
+
+    def _clear_form(self):
+        """清空表单"""
+        self.username_entry.delete(0, tk.END)
+        self.password_entry.delete(0, tk.END)
+        self.username_entry.focus()
+        self._set_status("表单已清空", DarkTheme.TEXT_SECONDARY)
     
     def _handle_login(self):
         """处理登录逻辑"""
@@ -206,14 +300,17 @@ class LoginWindow:
         password = self.password_entry.get().strip()
         
         if not username or not password:
+            self._set_status("请输入用户名和密码", DarkTheme.ACCENT_YELLOW)
             messagebox.showwarning("提示", "请输入用户名和密码")
             return
 
         if self.auth_manager.is_locked():
+            self._set_status(self.auth_manager.lock_remaining_text(), DarkTheme.ACCENT_RED)
             messagebox.showerror("账户锁定", self.auth_manager.lock_remaining_text())
             return
         
         if self.auth_manager.verify_credentials(username, password):
+            self._set_status("登录成功，正在进入系统...", DarkTheme.ACCENT_GREEN)
             self.root.destroy()
             self.on_login_success(username)
         else:
@@ -221,8 +318,10 @@ class LoginWindow:
             failed_count = int(settings.get("failed_login_count", 0))
             remain = max(0, self.auth_manager.max_failed_attempts - failed_count)
             if self.auth_manager.is_locked():
+                self._set_status(self.auth_manager.lock_remaining_text(), DarkTheme.ACCENT_RED)
                 messagebox.showerror("账户锁定", self.auth_manager.lock_remaining_text())
             else:
+                self._set_status(f"用户名或密码错误，还可尝试 {remain} 次", DarkTheme.ACCENT_RED)
                 messagebox.showerror("错误", f"用户名或密码错误，还可尝试 {remain} 次")
             self.password_entry.delete(0, tk.END)
             self.password_entry.focus()
