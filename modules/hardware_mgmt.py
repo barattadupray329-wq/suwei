@@ -1,271 +1,473 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-硬件管理模块
-管理电脑租赁记录的硬件信息（品牌、型号、配置等）
-"""
+"""硬件管理模块 - 支持一条租赁记录包含多种设备配置"""
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from theme.colors import DarkTheme
-from modules.hardware_brands import CPU_BRANDS, GPU_BRANDS, RAM_BRANDS, DISK_BRANDS, OS_OPTIONS
+from widgets.autocomplete import AutocompleteEntry
 
 
 class HardwareDialog:
-    """硬件信息编辑对话框"""
+    """多设备硬件清单编辑对话框"""
 
-    def __init__(self, parent, hardware_data=None):
-        """
-        初始化硬件编辑对话框
-        
-        Args:
-            parent: 父窗口
-            hardware_data: 现有硬件数据字典，如果为 None 则创建新数据
-        """
+    def __init__(self, parent, hardware_data=None, data_manager=None):
         self.hardware = hardware_data or {}
+        self.items = self._load_items(self.hardware)
         self.result = None
         self.win = None
+        self.tree = None
+        self._data_manager = data_manager
         self._create_window(parent)
 
+    def _load_items(self, hardware):
+        """兼容旧硬件结构，统一转为 items 列表。"""
+        if isinstance(hardware, dict) and isinstance(hardware.get("items"), list):
+            return [dict(i) for i in hardware.get("items", [])]
+        if isinstance(hardware, dict) and any(hardware.values()):
+            item = dict(hardware)
+            item.setdefault("quantity", 1)
+            item.setdefault("device_type", item.get("pc_type", "台式机"))
+            item.setdefault("unit_rent", "")
+            return [item]
+        return []
+
     def _create_window(self, parent):
-        """创建对话框窗口"""
         self.win = tk.Toplevel(parent)
-        self.win.title("硬件信息管理")
-        self.win.geometry("600x780")
+        self.win.title("硬件信息管理（多设备）")
+        self.win.geometry("900x620")
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
-        self._center_window()
+        self._center_window(900, 620)
         self._build_ui()
 
-    def _center_window(self):
-        """窗口居中"""
+    def _center_window(self, w, h):
         self.win.update_idletasks()
-        w, h = 600, 780
         x = (self.win.winfo_screenwidth() // 2) - (w // 2)
         y = (self.win.winfo_screenheight() // 2) - (h // 2)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build_ui(self):
-        """构建界面"""
         main = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
-        # 标题
-        tk.Label(main, text="💻 硬件信息", font=DarkTheme.FONT_SUBTITLE,
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 12))
+        tk.Label(main, text="💻 硬件清单（可添加多种不同配置）", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
 
-        # 可滚动框架
-        canvas = tk.Canvas(main, bg=DarkTheme.BG_PRIMARY, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        cols = ("类型", "数量", "CPU/型号", "内存", "硬盘", "显卡", "机箱", "电源", "风扇", "显示器", "成本", "月租", "备注")
+        self.tree = ttk.Treeview(main, columns=cols, show="headings", height=13)
+        widths = {"类型": 70, "数量": 40, "CPU/型号": 120, "内存": 70, "硬盘": 80,
+                  "显卡": 80, "机箱": 70, "电源": 60, "风扇": 50, "显示器": 70, "成本": 60, "月租": 60, "备注": 120}
+        for c in cols:
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=widths.get(c, 100), anchor="center")
+        self.tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        self.tree.bind("<Double-1>", lambda *_: self._edit_item())
 
-        # 表单字段
-        def make_row(parent, label, default="", width=30):
-            """创建输入行"""
-            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
-            row.pack(fill=tk.X, pady=3)
-            
-            tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                     bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
-            
-            ent = ttk.Entry(row, width=width, font=DarkTheme.FONT_NORMAL)
-            ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            
-            if default is not None:
-                ent.insert(0, str(default))
-            
-            return ent
+        btn_row = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn_row.pack(fill=tk.X, pady=(0, 8))
+        for text, cmd, color in [
+            ("➕ 添加设备", self._add_item, DarkTheme.ACCENT_GREEN),
+            ("✏️ 编辑设备", self._edit_item, DarkTheme.ACCENT_YELLOW),
+            ("🗑️ 删除设备", self._delete_item, DarkTheme.ACCENT_RED),
+        ]:
+            btn = tk.Button(btn_row, text=text, font=DarkTheme.FONT_BUTTON, fg="white", bg=color,
+                            relief=tk.FLAT, cursor="hand2", command=cmd, padx=12, pady=7)
+            btn.pack(side=tk.LEFT, padx=(0, 8))
+            DarkTheme.bind_hover(btn, color)
 
-        def make_text(parent, label, default="", height=3):
-            """创建文本框"""
-            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
-            row.pack(fill=tk.BOTH, pady=3)
-            
-            tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                     bg=DarkTheme.BG_PRIMARY, anchor=tk.NW).pack(anchor=tk.W)
-            
-            txt = tk.Text(row, height=height, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
-                         bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY,
-                         insertbackground=DarkTheme.TEXT_PRIMARY)
-            txt.pack(fill=tk.BOTH, expand=True)
-            
-            if default:
-                txt.insert("1.0", default)
-            
-            return txt
+        self.summary_label = tk.Label(main, text="", font=DarkTheme.FONT_LABEL,
+                                      fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY)
+        self.summary_label.pack(anchor=tk.W, pady=(0, 8))
 
-        # 基本信息
-        tk.Label(scrollable_frame, text="基本信息", font=("微软雅黑", 10, "bold"),
-                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 8))
-        
-        self.sn_e = make_row(scrollable_frame, "序列号", self.hardware.get("serial_number", ""))
-        self.pc_type_e = make_row(scrollable_frame, "设备类型", self.hardware.get("pc_type", "台式机"))
-
-        # 核心配置
-        tk.Label(scrollable_frame, text="核心配置", font=("微软雅黑", 10, "bold"),
-                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
-        
-        def make_combo_row(parent, label, values_list, default="", width=28):
-            """创建带下拉建议的输入行"""
-            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
-            row.pack(fill=tk.X, pady=3)
-            tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                     bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
-            combo = ttk.Combobox(row, values=values_list, width=width, font=DarkTheme.FONT_NORMAL)
-            combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            if default:
-                combo.insert(0, str(default))
-            return combo
-
-        self.cpu_e = make_combo_row(scrollable_frame, "CPU", CPU_BRANDS, self.hardware.get("cpu", ""))
-        self.mb_e = make_row(scrollable_frame, "主板", self.hardware.get("motherboard", ""))
-        self.ram_e = make_combo_row(scrollable_frame, "内存", RAM_BRANDS, self.hardware.get("ram", ""))
-        self.disk_e = make_combo_row(scrollable_frame, "硬盘", DISK_BRANDS, self.hardware.get("disk", ""))
-        self.gpu_e = make_combo_row(scrollable_frame, "显卡", GPU_BRANDS, self.hardware.get("gpu", ""))
-        self.os_e = make_combo_row(scrollable_frame, "系统版本", OS_OPTIONS, self.hardware.get("os", ""))
-
-        # 外设与附件
-        tk.Label(scrollable_frame, text="外设与附件", font=("微软雅黑", 10, "bold"),
-                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
-
-        self.psu_e = make_row(scrollable_frame, "电源", self.hardware.get("psu", ""))
-        self.case_e = make_row(scrollable_frame, "机箱", self.hardware.get("case", ""))
-        self.fan_e = make_row(scrollable_frame, "风扇", self.hardware.get("fan", ""))
-        self.laptop_e = make_row(scrollable_frame, "笔记本型号", self.hardware.get("laptop", ""))
-        self.monitor_e = make_row(scrollable_frame, "显示器", self.hardware.get("monitor", ""))
-
-        # 额外信息
-        tk.Label(scrollable_frame, text="额外信息", font=("微软雅黑", 10, "bold"),
-                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
-        
-        self.accessories_t = make_text(scrollable_frame, "配件清单",
-                                      self.hardware.get("accessories", ""), height=2)
-        self.notes_t = make_text(scrollable_frame, "备注",
-                                self.hardware.get("notes", ""), height=3)
-
-        # 保存和取消按钮
-        btn_frame = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
-        btn_frame.pack(fill=tk.X, padx=16, pady=(0, 14))
-        
-        save_btn = tk.Button(btn_frame, text="💾 保存", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=self._save, padx=14, pady=8)
+        save_row = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
+        save_row.pack(fill=tk.X, padx=16, pady=(0, 14))
+        save_btn = tk.Button(save_row, text="💾 保存清单", font=DarkTheme.FONT_BUTTON, fg="white",
+                             bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                             command=self._save, padx=16, pady=9)
         save_btn.pack(side=tk.LEFT, padx=(0, 8))
         DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
-        
-        cancel_btn = tk.Button(btn_frame, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=self._cancel, padx=14, pady=8)
+        cancel_btn = tk.Button(save_row, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                               bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                               command=self._cancel, padx=16, pady=9)
         cancel_btn.pack(side=tk.LEFT)
         DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
+        self._refresh_tree()
+
+    def _refresh_tree(self):
+        for row_id in self.tree.get_children():
+            self.tree.delete(row_id)
+        for idx, item in enumerate(self.items):
+            cost = item.get("unit_cost", "")
+            cost_str = f"¥{cost}" if cost else ""
+            self.tree.insert("", tk.END, iid=str(idx), values=(
+                item.get("device_type", ""),
+                item.get("quantity", 1),
+                item.get("cpu", "") or item.get("laptop", "") or item.get("model", ""),
+                item.get("ram", ""),
+                item.get("disk", ""),
+                item.get("gpu", ""),
+                item.get("case", ""),
+                item.get("psu", ""),
+                item.get("fan", ""),
+                item.get("monitor", ""),
+                cost_str,
+                item.get("unit_rent", ""),
+                item.get("notes", ""),
+            ))
+        total_qty = sum(float(i.get("quantity", 0) or 0) for i in self.items)
+        total_cost = sum(float(i.get("quantity", 0) or 0) * float(i.get("unit_cost", 0) or 0)
+                         for i in self.items)
+        total_rent = sum(float(i.get("quantity", 0) or 0) * float(i.get("unit_rent", 0) or 0)
+                         for i in self.items if str(i.get("unit_rent", "")).strip() != "")
+        self.summary_label.config(text=f"合计：{total_qty:g} 台/套设备；总成本：¥{total_cost:.0f}；月租金合计：¥{total_rent:.2f}/月")
+
+    def _selected_index(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showwarning("提示", "请先选择一条设备")
+            return None
+        return int(sel[0])
+
+    def _add_item(self):
+        dlg = HardwareItemDialog(self.win, data_manager=self._data_manager)
+        item = dlg.show()
+        if item:
+            self.items.append(item)
+            self._refresh_tree()
+
+    def _edit_item(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        dlg = HardwareItemDialog(self.win, self.items[idx], data_manager=self._data_manager)
+        item = dlg.show()
+        if item:
+            self.items[idx] = item
+            self._refresh_tree()
+
+    def _delete_item(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        if messagebox.askyesno("确认", "确定删除这条设备配置？"):
+            self.items.pop(idx)
+            self._refresh_tree()
 
     def _save(self):
-        """保存硬件信息"""
-        try:
-            self.result = {
-                "serial_number": self.sn_e.get().strip() or "",
-                "pc_type": self.pc_type_e.get().strip() or "",
-                "cpu": self.cpu_e.get().strip() or "",
-                "motherboard": self.mb_e.get().strip() or "",
-                "ram": self.ram_e.get().strip() or "",
-                "disk": self.disk_e.get().strip() or "",
-                "gpu": self.gpu_e.get().strip() or "",
-                "os": self.os_e.get().strip() or "",
-                "psu": self.psu_e.get().strip() or "",
-                "case": self.case_e.get().strip() or "",
-                "fan": self.fan_e.get().strip() or "",
-                "laptop": self.laptop_e.get().strip() or "",
-                "monitor": self.monitor_e.get().strip() or "",
-                "accessories": self.accessories_t.get("1.0", tk.END).strip() or "",
-                "notes": self.notes_t.get("1.0", tk.END).strip() or ""
-            }
-            # 清除空字段以保持数据整洁
-            self.result = {k: v for k, v in self.result.items() if v}
-            self.win.destroy()
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败：{e}")
+        self.result = {
+            "items": self.items,
+            "total_quantity": sum(float(i.get("quantity", 0) or 0) for i in self.items),
+        }
+        self.win.destroy()
 
     def _cancel(self):
-        """取消编辑"""
         self.result = None
         self.win.destroy()
 
     def show(self):
-        """显示对话框并返回结果"""
+        self.win.wait_window()
+        return self.result
+
+
+class HardwareItemDialog:
+    """单条设备配置编辑 - 根据类型动态显示字段"""
+
+    # 字段配置：(键名, 标签)
+    TYPE_FIELDS = {
+        "显示器": [
+            ("monitor_brand", "品牌"),
+            ("monitor_model", "型号"),
+            ("screen_size", "尺寸(寸)"),
+            ("resolution", "分辨率"),
+            ("refresh_rate", "刷新率(Hz)"),
+            ("condition", "新旧程度"),
+        ],
+        "笔记本": [
+            ("brand_model", "品牌型号"),
+            ("cpu", "CPU"),
+            ("ram", "内存"),
+            ("disk", "硬盘"),
+            ("screen_size", "屏幕尺寸"),
+        ],
+        "台式机": [
+            ("cpu", "CPU"),
+            ("motherboard", "主板"),
+            ("ram", "内存"),
+            ("disk", "硬盘"),
+            ("gpu", "显卡"),
+            ("case", "机箱"),
+            ("psu", "电源"),
+            ("fan", "风扇/散热"),
+        ],
+        "外设": [
+            ("device_name", "设备名称"),
+            ("brand", "品牌"),
+            ("model", "型号"),
+        ],
+        "其他": [
+            ("name", "名称"),
+            ("specs", "规格"),
+        ],
+    }
+
+    def __init__(self, parent, item=None, data_manager=None):
+        self.item = item or {}
+        self.result = None
+        self.config_entries = {}
+        self.config_autocomplete = {}  # 自动补全控件引用
+        self.config_frame = None
+        self.data_manager = data_manager
+        self.selected_hardware_model = None  # 当前选中的型号数据
+        self.win = tk.Toplevel(parent)
+        self.win.title("设备配置")
+        self.win.geometry("750x520")
+        self.win.minsize(600, 450)
+        self.win.transient(parent)
+        self.win.grab_set()
+        self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self._center(750, 520)
+        self._build()
+
+    def _center(self, w, h):
+        self.win.update_idletasks()
+        x = (self.win.winfo_screenwidth() // 2) - (w // 2)
+        y = (self.win.winfo_screenheight() // 2) - (h // 2)
+        self.win.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _make_field(self, parent, label, default="", col=0, row=0, category=None):
+        """创建紧凑输入行，支持自动补全。"""
+        lbl = tk.Label(parent, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                       bg=DarkTheme.BG_PRIMARY, anchor=tk.E)
+        lbl.grid(row=row, column=col * 2, sticky=tk.E, padx=(8, 4), pady=3)
+        
+        if category and self.data_manager:
+            # 使用自动补全控件
+            ent = AutocompleteEntry(
+                parent, 
+                self.data_manager,
+                category=category,
+                width=25,
+                on_select=lambda model: self._on_hardware_model_selected(model)
+            )
+            ent.grid(row=row, column=col * 2 + 1, sticky=tk.EW, padx=(0, 8), pady=3)
+            if default is not None:
+                ent.set_value(str(default))
+            self.config_autocomplete[category] = ent
+        else:
+            # 使用普通输入框
+            ent = ttk.Entry(parent, font=DarkTheme.FONT_NORMAL)
+            ent.grid(row=row, column=col * 2 + 1, sticky=tk.EW, padx=(0, 8), pady=3)
+            if default is not None:
+                ent.insert(0, str(default))
+        
+        return ent
+
+    def _build(self):
+        main = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+        main.columnconfigure(1, weight=1)
+        main.columnconfigure(3, weight=1)
+
+        tk.Label(main, text="设备配置", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 8))
+
+        # 设备类型
+        self.type_var = tk.StringVar(value=self.item.get("device_type", self.item.get("pc_type", "台式机")))
+        tk.Label(main, text="设备类型", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, anchor=tk.E).grid(row=1, column=0, sticky=tk.E, padx=(8, 4), pady=3)
+        type_combo = ttk.Combobox(main, textvariable=self.type_var, state="readonly",
+                                  values=["台式机", "笔记本", "显示器", "外设", "其他"], font=DarkTheme.FONT_NORMAL)
+        type_combo.grid(row=1, column=1, columnspan=3, sticky=tk.EW, padx=(0, 8), pady=3)
+        type_combo.bind("<<ComboboxSelected>>", self._on_type_change)
+
+        # 基本信息
+        self.qty_e = self._make_field(main, "数量*", self.item.get("quantity", 1), col=0, row=2)
+        self.unit_cost_e = self._make_field(main, "单台成本", self.item.get("unit_cost", ""), col=1, row=2)
+        self.unit_rent_e = self._make_field(main, "单台月租", self.item.get("unit_rent", ""), col=0, row=3)
+        self.model_e = self._make_field(main, "型号/编号", self.item.get("model", self.item.get("serial_number", "")), col=1, row=3)
+
+        # 分隔线
+        sep = tk.Frame(main, bg=DarkTheme.BG_HOVER, height=2)
+        sep.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=6)
+
+        # 动态配置区
+        self.config_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        self.config_frame.grid(row=5, column=0, columnspan=4, sticky=tk.EW, pady=(0, 6))
+        self.config_frame.columnconfigure(1, weight=1)
+        self.config_frame.columnconfigure(3, weight=1)
+        self._build_config_fields()
+
+        # 分隔线
+        sep2 = tk.Frame(main, bg=DarkTheme.BG_HOVER, height=2)
+        sep2.grid(row=6, column=0, columnspan=4, sticky=tk.EW, pady=6)
+
+        # 配件/备注
+        tk.Label(main, text="配件", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, anchor=tk.NW).grid(row=7, column=0, sticky=tk.NW, padx=(8, 4), pady=3)
+        self.accessories_t = tk.Text(main, height=2, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
+                                     bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
+        self.accessories_t.grid(row=7, column=1, columnspan=3, sticky=tk.EW, padx=(0, 8), pady=3)
+        if self.item.get("accessories"):
+            self.accessories_t.insert("1.0", self.item["accessories"])
+
+        tk.Label(main, text="备注", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, anchor=tk.NW).grid(row=8, column=0, sticky=tk.NW, padx=(8, 4), pady=3)
+        self.notes_t = tk.Text(main, height=2, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
+                               bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
+        self.notes_t.grid(row=8, column=1, columnspan=3, sticky=tk.EW, padx=(0, 8), pady=3)
+        if self.item.get("notes"):
+            self.notes_t.insert("1.0", self.item["notes"])
+
+        # 按钮
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.grid(row=9, column=0, columnspan=4, sticky=tk.E, pady=(12, 0))
+        save_btn = tk.Button(btn, text="保存", font=DarkTheme.FONT_BUTTON, fg="white",
+                             bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                             command=self._save, padx=16, pady=8)
+        save_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
+        cancel_btn = tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                               bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                               command=self.win.destroy, padx=16, pady=8)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
+
+    def _on_type_change(self, event=None):
+        self._build_config_fields()
+
+    def _build_config_fields(self):
+        """根据设备类型动态构建配置字段"""
+        for widget in self.config_frame.winfo_children():
+            widget.destroy()
+        self.config_entries = {}
+        self.config_autocomplete = {}
+        self.selected_hardware_model = None
+
+        dev_type = self.type_var.get()
+        fields = self.TYPE_FIELDS.get(dev_type, [])
+        
+        # 字段类型到数据库分类的映射
+        FIELD_CATEGORY_MAP = {
+            "cpu": "cpu",
+            "motherboard": "mb",
+            "ram": "ram",
+            "disk": "disk",
+            "gpu": "gpu",
+            "psu": "psu",
+            "case": "case",
+            "fan": "cooler",
+            "monitor_brand": "monitor",
+            "monitor_model": "monitor",
+        }
+
+        for row, (key, label) in enumerate(fields):
+            col = row % 2
+            r = row // 2
+            default = self.item.get(key, "")
+            category = FIELD_CATEGORY_MAP.get(key)
+            ent = self._make_field(self.config_frame, label, default, col=col, row=r, category=category)
+            self.config_entries[key] = ent
+
+    def _on_hardware_model_selected(self, model_data):
+        """选择硬件型号后的回调，自动填充价格"""
+        self.selected_hardware_model = model_data
+        if model_data:
+            # 自动填充参考价格
+            if model_data.get('reference_cost'):
+                self.unit_cost_e.delete(0, tk.END)
+                self.unit_cost_e.insert(0, str(model_data['reference_cost']))
+            if model_data.get('reference_rent'):
+                self.unit_rent_e.delete(0, tk.END)
+                self.unit_rent_e.insert(0, str(model_data['reference_rent']))
+
+    def _save(self):
+        try:
+            qty = float(self.qty_e.get().strip() or 0)
+            if qty <= 0:
+                messagebox.showwarning("提示", "数量必须大于0")
+                return
+            unit_rent = self.unit_rent_e.get().strip()
+            if unit_rent:
+                float(unit_rent)
+            unit_cost = self.unit_cost_e.get().strip()
+            if unit_cost:
+                float(unit_cost)
+
+            # 收集动态配置字段
+            config_data = {}
+            for key, ent in self.config_entries.items():
+                # 区分自动补全控件和普通控件
+                if hasattr(ent, 'get_value'):
+                    val = ent.get_value()
+                else:
+                    val = ent.get().strip()
+                if val:
+                    config_data[key] = val
+
+            result = {
+                "device_type": self.type_var.get(),
+                "quantity": qty,
+                "unit_cost": unit_cost,
+                "unit_rent": unit_rent,
+                "model": self.model_e.get().strip(),
+            }
+            result.update(config_data)
+            result = {k: v for k, v in result.items() if v != "" and v is not None}
+
+            acc = self.accessories_t.get("1.0", tk.END).strip()
+            if acc:
+                result["accessories"] = acc
+            notes = self.notes_t.get("1.0", tk.END).strip()
+            if notes:
+                result["notes"] = notes
+
+            self.result = result
+            self.win.destroy()
+        except ValueError:
+            messagebox.showerror("错误", "数量和金额必须是数字")
+
+    def show(self):
         self.win.wait_window()
         return self.result
 
 
 def format_hardware_display(hardware):
-    """
-    格式化硬件信息用于显示
-    
-    Args:
-        hardware: 硬件字典
-    
-    Returns:
-        格式化的字符串
-    """
     if not hardware:
         return "未添加硬件信息"
-    
+    items = hardware.get("items") if isinstance(hardware, dict) else None
+    if not items:
+        items = [hardware] if isinstance(hardware, dict) else []
+    if not items:
+        return "未添加硬件信息"
     lines = []
-    
-    if hardware.get("serial_number"):
-        lines.append(f"序列号：{hardware['serial_number']}")
-    if hardware.get("pc_type"):
-        lines.append(f"类型：{hardware['pc_type']}")
-
-    # 核心配置
-    config_parts = []
-    if hardware.get("cpu"):
-        config_parts.append(f"CPU:{hardware['cpu']}")
-    if hardware.get("motherboard"):
-        config_parts.append(f"主板:{hardware['motherboard']}")
-    if hardware.get("ram"):
-        config_parts.append(f"内存:{hardware['ram']}")
-    if hardware.get("disk"):
-        config_parts.append(f"硬盘:{hardware['disk']}")
-    if hardware.get("gpu"):
-        config_parts.append(f"显卡:{hardware['gpu']}")
-    if config_parts:
-        lines.append("核心：" + " / ".join(config_parts))
-
-    # 外设
-    peri_parts = []
-    if hardware.get("psu"):
-        peri_parts.append(f"电源:{hardware['psu']}")
-    if hardware.get("case"):
-        peri_parts.append(f"机箱:{hardware['case']}")
-    if hardware.get("fan"):
-        peri_parts.append(f"风扇:{hardware['fan']}")
-    if hardware.get("laptop"):
-        peri_parts.append(f"笔记本:{hardware['laptop']}")
-    if hardware.get("monitor"):
-        peri_parts.append(f"显示器:{hardware['monitor']}")
-    if peri_parts:
-        lines.append("外设：" + " / ".join(peri_parts))
-
-    if hardware.get("os"):
-        lines.append(f"系统：{hardware['os']}")
-    
-    # 额外信息
-    if hardware.get("accessories"):
-        lines.append(f"配件：{hardware['accessories']}")
-    
-    if hardware.get("notes"):
-        lines.append(f"备注：{hardware['notes']}")
-    
-    return "\n".join(lines) if lines else "未添加硬件信息"
+    for idx, item in enumerate(items, 1):
+        parts = []
+        for key, label in [
+            ("model", "型号"),
+            ("cpu", "CPU"),
+            ("motherboard", "主板"),
+            ("ram", "内存"),
+            ("disk", "硬盘"),
+            ("gpu", "显卡"),
+            ("case", "机箱"),
+            ("psu", "电源"),
+            ("fan", "风扇"),
+            ("monitor", "显示器"),
+            ("laptop", "笔记本"),
+        ]:
+            if item.get(key):
+                parts.append(f"{label}:{item[key]}")
+        if item.get("unit_cost"):
+            parts.append(f"成本:¥{item['unit_cost']}")
+        if item.get("accessories"):
+            parts.append(f"配件:{item['accessories']}")
+        if item.get("notes"):
+            parts.append(f"备注:{item['notes']}")
+        qty = item.get("quantity", 1)
+        rent = item.get("unit_rent", "")
+        rent_text = f"，单台月租¥{rent}" if rent != "" else ""
+        detail = " / ".join(parts) if parts else "未填写配置"
+        lines.append(f"{idx}. {item.get('device_type', '设备')} × {qty:g}{rent_text}：{detail}")
+    return "\n".join(lines)
