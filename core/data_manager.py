@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 2
+    DB_VERSION = 3
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -45,6 +45,9 @@ class DataManager:
         if current < 2:
             self._migration_002_brand_library()
             self._set_schema_version(2)
+        if current < 3:
+            self._migration_003_hardware_models()
+            self._set_schema_version(3)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -112,6 +115,32 @@ class DataManager:
             """
         )
         self.conn.commit()
+
+    def _migration_003_hardware_models(self):
+        """Migration 003：硬件型号库表。"""
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS hardware_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                brand TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                specs TEXT,
+                reference_cost REAL,
+                reference_rent REAL,
+                release_year INTEGER,
+                is_active INTEGER DEFAULT 1,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_category ON hardware_models(category);
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_brand ON hardware_models(brand);
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_name ON hardware_models(model_name);
+            """
+        )
+        self.conn.commit()
+        # 初始化硬件型号数据
+        self._init_hardware_model_defaults()
 
     # ── 硬件品牌库 ───────────────────────────────────────────────────
 
@@ -201,6 +230,97 @@ class DataManager:
                 pass
         self.conn.commit()
         return added
+
+    # ── 硬件型号库 ───────────────────────────────────────────────────
+
+    def _init_hardware_model_defaults(self):
+        """初始化硬件型号默认数据。"""
+        row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_models").fetchone()
+        if row and row["total"] > 0:
+            return
+        # 从硬件品牌模块导入默认数据
+        from modules.hardware_models import HARDWARE_MODELS
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for model in HARDWARE_MODELS:
+            try:
+                self.conn.execute(
+                    """INSERT INTO hardware_models(
+                        category, brand, model_name, specs, reference_cost,
+                        reference_rent, release_year, is_active, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        model["category"],
+                        model["brand"],
+                        model["model_name"],
+                        json.dumps(model.get("specs", {}), ensure_ascii=False),
+                        model.get("reference_cost"),
+                        model.get("reference_rent"),
+                        model.get("release_year"),
+                        1,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                pass
+        self.conn.commit()
+
+    def search_models(self, query: str, category: str = None, limit: int = 20) -> List[Dict]:
+        """搜索硬件型号，支持模糊匹配。"""
+        if category:
+            rows = self.conn.execute(
+                """SELECT id, category, brand, model_name, specs, reference_cost,
+                          reference_rent, release_year
+                   FROM hardware_models
+                   WHERE is_active = 1
+                     AND category = ?
+                     AND (brand LIKE ? OR model_name LIKE ?)
+                   ORDER BY release_year DESC, brand
+                   LIMIT ?""",
+                (category, f"%{query}%", f"%{query}%", limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """SELECT id, category, brand, model_name, specs, reference_cost,
+                          reference_rent, release_year
+                   FROM hardware_models
+                   WHERE is_active = 1
+                     AND (brand LIKE ? OR model_name LIKE ?)
+                   ORDER BY release_year DESC, brand
+                   LIMIT ?""",
+                (f"%{query}%", f"%{query}%", limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_models_by_category(self, category: str) -> List[Dict]:
+        """获取指定分类的所有型号。"""
+        rows = self.conn.execute(
+            """SELECT id, category, brand, model_name, specs, reference_cost,
+                      reference_rent, release_year
+               FROM hardware_models
+               WHERE category = ? AND is_active = 1
+               ORDER BY brand, model_name""",
+            (category,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_model_by_id(self, model_id: int) -> Optional[Dict]:
+        """根据 ID 获取硬件型号。"""
+        row = self.conn.execute(
+            """SELECT id, category, brand, model_name, specs, reference_cost,
+                      reference_rent, release_year
+               FROM hardware_models
+               WHERE id = ?""",
+            (model_id,),
+        ).fetchone()
+        if row:
+            result = dict(row)
+            if result.get("specs"):
+                try:
+                    result["specs"] = json.loads(result["specs"])
+                except json.JSONDecodeError:
+                    pass
+            return result
+        return None
 
     # ── 兼容数据结构 ─────────────────────────────────────────────────
 
@@ -537,43 +657,47 @@ class DataManager:
         return max((date.today() - end_date).days, 0)
 
     def summarize_hardware(self, record: Dict) -> str:
-        """生成硬件配置摘要，供列表和详情快速展示。"""
+        """生成硬件配置摘要，支持多设备清单格式。"""
         hardware = record.get("hardware", {}) or {}
         if not hardware:
             return "未填写"
-        parts = []
-        # 设备类型
-        pc_type = hardware.get("pc_type", "")
-        # 核心配置
-        for key, label in [
-            ("cpu", "CPU"),
-            ("motherboard", "主板"),
-            ("ram", "内存"),
-            ("disk", "硬盘"),
-            ("gpu", "显卡"),
-        ]:
-            value = hardware.get(key)
-            if value:
-                parts.append(f"{label}:{value}")
-        # 外设
-        for key, label in [
-            ("psu", "电源"),
-            ("case", "机箱"),
-            ("fan", "风扇"),
-            ("laptop", "笔记本"),
-            ("monitor", "显示器"),
-            ("os", "系统"),
-        ]:
-            value = hardware.get(key)
-            if value:
-                parts.append(f"{label}:{value}")
-        if pc_type and not parts:
-            return f"{pc_type}（无配置详情）"
-        if not parts:
-            for key, value in hardware.items():
-                if value:
-                    parts.append(f"{key}:{value}")
-        return " / ".join(parts) if parts else (pc_type or "未填写")
+        items = hardware.get("items") if isinstance(hardware, dict) else None
+        if not items:
+            # 兼容旧格式
+            parts = []
+            pc_type = hardware.get("pc_type", hardware.get("device_type", ""))
+            for key, label in [
+                ("cpu", "CPU"), ("motherboard", "主板"), ("ram", "内存"),
+                ("disk", "硬盘"), ("gpu", "显卡"), ("monitor", "显示器"),
+                ("laptop", "笔记本"),
+            ]:
+                if hardware.get(key):
+                    parts.append(f"{label}:{hardware[key]}")
+            if pc_type and not parts:
+                return f"{pc_type}（无配置详情）"
+            return " / ".join(parts) if parts else (pc_type or "未填写")
+        
+        # 新多设备格式
+        lines = []
+        for item in items:
+            qty = item.get("quantity", 1)
+            dev_type = item.get("device_type", "设备")
+            rent = item.get("unit_rent", "")
+            parts = []
+            for key, label in [
+                ("model", "型号"), ("cpu", "CPU"), ("ram", "内存"),
+                ("disk", "硬盘"), ("gpu", "显卡"),
+                ("case", "机箱"), ("psu", "电源"), ("fan", "风扇"),
+                ("monitor", "显示器"), ("laptop", "笔记本"),
+            ]:
+                if item.get(key):
+                    parts.append(f"{label}:{item[key]}")
+            cost = item.get("unit_cost", "")
+            rent_text = f"，月租¥{rent}" if rent else ""
+            cost_text = f"，成本¥{cost}" if cost else ""
+            detail = " / ".join(parts) if parts else "未填配置"
+            lines.append(f"{dev_type}×{qty:g}{cost_text}{rent_text}: {detail}")
+        return "；\n".join(lines) if lines else "未填写"
 
     def refresh_record_business_fields(self, record: Dict) -> Dict:
         """刷新记录中的业务衍生字段。"""
