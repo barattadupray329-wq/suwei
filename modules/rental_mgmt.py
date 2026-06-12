@@ -64,12 +64,12 @@ class RentalManagementFrame(ttk.Frame):
         table_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
-        cols = ("ID", "租赁人", "联系电话", "起租时间", "到期时间", "状态")
+        cols = ("ID", "租赁人", "联系电话", "到期时间", "总租金", "已付", "未付", "逾期(天)", "状态")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=14)
-        widths = {"ID": 70, "租赁人": 100, "联系电话": 110, "起租时间": 110, "到期时间": 110, "状态": 70}
+        widths = {"ID": 60, "租赁人": 80, "联系电话": 100, "到期时间": 100, "总租金": 70, "已付": 70, "未付": 70, "逾期(天)": 70, "状态": 60}
         for c in cols:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=widths.get(c, 90), anchor="center")
+            self.tree.column(c, width=widths.get(c, 80), anchor="center")
 
         vbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vbar.set)
@@ -120,10 +120,30 @@ class RentalManagementFrame(ttk.Frame):
         for i in self.tree.get_children():
             self.tree.delete(i)
         for r in self._shown:
-            renter, lease, st = r.get("renter", {}), r.get("lease_info", {}), r.get("status", "")
-            self.tree.insert("", tk.END, values=(r.get("id", ""), renter.get("name", ""),
-                                                renter.get("phone", ""), lease.get("start_date", ""),
-                                                lease.get("end_date", ""), st), tags=(st,))
+            # 刷新业务衡生字段
+            self.dm.refresh_record_business_fields(r)
+            renter = r.get("renter", {})
+            lease = r.get("lease_info", {})
+            st = r.get("status", "")
+            total_rent = lease.get("total_rent", 0) or 0
+            paid = r.get("paid_amount", 0) or 0
+            unpaid = r.get("unpaid_amount", 0) or 0
+            overdue_days = r.get("overdue_days", 0) or 0
+            self.tree.insert(
+                "", tk.END,
+                values=(
+                    r.get("id", ""),
+                    renter.get("name", ""),
+                    renter.get("phone", ""),
+                    lease.get("end_date", ""),
+                    f"¥{total_rent:.2f}",
+                    f"¥{paid:.2f}",
+                    f"¥{unpaid:.2f}",
+                    overdue_days,
+                    st
+                ),
+                tags=(st,)
+            )
         for st, clr in self.STATUS_COLORS.items():
             self.tree.tag_configure(st, foreground=clr)
 
@@ -497,7 +517,17 @@ class RentalManagementFrame(ttk.Frame):
                 "old_end_date": cur_end.strftime("%Y-%m-%d"), "new_end_date": new_end_str,
                 "operator": self.app.username or "系统",
             })
+            # 记录付款变动历史
+            if new_paid != rec.get("paid_amount", 0):
+                paid_change = new_paid - (rec.get("paid_amount", 0) or 0)
+                if paid_change > 0:
+                    self.dm.append_payment_history(
+                        rec, paid_change, operator=self.app.username or "系统",
+                        method="续租时支付", note=f"续租{t_val}{unit_var.get()}"
+                    )
             rec["paid_amount"] = new_paid
+            # 刷新业务衍生字段
+            self.dm.refresh_record_business_fields(rec)
             self.dm.save()
             messagebox.showinfo("成功", f"续租成功！\n时间：{t_val}{unit_var.get()}\n金额：¥{amt:.2f}\n新到期：{new_end_str}")
             win.destroy()
@@ -638,7 +668,16 @@ class RentalManagementFrame(ttk.Frame):
                 rec["lease_info"]["total_rent"] = total
                 rec["lease_info"]["deposit"] = deposit
 
+                old_paid = rec.get("paid_amount", 0) or 0
                 rec["paid_amount"] = paid
+                # 记录付款变动
+                if paid != old_paid:
+                    paid_change = paid - old_paid
+                    if paid_change > 0:
+                        self.dm.append_payment_history(
+                            rec, paid_change, operator=self.app.username or "系统",
+                            method="编辑捡款", note="编辑记录时更新字段"
+                        )
                 rec["status"] = status_var.get()
 
                 settle_text = settle_e.get().strip()
@@ -649,6 +688,8 @@ class RentalManagementFrame(ttk.Frame):
                     rec.pop("settlement_amount", None)
                     rec.pop("settlement_date", None)
 
+                # 刷新业务衍生字段
+                self.dm.refresh_record_business_fields(rec)
                 self.dm.save()
                 messagebox.showinfo("成功", "记录已更新")
                 win.destroy()
@@ -683,6 +724,7 @@ class RentalManagementFrame(ttk.Frame):
         rid = self._selected_id()
         if not rid or not (rec := self._find_record(rid)):
             return
+        self.dm.refresh_record_business_fields(rec)
         win = tk.Toplevel(self)
         win.title(f"详情 — {rid}")
         win.geometry("700x500")
@@ -695,6 +737,10 @@ class RentalManagementFrame(ttk.Frame):
         mf.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
         renter, lease, st = rec.get("renter", {}), rec.get("lease_info", {}), rec.get("status", "")
+        paid_amount = float(rec.get("paid_amount", 0) or 0)
+        unpaid_amount = float(rec.get("unpaid_amount", 0) or 0)
+        overdue_days = int(rec.get("overdue_days", 0) or 0)
+        hardware_summary = rec.get("hardware_summary", "未填写")
         tk.Label(mf, text=f"📋 {rid}", font=DarkTheme.FONT_SUBTITLE,
                  fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W)
 
@@ -707,6 +753,10 @@ class RentalManagementFrame(ttk.Frame):
             ("到期：", lease.get("end_date", ""), self.STATUS_COLORS.get(st, DarkTheme.TEXT_PRIMARY)),
             ("月租：", f"¥{float(lease.get('monthly_rent', 0)):.2f}", DarkTheme.ACCENT_BLUE),
             ("总租金：", f"¥{float(lease.get('total_rent', 0)):.2f}", DarkTheme.ACCENT_BLUE),
+            ("已付：", f"¥{paid_amount:.2f}", DarkTheme.ACCENT_GREEN),
+            ("未付：", f"¥{unpaid_amount:.2f}", DarkTheme.ACCENT_YELLOW if unpaid_amount > 0 else DarkTheme.TEXT_PRIMARY),
+            ("逾期天数：", f"{overdue_days} 天", DarkTheme.ACCENT_RED if overdue_days > 0 else DarkTheme.TEXT_PRIMARY),
+            ("硬件：", hardware_summary, DarkTheme.TEXT_PRIMARY),
             ("状态：", st, self.STATUS_COLORS.get(st, DarkTheme.TEXT_PRIMARY)),
         ]:
             row = tk.Frame(mf, bg=DarkTheme.BG_PRIMARY)

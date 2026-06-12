@@ -508,6 +508,105 @@ class DataManager:
             self.conn.commit()
             self._export_json_snapshot()
         return updated
+    def calculate_unpaid_amount(self, record: Dict) -> float:
+        """计算未付金额：总租金 - 已付金额。"""
+        lease = record.get("lease_info", {})
+        try:
+            total = float(lease.get("total_rent", 0) or 0)
+        except (ValueError, TypeError):
+            total = 0.0
+        try:
+            paid = float(record.get("paid_amount", 0) or 0)
+        except (ValueError, TypeError):
+            paid = 0.0
+        return max(total - paid, 0.0)
+
+    def calculate_overdue_days(self, record: Dict) -> int:
+        """计算逾期天数。已退租/已丢失/已买断记录不再累计逾期。"""
+        from datetime import date
+
+        if record.get("status") in ("已退租", "已丢失", "已买断"):
+            return 0
+        end_date_str = record.get("lease_info", {}).get("end_date", "")
+        if not end_date_str:
+            return 0
+        try:
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return 0
+        return max((date.today() - end_date).days, 0)
+
+    def summarize_hardware(self, record: Dict) -> str:
+        """生成硬件配置摘要，供列表和详情快速展示。"""
+        hardware = record.get("hardware", {}) or {}
+        if not hardware:
+            return "未填写"
+        parts = []
+        for key, label in [
+            ("cpu", "CPU"),
+            ("ram", "内存"),
+            ("storage", "硬盘"),
+            ("gpu", "显卡"),
+            ("os", "系统"),
+        ]:
+            value = hardware.get(key)
+            if value:
+                parts.append(f"{label}:{value}")
+        if not parts:
+            for key, value in hardware.items():
+                if value:
+                    parts.append(f"{key}:{value}")
+        return " / ".join(parts) if parts else "未填写"
+
+    def refresh_record_business_fields(self, record: Dict) -> Dict:
+        """刷新记录中的业务衍生字段。"""
+        record["unpaid_amount"] = self.calculate_unpaid_amount(record)
+        record["overdue_days"] = self.calculate_overdue_days(record)
+        record["hardware_summary"] = self.summarize_hardware(record)
+        if record["overdue_days"] > 0 and record.get("status") == "在租":
+            record["status"] = "已逾期"
+        return record
+
+    def append_payment_history(
+        self,
+        record: Dict,
+        amount: float,
+        operator: str = "系统",
+        method: str = "",
+        note: str = "",
+    ) -> None:
+        """追加付款流水。amount 为本次新增付款金额。"""
+        if amount <= 0:
+            return
+        record.setdefault("payment_history", []).append({
+            "payment_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "amount": float(amount),
+            "method": method,
+            "operator": operator or "系统",
+            "note": note,
+        })
+
+    def append_hardware_history(
+        self,
+        record: Dict,
+        old_hardware: Dict,
+        new_hardware: Dict,
+        operator: str = "系统",
+        note: str = "",
+    ) -> bool:
+        """硬件配置有变化时追加变更历史。"""
+        old_hardware = old_hardware or {}
+        new_hardware = new_hardware or {}
+        if old_hardware == new_hardware:
+            return False
+        record.setdefault("hardware_history", []).append({
+            "change_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "operator": operator or "系统",
+            "old_hardware": old_hardware,
+            "new_hardware": new_hardware,
+            "note": note,
+        })
+        return True
 
     def _generate_id(self) -> str:
         """生成唯一 ID。"""
