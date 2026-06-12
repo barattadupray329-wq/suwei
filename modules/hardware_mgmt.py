@@ -31,7 +31,7 @@ class HardwareDialog:
         """创建对话框窗口"""
         self.win = tk.Toplevel(parent)
         self.win.title("硬件信息管理")
-        self.win.geometry("600x700")
+        self.win.geometry("600x780")
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
@@ -41,7 +41,7 @@ class HardwareDialog:
     def _center_window(self):
         """窗口居中"""
         self.win.update_idletasks()
-        w, h = 600, 700
+        w, h = 600, 780
         x = (self.win.winfo_screenwidth() // 2) - (w // 2)
         y = (self.win.winfo_screenheight() // 2) - (h // 2)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
@@ -110,12 +110,11 @@ class HardwareDialog:
         tk.Label(scrollable_frame, text="基本信息", font=("微软雅黑", 10, "bold"),
                  fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 8))
         
-        self.brand_e = make_row(scrollable_frame, "品牌", self.hardware.get("brand", ""))
-        self.model_e = make_row(scrollable_frame, "型号", self.hardware.get("model", ""))
         self.sn_e = make_row(scrollable_frame, "序列号", self.hardware.get("serial_number", ""))
+        self.pc_type_e = make_row(scrollable_frame, "设备类型", self.hardware.get("pc_type", "台式机"))
 
-        # 配置信息
-        tk.Label(scrollable_frame, text="配置信息", font=("微软雅黑", 10, "bold"),
+        # 核心配置
+        tk.Label(scrollable_frame, text="核心配置", font=("微软雅黑", 10, "bold"),
                  fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
         
         def make_combo_row(parent, label, values_list, default="", width=28):
@@ -131,10 +130,21 @@ class HardwareDialog:
             return combo
 
         self.cpu_e = make_combo_row(scrollable_frame, "CPU", CPU_BRANDS, self.hardware.get("cpu", ""))
+        self.mb_e = make_row(scrollable_frame, "主板", self.hardware.get("motherboard", ""))
         self.ram_e = make_combo_row(scrollable_frame, "内存", RAM_BRANDS, self.hardware.get("ram", ""))
         self.disk_e = make_combo_row(scrollable_frame, "硬盘", DISK_BRANDS, self.hardware.get("disk", ""))
         self.gpu_e = make_combo_row(scrollable_frame, "显卡", GPU_BRANDS, self.hardware.get("gpu", ""))
         self.os_e = make_combo_row(scrollable_frame, "系统版本", OS_OPTIONS, self.hardware.get("os", ""))
+
+        # 外设与附件
+        tk.Label(scrollable_frame, text="外设与附件", font=("微软雅黑", 10, "bold"),
+                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
+
+        self.psu_e = make_row(scrollable_frame, "电源", self.hardware.get("psu", ""))
+        self.case_e = make_row(scrollable_frame, "机箱", self.hardware.get("case", ""))
+        self.fan_e = make_row(scrollable_frame, "风扇", self.hardware.get("fan", ""))
+        self.laptop_e = make_row(scrollable_frame, "笔记本型号", self.hardware.get("laptop", ""))
+        self.monitor_e = make_row(scrollable_frame, "显示器", self.hardware.get("monitor", ""))
 
         # 额外信息
         tk.Label(scrollable_frame, text="额外信息", font=("微软雅黑", 10, "bold"),
@@ -165,14 +175,19 @@ class HardwareDialog:
         """保存硬件信息"""
         try:
             self.result = {
-                "brand": self.brand_e.get().strip() or "",
-                "model": self.model_e.get().strip() or "",
                 "serial_number": self.sn_e.get().strip() or "",
+                "pc_type": self.pc_type_e.get().strip() or "",
                 "cpu": self.cpu_e.get().strip() or "",
+                "motherboard": self.mb_e.get().strip() or "",
                 "ram": self.ram_e.get().strip() or "",
                 "disk": self.disk_e.get().strip() or "",
                 "gpu": self.gpu_e.get().strip() or "",
                 "os": self.os_e.get().strip() or "",
+                "psu": self.psu_e.get().strip() or "",
+                "case": self.case_e.get().strip() or "",
+                "fan": self.fan_e.get().strip() or "",
+                "laptop": self.laptop_e.get().strip() or "",
+                "monitor": self.monitor_e.get().strip() or "",
                 "accessories": self.accessories_t.get("1.0", tk.END).strip() or "",
                 "notes": self.notes_t.get("1.0", tk.END).strip() or ""
             }
@@ -208,27 +223,41 @@ def format_hardware_display(hardware):
     
     lines = []
     
-    # 基本信息
-    if hardware.get("brand") or hardware.get("model"):
-        lines.append(f"品牌型号：{hardware.get('brand', '')} {hardware.get('model', '')}".strip())
-    
     if hardware.get("serial_number"):
         lines.append(f"序列号：{hardware['serial_number']}")
-    
-    # 配置信息
+    if hardware.get("pc_type"):
+        lines.append(f"类型：{hardware['pc_type']}")
+
+    # 核心配置
     config_parts = []
     if hardware.get("cpu"):
-        config_parts.append(f"CPU: {hardware['cpu']}")
+        config_parts.append(f"CPU:{hardware['cpu']}")
+    if hardware.get("motherboard"):
+        config_parts.append(f"主板:{hardware['motherboard']}")
     if hardware.get("ram"):
-        config_parts.append(f"内存: {hardware['ram']}GB")
+        config_parts.append(f"内存:{hardware['ram']}")
     if hardware.get("disk"):
-        config_parts.append(f"硬盘: {hardware['disk']}GB")
+        config_parts.append(f"硬盘:{hardware['disk']}")
     if hardware.get("gpu"):
-        config_parts.append(f"显卡: {hardware['gpu']}")
-    
+        config_parts.append(f"显卡:{hardware['gpu']}")
     if config_parts:
-        lines.append("配置：" + ", ".join(config_parts))
-    
+        lines.append("核心：" + " / ".join(config_parts))
+
+    # 外设
+    peri_parts = []
+    if hardware.get("psu"):
+        peri_parts.append(f"电源:{hardware['psu']}")
+    if hardware.get("case"):
+        peri_parts.append(f"机箱:{hardware['case']}")
+    if hardware.get("fan"):
+        peri_parts.append(f"风扇:{hardware['fan']}")
+    if hardware.get("laptop"):
+        peri_parts.append(f"笔记本:{hardware['laptop']}")
+    if hardware.get("monitor"):
+        peri_parts.append(f"显示器:{hardware['monitor']}")
+    if peri_parts:
+        lines.append("外设：" + " / ".join(peri_parts))
+
     if hardware.get("os"):
         lines.append(f"系统：{hardware['os']}")
     

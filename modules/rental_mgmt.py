@@ -266,9 +266,10 @@ class RentalManagementFrame(ttk.Frame):
         addr_t.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         start_e = make_row(form, "起租日期*", datetime.now().strftime("%Y-%m-%d"))
-        end_e = make_row(form, "到期日期*", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
+        months_e = make_row(form, "月数*", "1")
         monthly_e = make_row(form, "月租*", "0")
         total_e = make_row(form, "总租金*", "0")
+        end_e = make_row(form, "到期日期*", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
         deposit_e = make_row(form, "押金", "0")
         paid_e = make_row(form, "已付金额", "0")
 
@@ -293,6 +294,36 @@ class RentalManagementFrame(ttk.Frame):
                           command=lambda: self._edit_hardware_in_dialog(hardware_data), padx=12, pady=6)
         hw_btn.pack(side=tk.LEFT)
         DarkTheme.bind_hover(hw_btn, DarkTheme.ACCENT_PURPLE)
+
+        # 自动计算：月租×月数 = 总租金，起租日 + 月数 = 到期日
+        def _auto_calc(*_):
+            try:
+                m_rent = float(monthly_e.get().strip() or 0)
+                months = float(months_e.get().strip() or 0)
+                start_str = start_e.get().strip()
+                if m_rent > 0 and months > 0:
+                    total = m_rent * months
+                    total_e.delete(0, tk.END)
+                    total_e.insert(0, f"{total:.2f}")
+                if start_str and months > 0:
+                    try:
+                        ds = datetime.strptime(start_str, "%Y-%m-%d")
+                        de = ds + timedelta(days=int(months * 30))
+                        end_e.delete(0, tk.END)
+                        end_e.insert(0, de.strftime("%Y-%m-%d"))
+                    except ValueError:
+                        pass
+            except ValueError:
+                pass
+
+        self._auto_calc_refs = (monthly_e, months_e, start_e)
+        for w in self._auto_calc_refs:
+            if isinstance(w, ttk.Entry):
+                sv = tk.StringVar()
+                w.configure(textvariable=sv)
+                sv.trace_add("write", _auto_calc)
+            else:
+                w.bind("<KeyRelease>", _auto_calc)
 
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
@@ -585,9 +616,10 @@ class RentalManagementFrame(ttk.Frame):
         addr_t.insert("1.0", renter.get("address", ""))
 
         start_e = make_row(form, "起租日期", lease.get("start_date", ""))
-        end_e = make_row(form, "到期日期", lease.get("end_date", ""))
+        months_e = make_row(form, "月数", str(lease.get("lease_months", "1")))
         monthly_e = make_row(form, "月租", lease.get("monthly_rent", "0"))
         total_e = make_row(form, "总租金", lease.get("total_rent", "0"))
+        end_e = make_row(form, "到期日期", lease.get("end_date", ""))
         deposit_e = make_row(form, "押金", lease.get("deposit", "0"))
         paid_e = make_row(form, "已付金额", rec.get("paid_amount", "0"))
 
@@ -601,6 +633,35 @@ class RentalManagementFrame(ttk.Frame):
         st_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         settle_e = make_row(form, "结算金额", rec.get("settlement_amount", ""))
+
+        # 自动计算（编辑模式）
+        def _auto_calc_edit(*_):
+            try:
+                m_rent = float(monthly_e.get().strip() or 0)
+                months = float(months_e.get().strip() or 0)
+                start_str = start_e.get().strip()
+                if m_rent > 0 and months > 0:
+                    total = m_rent * months
+                    total_e.delete(0, tk.END)
+                    total_e.insert(0, f"{total:.2f}")
+                if start_str and months > 0:
+                    try:
+                        ds = datetime.strptime(start_str, "%Y-%m-%d")
+                        de = ds + timedelta(days=int(months * 30))
+                        end_e.delete(0, tk.END)
+                        end_e.insert(0, de.strftime("%Y-%m-%d"))
+                    except ValueError:
+                        pass
+            except ValueError:
+                pass
+
+        for w in (monthly_e, months_e, start_e):
+            if isinstance(w, ttk.Entry):
+                sv = tk.StringVar()
+                w.configure(textvariable=sv)
+                sv.trace_add("write", _auto_calc_edit)
+            else:
+                w.bind("<KeyRelease>", _auto_calc_edit)
 
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)

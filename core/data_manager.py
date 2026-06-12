@@ -542,21 +542,38 @@ class DataManager:
         if not hardware:
             return "未填写"
         parts = []
+        # 设备类型
+        pc_type = hardware.get("pc_type", "")
+        # 核心配置
         for key, label in [
             ("cpu", "CPU"),
+            ("motherboard", "主板"),
             ("ram", "内存"),
-            ("storage", "硬盘"),
+            ("disk", "硬盘"),
             ("gpu", "显卡"),
+        ]:
+            value = hardware.get(key)
+            if value:
+                parts.append(f"{label}:{value}")
+        # 外设
+        for key, label in [
+            ("psu", "电源"),
+            ("case", "机箱"),
+            ("fan", "风扇"),
+            ("laptop", "笔记本"),
+            ("monitor", "显示器"),
             ("os", "系统"),
         ]:
             value = hardware.get(key)
             if value:
                 parts.append(f"{label}:{value}")
+        if pc_type and not parts:
+            return f"{pc_type}（无配置详情）"
         if not parts:
             for key, value in hardware.items():
                 if value:
                     parts.append(f"{key}:{value}")
-        return " / ".join(parts) if parts else "未填写"
+        return " / ".join(parts) if parts else (pc_type or "未填写")
 
     def refresh_record_business_fields(self, record: Dict) -> Dict:
         """刷新记录中的业务衍生字段。"""
