@@ -73,19 +73,34 @@ class AIAssistantDialog:
         if m: d["租赁人"] = m.group(1).strip()
         m = re.search(r'(?:电话|手机|联系电话)[:：]?\s*([\d]{11})', text)
         if m: d["联系电话"] = m.group(1)
+        if "联系电话" not in d:
+            m = re.search(r'\b(1[3-9]\d{9})\b', text)
+            if m: d["联系电话"] = m.group(1)
         m = re.search(r'(?:身份证|证件号)[:：]?\s*([\d]{18}|[\d]{17}[\dXx])', text)
         if m: d["身份证"] = m.group(1)
         m = re.search(r'(?:地址|住址)[:：]?\s*([\u4e00-\u9fa5].+)', text)
         if m: d["地址"] = m.group(1).strip().strip("，,。")
-        m = re.search(r'(?:起租|开始|起始)[:：]?\s*(?:日期)?(\d{4}[年.\-/]\d{1,2}[月.\-/]\d{1,2})', text)
-        if m: d["起租日期"] = m.group(1).replace("年","-").replace("月","-").replace("/","-").replace(".","-")
-        m = re.search(r'(?:到期|截止|结束)[:：]?\s*(?:日期)?(\d{4}[年.\-/]\d{1,2}[月.\-/]\d{1,2})', text)
-        if m: d["到期日期"] = m.group(1).replace("年","-").replace("月","-").replace("/","-").replace(".","-")
-        m = re.search(r'(?:月租|月费)[:：]?\s*(\d+)\s*(?:元|¥)?', text)
+        m = re.search(r'(?:起租|开始|起始)(?:日期)?\s*[:：]?\s*(\d{4})[年.\-/](\d{1,2})[月.\-/](\d{1,2})日?', text)
+        if m: d["起租日期"] = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+        m = re.search(r'(?:到期|截止|结束)(?:日期)?\s*[:：]?\s*(\d{4})[年.\-/](\d{1,2})[月.\-/](\d{1,2})日?', text)
+        if m: d["到期日期"] = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+        dates = re.findall(r'(\d{4})[年.\-/](\d{1,2})[月.\-/](\d{1,2})日?', text)
+        normalized_dates = [f"{y}-{mo.zfill(2)}-{day.zfill(2)}" for y, mo, day in dates]
+        if "起租日期" not in d and normalized_dates:
+            d["起租日期"] = normalized_dates[0]
+        if "到期日期" not in d and len(normalized_dates) > 1:
+            d["到期日期"] = normalized_dates[1]
+        m = re.search(r'(?:月租|月费)[:：]?\s*(\d+(?:\.\d+)?)\s*(?:元|¥)?', text)
         if m: d["月租"] = m.group(1)
-        m = re.search(r'(?:总租|总租金|总额|合计)[:：]?\s*(\d+)\s*(?:元|¥)?', text)
+        if "月租" not in d:
+            prices = re.findall(r'(?<!\d)(\d+(?:\.\d+)?)(?:\s*(?:元|¥))?(?!\d)', text)
+            date_parts = {part for date_match in dates for part in date_match}
+            candidates = [p for p in prices if p not in date_parts and not re.fullmatch(r'1[3-9]\d{9}', p)]
+            if candidates:
+                d["月租"] = candidates[-1]
+        m = re.search(r'(?:总租|总租金|总额|合计)[:：]?\s*(\d+(?:\.\d+)?)\s*(?:元|¥)?', text)
         if m: d["总租金"] = m.group(1)
-        m = re.search(r'(?:押金)[:：]?\s*(\d+)\s*(?:元|¥)?', text)
+        m = re.search(r'(?:押金)[:：]?\s*(\d+(?:\.\d+)?)\s*(?:元|¥)?', text)
         if m: d["押金"] = m.group(1)
 
         hw = {}
