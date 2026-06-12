@@ -24,7 +24,7 @@ class AutocompleteEntry(ttk.Entry):
         
         super().__init__(parent, textvariable=self._var, width=width or 30, **kwargs)
         
-        self._var.trace_add("write", self._on_entry_change)
+        self._trace_id = self._var.trace_add("write", self._on_entry_change)
         self.bind("<FocusOut>", self._on_focus_out)
         self.bind("<Down>", self._on_key_down)
         self.bind("<Up>", self._on_key_up)
@@ -33,6 +33,7 @@ class AutocompleteEntry(ttk.Entry):
         
         self._selected_index = -1
         self._current_results = []
+        self._popup_hovering = False  # 鼠标是否在弹出窗口内
 
     def _on_entry_change(self, *args):
         """输入变化时查询并显示候选项"""
@@ -46,11 +47,28 @@ class AutocompleteEntry(ttk.Entry):
             query, self._category, limit=20
         )
         
-        if self._current_results:
+        if len(self._current_results) == 1:
+            # 只有一个匹配项时自动选中并填充价格
+            self._hide_popup()
+            self._select_single_item(self._current_results[0])
+        elif len(self._current_results) > 1:
+            # 多个匹配项时显示弹窗供手动选择
             self._show_popup()
             self._selected_index = -1
         else:
+            # 无匹配项时隐藏弹窗
             self._hide_popup()
+
+    def _select_single_item(self, item):
+        """选中唯一匹配项并填充价格"""
+        display_text = f"{item['brand']} {item['model_name']}"
+        # 临时移除 trace 防止递归调用
+        self._var.trace_remove("write", self._trace_id)
+        self._var.set(display_text)
+        self._trace_id = self._var.trace_add("write", self._on_entry_change)
+        
+        if self._on_select_callback:
+            self._on_select_callback(item)
 
     def _show_popup(self):
         """显示候选列表"""
@@ -84,11 +102,13 @@ class AutocompleteEntry(ttk.Entry):
         self._listbox.pack(fill=tk.BOTH, expand=True)
         self._listbox.bind("<Button-1>", self._on_listbox_select)
         self._listbox.bind("<Motion>", self._on_listbox_hover)
+        self._listbox.bind("<Leave>", self._on_listbox_leave)
+        self._popup.bind("<Enter>", self._on_popup_enter)
+        self._popup.bind("<Leave>", self._on_popup_leave)
         
         self._update_popup_content()
         self._popup.deiconify()
         self._popup.lift()
-        self._popup.focus_set()
 
     def _update_popup_content(self):
         """更新弹出窗口内容"""
@@ -126,15 +146,31 @@ class AutocompleteEntry(ttk.Entry):
 
     def _hide_popup(self):
         """隐藏弹出窗口"""
+        self._popup_hovering = False
         if self._popup and self._popup.winfo_exists():
             self._popup.destroy()
             self._popup = None
             self._listbox = None
             self._selected_index = -1
 
+    def _on_popup_enter(self, event=None):
+        """鼠标进入弹出窗口"""
+        self._popup_hovering = True
+
+    def _on_popup_leave(self, event=None):
+        """鼠标离开弹出窗口"""
+        self._popup_hovering = False
+
+    def _on_listbox_leave(self, event=None):
+        """鼠标离开列表"""
+        self._popup_hovering = False
+
     def _on_focus_out(self, event):
-        """失去焦点时隐藏"""
-        self.after(100, self._hide_popup)
+        """失去焦点时隐藏，但如果鼠标还在弹出窗口内则不隐藏"""
+        def check_hide():
+            if not self._popup_hovering:
+                self._hide_popup()
+        self.after(100, check_hide)
 
     def _on_key_down(self, event):
         """下箭头选择下一项"""
