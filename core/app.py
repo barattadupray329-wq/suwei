@@ -11,6 +11,7 @@ from theme.colors import DarkTheme
 from core.data_manager import DataManager
 from modules.dashboard import DashboardFrame
 from modules.rental_mgmt import RentalManagementFrame
+from modules.due_reminder import DueReminderFrame
 
 
 class MainWindow:
@@ -106,7 +107,7 @@ class MainWindow:
     def _create_layout(self):
         """创建主布局"""
         # 顶部栏
-        top_bar = tk.Frame(self.root, bg=DarkTheme.BG_SECONDARY, height=60)
+        top_bar = tk.Frame(self.root, bg=DarkTheme.BG_SECONDARY, height=64)
         top_bar.pack(fill=tk.X, side=tk.TOP)
         top_bar.pack_propagate(False)
         
@@ -116,30 +117,37 @@ class MainWindow:
             font=("微软雅黑", 16, "bold"),
             fg=DarkTheme.ACCENT_CYAN,
             bg=DarkTheme.BG_SECONDARY
-        ).pack(side=tk.LEFT, padx=20)
+        ).pack(side=tk.LEFT, padx=24)
         
         tk.Label(
             top_bar,
             text=f"👤 {self.username}",
-            font=("微软雅黑", 11),
+            font=("微软雅黑", 12),
             fg=DarkTheme.TEXT_SECONDARY,
             bg=DarkTheme.BG_SECONDARY
-        ).pack(side=tk.RIGHT, padx=20)
+        ).pack(side=tk.RIGHT, padx=24)
         
         # 主容器
         main_container = tk.Frame(self.root, bg=DarkTheme.BG_PRIMARY)
         main_container.pack(fill=tk.BOTH, expand=True)
         
         # 左侧导航
-        sidebar = tk.Frame(main_container, bg=DarkTheme.BG_SECONDARY, width=200)
+        sidebar = tk.Frame(main_container, bg=DarkTheme.BG_SECONDARY, width=220)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
+        
+        nav_header = tk.Frame(sidebar, bg=DarkTheme.BG_SECONDARY, height=48)
+        nav_header.pack(fill=tk.X)
+        nav_header.pack_propagate(False)
+        tk.Label(nav_header, text="🧭 导航菜单", font=("微软雅黑", 10, "bold"),
+                 fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_SECONDARY).pack(side=tk.LEFT, padx=14, pady=14)
         
         # 导航按钮
         self.nav_buttons = {}
         nav_items = [
-            ("📊 仪表板", "dashboard"),
-            ("📋 租赁管理", "rental"),
+            ("📊  仪表板", "dashboard"),
+            ("📋  租赁管理", "rental"),
+            ("⏰  到期提醒", "reminder"),
         ]
         
         for i, (text, key) in enumerate(nav_items):
@@ -149,22 +157,51 @@ class MainWindow:
                 style="Nav.TButton",
                 command=lambda k=key: self._switch_module(k)
             )
-            btn.pack(fill=tk.X, padx=10, pady=5)
+            btn.pack(fill=tk.X, padx=12, pady=4)
             self.nav_buttons[key] = btn
         
         # 底部退出按钮
-        tk.Frame(sidebar, bg=DarkTheme.BG_SECONDARY).pack(fill=tk.X, expand=True)
-        logout_btn = ttk.Button(
+        spacer = tk.Frame(sidebar, bg=DarkTheme.BG_SECONDARY)
+        spacer.pack(fill=tk.X, expand=True)
+        
+        tk.Label(spacer, text="", bg=DarkTheme.BG_SECONDARY, height=1,
+                 font=("微软雅黑", 1)).pack(fill=tk.X, padx=12)
+        
+        logout_btn = tk.Button(
             sidebar,
-            text="🚪 退出系统",
-            style="Nav.TButton",
+            text="🚪  退出系统",
+            font=DarkTheme.FONT_LABEL,
+            fg=DarkTheme.TEXT_SECONDARY,
+            bg=DarkTheme.BG_TERTIARY,
+            relief=tk.FLAT,
+            cursor="hand2",
             command=self._handle_logout
         )
-        logout_btn.pack(fill=tk.X, padx=10, pady=(0, 20))
+        logout_btn.pack(fill=tk.X, padx=12, pady=(0, 20))
+        logout_btn.config(height=2)
+        DarkTheme.bind_hover(logout_btn, DarkTheme.BG_TERTIARY, DarkTheme.ACCENT_RED)
         
         # 右侧内容区
         self.content_frame = tk.Frame(main_container, bg=DarkTheme.BG_PRIMARY)
         self.content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # 状态栏
+        self.status_bar = tk.Frame(self.root, bg=DarkTheme.BG_TERTIARY, height=28)
+        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.status_bar.pack_propagate(False)
+        self.status_label = tk.Label(self.status_bar, text="🟢 系统就绪",
+                                     font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_SECONDARY,
+                                     bg=DarkTheme.BG_TERTIARY)
+        self.status_label.pack(side=tk.LEFT, padx=14, pady=4)
+        
+        self.key_hint_label = tk.Label(self.status_bar, text="F1:帮助 | F5:刷新 | Ctrl+F:搜索",
+                                       font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
+                                       bg=DarkTheme.BG_TERTIARY)
+        self.key_hint_label.pack(side=tk.RIGHT, padx=14, pady=4)
+        
+        # 绑定快捷键
+        self.root.bind("<F5>", lambda e: self._refresh_current())
+        self.root.bind("<Control-f>", lambda e: self._focus_search())
         
         # 默认加载仪表板
         self._switch_module("dashboard")
@@ -187,9 +224,30 @@ class MainWindow:
             self.current_module = DashboardFrame(self.content_frame, self.data_manager)
         elif module_key == "rental":
             self.current_module = RentalManagementFrame(self.content_frame, self)
+        elif module_key == "reminder":
+            self.current_module = DueReminderFrame(self.content_frame, self.data_manager)
         
         self.current_module.pack(fill=tk.BOTH, expand=True)
     
+    def _refresh_current(self):
+        """F5 刷新当前模块"""
+        if self.current_module and hasattr(self.current_module, '_refresh'):
+            self.current_module._refresh()
+            self.status_label.config(text="🟢 已刷新")
+            self.root.after(2000, lambda: self.status_label.config(text="🟢 系统就绪"))
+
+    def _focus_search(self):
+        """Ctrl+F 聚焦搜索框"""
+        if self.current_module and hasattr(self.current_module, 'search_var'):
+            try:
+                for child in self.current_module.winfo_children():
+                    for sub in child.winfo_children():
+                        if isinstance(sub, ttk.Entry):
+                            sub.focus_set()
+                            break
+            except Exception:
+                pass
+
     def _handle_logout(self):
         """处理退出"""
         if messagebox.askyesno("确认", "确定要退出系统吗？"):

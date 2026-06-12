@@ -8,6 +8,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from theme.colors import DarkTheme
+from modules.hardware_brands import CPU_BRANDS, GPU_BRANDS, RAM_BRANDS, DISK_BRANDS, OS_OPTIONS
 
 
 class HardwareDialog:
@@ -117,11 +118,23 @@ class HardwareDialog:
         tk.Label(scrollable_frame, text="配置信息", font=("微软雅黑", 10, "bold"),
                  fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(12, 8))
         
-        self.cpu_e = make_row(scrollable_frame, "CPU", self.hardware.get("cpu", ""))
-        self.ram_e = make_row(scrollable_frame, "内存(GB)", self.hardware.get("ram", ""))
-        self.disk_e = make_row(scrollable_frame, "硬盘(GB)", self.hardware.get("disk", ""))
-        self.gpu_e = make_row(scrollable_frame, "显卡", self.hardware.get("gpu", ""))
-        self.os_e = make_row(scrollable_frame, "系统版本", self.hardware.get("os", ""))
+        def make_combo_row(parent, label, values_list, default="", width=28):
+            """创建带下拉建议的输入行"""
+            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
+            row.pack(fill=tk.X, pady=3)
+            tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                     bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
+            combo = ttk.Combobox(row, values=values_list, width=width, font=DarkTheme.FONT_NORMAL)
+            combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            if default:
+                combo.insert(0, str(default))
+            return combo
+
+        self.cpu_e = make_combo_row(scrollable_frame, "CPU", CPU_BRANDS, self.hardware.get("cpu", ""))
+        self.ram_e = make_combo_row(scrollable_frame, "内存", RAM_BRANDS, self.hardware.get("ram", ""))
+        self.disk_e = make_combo_row(scrollable_frame, "硬盘", DISK_BRANDS, self.hardware.get("disk", ""))
+        self.gpu_e = make_combo_row(scrollable_frame, "显卡", GPU_BRANDS, self.hardware.get("gpu", ""))
+        self.os_e = make_combo_row(scrollable_frame, "系统版本", OS_OPTIONS, self.hardware.get("os", ""))
 
         # 额外信息
         tk.Label(scrollable_frame, text="额外信息", font=("微软雅黑", 10, "bold"),
@@ -136,13 +149,17 @@ class HardwareDialog:
         btn_frame = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 14))
         
-        tk.Button(btn_frame, text="💾 保存", font=DarkTheme.FONT_LABEL, fg="white",
+        save_btn = tk.Button(btn_frame, text="💾 保存", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=self._save).pack(side=tk.LEFT, padx=(0, 8))
+                  command=self._save, padx=14, pady=8)
+        save_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
         
-        tk.Button(btn_frame, text="取消", font=DarkTheme.FONT_LABEL, fg="white",
+        cancel_btn = tk.Button(btn_frame, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=self._cancel).pack(side=tk.LEFT)
+                  command=self._cancel, padx=14, pady=8)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
 
     def _save(self):
         """保存硬件信息"""

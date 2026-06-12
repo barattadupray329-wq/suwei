@@ -95,26 +95,16 @@ class RenewHistoryDialog:
 
         btns = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btns.pack(fill=tk.X)
-        tk.Button(
-            btns,
-            text="📤 导出 CSV",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.ACCENT_GREEN,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self._export_csv,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(
-            btns,
-            text="关闭",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.BG_HOVER,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self.win.destroy,
-        ).pack(side=tk.LEFT)
+        exp_btn = tk.Button(btns, text="📤 导出 CSV", font=DarkTheme.FONT_BUTTON, fg="white",
+            bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
+            command=self._export_csv, padx=14, pady=8)
+        exp_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(exp_btn, DarkTheme.ACCENT_GREEN)
+        cls_btn = tk.Button(btns, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
+            bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+            command=self.win.destroy, padx=14, pady=8)
+        cls_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cls_btn, DarkTheme.BG_HOVER)
 
     def _export_csv(self):
         if not self.renew_history:
@@ -222,36 +212,15 @@ class AdvancedFilterDialog:
 
         btns = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btns.pack(fill=tk.X)
-        tk.Button(
-            btns,
-            text="应用筛选",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.ACCENT_BLUE,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self._apply,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(
-            btns,
-            text="清空条件",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.ACCENT_RED,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self._clear,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(
-            btns,
-            text="取消",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.BG_HOVER,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self.win.destroy,
-        ).pack(side=tk.LEFT)
+        for txt, cmd, clr in [
+            ("🔍 应用筛选", self._apply, DarkTheme.ACCENT_BLUE),
+            ("🗑 清空条件", self._clear, DarkTheme.ACCENT_RED),
+            ("取消", self.win.destroy, DarkTheme.BG_HOVER),
+        ]:
+            b = tk.Button(btns, text=txt, font=DarkTheme.FONT_BUTTON, fg="white", bg=clr,
+                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=14, pady=8)
+            b.pack(side=tk.LEFT, padx=3)
+            DarkTheme.bind_hover(b, clr)
 
     def _apply(self):
         self.result = {k: v.get().strip() for k, v in self.entries.items()}
@@ -365,26 +334,16 @@ class ReportDialog:
 
         btns = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btns.pack(fill=tk.X, pady=(12, 0))
-        tk.Button(
-            btns,
-            text="📤 导出报表 CSV",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.ACCENT_GREEN,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=lambda: self._export(stats, total_rent, paid_amount, unpaid_amount),
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(
-            btns,
-            text="关闭",
-            font=DarkTheme.FONT_NORMAL,
-            fg="white",
-            bg=DarkTheme.BG_HOVER,
-            relief=tk.FLAT,
-            cursor="hand2",
-            command=self.win.destroy,
-        ).pack(side=tk.LEFT)
+        exp_btn = tk.Button(btns, text="📤 导出报表 CSV", font=DarkTheme.FONT_BUTTON, fg="white",
+            bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
+            command=lambda: self._export(stats, total_rent, paid_amount, unpaid_amount), padx=14, pady=8)
+        exp_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(exp_btn, DarkTheme.ACCENT_GREEN)
+        cls_btn = tk.Button(btns, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
+            bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+            command=self.win.destroy, padx=14, pady=8)
+        cls_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cls_btn, DarkTheme.BG_HOVER)
 
     def _export(self, stats, total_rent, paid_amount, unpaid_amount):
         fp = filedialog.asksaveasfilename(

@@ -42,7 +42,7 @@ class RentalManagementFrame(ttk.Frame):
                  bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
-        ttk.Entry(ctrl, textvariable=self.search_var, width=28).pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Entry(ctrl, textvariable=self.search_var, width=32, font=DarkTheme.FONT_NORMAL).pack(side=tk.LEFT, padx=(0, 12), ipady=2)
 
         tk.Label(ctrl, text="状态:", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
                  bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
@@ -51,9 +51,15 @@ class RentalManagementFrame(ttk.Frame):
                                          state="readonly", values=["全部", "在租", "已退租", "已丢失", "已买断", "已逾期"])
         self.status_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
-        ttk.Button(ctrl, text="🔄 刷新", command=self._refresh).pack(side=tk.LEFT)
-        ttk.Button(ctrl, text="🤍 高级筛选", command=self._advanced_filter).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Button(ctrl, text="📋 报表", command=self._show_report).pack(side=tk.LEFT, padx=4)
+        for txt, cmd, clr in [
+            ("🔄 刷新", self._refresh, DarkTheme.BG_HOVER),
+            ("🔍 高级筛选", self._advanced_filter, DarkTheme.ACCENT_PURPLE),
+            ("📋 报表", self._show_report, DarkTheme.ACCENT_CYAN),
+        ]:
+            btn = tk.Button(ctrl, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                            relief=tk.FLAT, cursor="hand2", command=cmd, padx=10, pady=4)
+            btn.pack(side=tk.LEFT, padx=3)
+            DarkTheme.bind_hover(btn, clr)
 
         table_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -83,9 +89,11 @@ class RentalManagementFrame(ttk.Frame):
             ("📤 批量导出", self.export_rentals, DarkTheme.ACCENT_GREEN),
             ("🤖 AI 助手", self.open_ai, DarkTheme.ACCENT_PURPLE),
         ]:
-            b = tk.Button(btns, text=txt, font=DarkTheme.FONT_NORMAL, fg="white", bg=sty,
-                           relief=tk.FLAT, cursor="hand2", command=cmd, padx=10, pady=6)
-            b.pack(side=tk.LEFT, padx=4)
+            b = tk.Button(btns, text=txt, font=DarkTheme.FONT_BUTTON, fg="white", bg=sty,
+                           relief=tk.FLAT, cursor="hand2", command=cmd,
+                           padx=DarkTheme.BUTTON_PAD_X, pady=DarkTheme.BUTTON_PAD_Y)
+            b.pack(side=tk.LEFT, padx=3)
+            DarkTheme.bind_hover(b, sty)
 
     def _refresh(self):
         self.dm.check_overdue()
@@ -260,10 +268,11 @@ class RentalManagementFrame(ttk.Frame):
                  bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.W).pack(side=tk.LEFT)
         
         hardware_data = {}
-        hw_btn = tk.Button(hw_row, text="⚙️ 编辑硬件信息", font=DarkTheme.FONT_NORMAL, fg="white",
+        hw_btn = tk.Button(hw_row, text="⚙️ 编辑硬件信息", font=DarkTheme.FONT_BUTTON, fg="white",
                           bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-                          command=lambda: self._edit_hardware_in_dialog(hardware_data))
+                          command=lambda: self._edit_hardware_in_dialog(hardware_data), padx=12, pady=6)
         hw_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(hw_btn, DarkTheme.ACCENT_PURPLE)
 
         tip = tk.Label(main, text="日期格式建议：YYYY-MM-DD（例如 2026-06-11）",
                        font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY)
@@ -348,12 +357,16 @@ class RentalManagementFrame(ttk.Frame):
 
         btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btn.pack(fill=tk.X, pady=(8, 0))
-        tk.Button(btn, text="💾 创建", font=DarkTheme.FONT_LABEL, fg="white",
+        save_btn = tk.Button(btn, text="💾 创建", font=DarkTheme.FONT_BUTTON_BIG, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=save_new).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(btn, text="取消", font=DarkTheme.FONT_LABEL, fg="white",
+                  command=save_new, padx=18, pady=10)
+        save_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
+        cancel_btn = tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON_BIG, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy).pack(side=tk.LEFT)
+                  command=win.destroy, padx=18, pady=10)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
 
     def renew_lease(self):
         rid = self._selected_id()
@@ -409,13 +422,17 @@ class RentalManagementFrame(ttk.Frame):
 
         btn_f = tk.Frame(f, bg=DarkTheme.BG_PRIMARY)
         btn_f.pack(fill=tk.X, pady=(12, 0))
-        tk.Button(btn_f, text="确认续租", font=DarkTheme.FONT_LABEL, fg="white",
+        renew_btn = tk.Button(btn_f, text="✅ 确认续租", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=lambda: self._do_renew(win, rec, lease, total, unit_var, time_e, amt_e, paid_e)
-                  ).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Button(btn_f, text="取消", font=DarkTheme.FONT_LABEL, fg="white",
+                  command=lambda: self._do_renew(win, rec, lease, total, unit_var, time_e, amt_e, paid_e),
+                  padx=14, pady=8)
+        renew_btn.pack(side=tk.LEFT, padx=(0, 10))
+        DarkTheme.bind_hover(renew_btn, DarkTheme.ACCENT_BLUE)
+        cancel_btn = tk.Button(btn_f, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy).pack(side=tk.LEFT)
+                  command=win.destroy, padx=14, pady=8)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
 
     def _field_row(self, parent, label, default=""):
         row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
@@ -641,12 +658,16 @@ class RentalManagementFrame(ttk.Frame):
 
         btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btn.pack(fill=tk.X, pady=(8, 0))
-        tk.Button(btn, text="💾 保存", font=DarkTheme.FONT_LABEL, fg="white",
+        save_btn = tk.Button(btn, text="💾 保存", font=DarkTheme.FONT_BUTTON_BIG, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=save_edit).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(btn, text="取消", font=DarkTheme.FONT_LABEL, fg="white",
+                  command=save_edit, padx=18, pady=10)
+        save_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
+        cancel_btn = tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON_BIG, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy).pack(side=tk.LEFT)
+                  command=win.destroy, padx=18, pady=10)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
 
     def delete_record(self):
         rid = self._selected_id()
@@ -697,12 +718,16 @@ class RentalManagementFrame(ttk.Frame):
 
         btn_row = tk.Frame(mf, bg=DarkTheme.BG_PRIMARY)
         btn_row.pack(anchor=tk.E, pady=(10, 0), fill=tk.X)
-        tk.Button(btn_row, text="📜 续租历史", font=DarkTheme.FONT_LABEL, fg="white",
+        hist_btn = tk.Button(btn_row, text="📜 续租历史", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-                  command=lambda: self._show_renew_history(rec)).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Button(btn_row, text="关闭", font=DarkTheme.FONT_LABEL, fg="white",
+                  command=lambda: self._show_renew_history(rec), padx=14, pady=8)
+        hist_btn.pack(side=tk.LEFT, padx=(0, 6))
+        DarkTheme.bind_hover(hist_btn, DarkTheme.ACCENT_PURPLE)
+        close_btn = tk.Button(btn_row, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy).pack(side=tk.LEFT)
+                  command=win.destroy, padx=14, pady=8)
+        close_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(close_btn, DarkTheme.ACCENT_BLUE)
 
     def export_rentals(self):
         if not self._all:

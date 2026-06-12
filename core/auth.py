@@ -93,7 +93,7 @@ class LoginWindow:
         
         self.root = tk.Tk()
         self.root.title("速维电脑租赁管理系统 - 登录")
-        self.root.geometry("420x520")
+        self.root.geometry("460x600")
         self.root.resizable(False, False)
         self.root.configure(bg=DarkTheme.BG_PRIMARY)
         
@@ -105,8 +105,8 @@ class LoginWindow:
     def _center_window(self):
         """窗口居中"""
         self.root.update_idletasks()
-        width = 420
-        height = 520
+        width = 460
+        height = 600
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
@@ -115,69 +115,73 @@ class LoginWindow:
         """创建登录界面组件"""
         # Logo/标题区域
         title_frame = tk.Frame(self.root, bg=DarkTheme.BG_PRIMARY)
-        title_frame.pack(fill=tk.X, pady=(40, 20))
+        title_frame.pack(fill=tk.X, pady=(50, 30))
         
         tk.Label(
             title_frame,
             text="💻 速维电脑",
-            font=("微软雅黑", 24, "bold"),
+            font=("微软雅黑", 28, "bold"),
             fg=DarkTheme.ACCENT_CYAN,
             bg=DarkTheme.BG_PRIMARY
-        ).pack(pady=(0, 5))
+        ).pack(pady=(0, 8))
         
         tk.Label(
             title_frame,
-            text="租赁管理系统",
-            font=("微软雅黑", 16),
+            text="租赁管理系统 V2",
+            font=("微软雅黑", 14),
             fg=DarkTheme.TEXT_SECONDARY,
             bg=DarkTheme.BG_PRIMARY
         ).pack()
         
         # 登录表单区域
         form_frame = tk.Frame(self.root, bg=DarkTheme.BG_CARD, relief=tk.FLAT)
-        form_frame.pack(fill=tk.X, padx=40, pady=20)
+        form_frame.pack(fill=tk.X, padx=50, pady=20)
         form_frame.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
         
         # 用户名
         tk.Label(
             form_frame,
             text="👤 用户名",
-            font=DarkTheme.FONT_LABEL,
+            font=("微软雅黑", 12),
             fg=DarkTheme.TEXT_SECONDARY,
             bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=20, pady=(20, 5))
+        ).pack(anchor=tk.W, padx=24, pady=(24, 8))
         
+        uname_frame = tk.Frame(form_frame, bg=DarkTheme.BG_CARD)
+        uname_frame.pack(fill=tk.X, padx=24, pady=(0, 16))
         self.username_entry = ttk.Entry(
-            form_frame,
-            font=DarkTheme.FONT_NORMAL,
-            width=25
+            uname_frame,
+            font=("微软雅黑", 13),
+            width=28
         )
-        self.username_entry.pack(fill=tk.X, padx=20, pady=(0, 15))
+        self.username_entry.pack(fill=tk.X, ipady=3)
         self.username_entry.insert(0, "admin")
         
         # 密码
         tk.Label(
             form_frame,
             text="🔒 密码",
-            font=DarkTheme.FONT_LABEL,
+            font=("微软雅黑", 12),
             fg=DarkTheme.TEXT_SECONDARY,
             bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=20, pady=(0, 5))
+        ).pack(anchor=tk.W, padx=24, pady=(0, 8))
         
+        pwd_frame = tk.Frame(form_frame, bg=DarkTheme.BG_CARD)
+        pwd_frame.pack(fill=tk.X, padx=24, pady=(0, 24))
         self.password_entry = ttk.Entry(
-            form_frame,
-            font=DarkTheme.FONT_NORMAL,
-            width=25,
+            pwd_frame,
+            font=("微软雅黑", 13),
+            width=28,
             show="●"
         )
-        self.password_entry.pack(fill=tk.X, padx=20, pady=(0, 20))
+        self.password_entry.pack(fill=tk.X, ipady=3)
         self.password_entry.insert(0, "admin123")
         
         # 登录按钮
         login_btn = tk.Button(
             form_frame,
-            text="🚀 登 录",
-            font=("微软雅黑", 12, "bold"),
+            text="🚀  登  录",
+            font=("微软雅黑", 15, "bold"),
             fg="white",
             bg=DarkTheme.ACCENT_BLUE,
             activebackground=DarkTheme.ACCENT_CYAN,
@@ -186,8 +190,9 @@ class LoginWindow:
             cursor="hand2",
             command=self._handle_login
         )
-        login_btn.pack(fill=tk.X, padx=20, pady=(0, 20))
+        login_btn.pack(fill=tk.X, padx=24, pady=(0, 28))
         login_btn.config(height=2)
+        DarkTheme.bind_hover(login_btn, DarkTheme.ACCENT_BLUE)
         
         # 绑定回车键
         self.root.bind('<Return>', lambda e: self._handle_login())
