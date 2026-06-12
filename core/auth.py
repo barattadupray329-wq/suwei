@@ -85,150 +85,108 @@ class AuthManager:
 
 
 class LoginWindow:
-    """登录窗口"""
-    
+    """登录窗口 — 居中漂浮卡片式"""
+
+    MIN_W, MIN_H = 520, 640
+
     def __init__(self, auth_manager, on_login_success):
         self.auth_manager = auth_manager
         self.on_login_success = on_login_success
-        
-        self.root = tk.Tk()
-        self.root.title("速维电脑租赁管理系统 - 登录")
-        self.root.geometry("860x560")
-        self.root.resizable(False, False)
-        self.root.configure(bg=DarkTheme.BG_PRIMARY)
         self.password_visible = False
-        
-        # 居中显示
+
+        self.root = tk.Tk()
+        self.root.title("速维电脑租赁管理系统 — 登录")
+        self.root.minsize(self.MIN_W, self.MIN_H)
+        self.root.configure(bg=DarkTheme.BG_PRIMARY)
         self._center_window()
-        
         self._create_widgets()
-    
+
     def _center_window(self):
-        """窗口居中"""
         self.root.update_idletasks()
-        width = 860
-        height = 560
-        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.root.winfo_screenheight() // 2) - (height // 2)
-        self.root.geometry(f'{width}x{height}+{x}+{y}')
-    
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w = max(self.MIN_W, min(680, sw - 160))
+        h = max(self.MIN_H, min(760, sh - 140))
+        x, y = (sw - w) // 2, (sh - h) // 2
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+
     def _create_widgets(self):
-        """创建登录界面组件"""
         self._configure_login_styles()
 
-        outer = tk.Frame(self.root, bg=DarkTheme.BG_PRIMARY)
-        outer.pack(fill=tk.BOTH, expand=True, padx=28, pady=28)
+        bg_color = DarkTheme.BG_PRIMARY
+        # ── 顶部品牌区 ──
+        top = tk.Frame(self.root, bg=bg_color)
+        top.pack(fill=tk.X, pady=(40, 0))
+        tk.Label(top, text="速 维", font=("微软雅黑", 36, "bold"),
+                 fg=DarkTheme.ACCENT_PRIMARY, bg=bg_color).pack()
+        tk.Label(top, text="电脑租赁管理系统", font=("微软雅黑", 16),
+                 fg=DarkTheme.TEXT_SECONDARY, bg=bg_color).pack(pady=(2, 0))
 
-        hero = tk.Frame(outer, bg=DarkTheme.BG_SECONDARY, width=330)
-        hero.pack(side=tk.LEFT, fill=tk.BOTH)
-        hero.pack_propagate(False)
-        hero.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        # ── 分隔线 ──
+        sep = tk.Frame(self.root, bg=DarkTheme.ACCENT_PRIMARY, height=2, width=80)
+        sep.pack(pady=(14, 20))
+        sep.pack_propagate(False)
+        sep.config(width=80)
 
-        tk.Label(
-            hero, text="💻", font=("微软雅黑", 54),
-            fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY
-        ).pack(anchor=tk.W, padx=30, pady=(44, 10))
-        tk.Label(
-            hero, text="速维电脑租赁", font=("微软雅黑", 24, "bold"),
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_SECONDARY
-        ).pack(anchor=tk.W, padx=30)
-        tk.Label(
-            hero, text="管理系统 V2.1", font=("微软雅黑", 17, "bold"),
-            fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY
-        ).pack(anchor=tk.W, padx=30, pady=(4, 18))
-        tk.Label(
-            hero,
-            text="SQLite 本地数据库 · 自动 Migration · 版本回溯",
-            font=DarkTheme.FONT_SMALL,
-            fg=DarkTheme.TEXT_SECONDARY,
-            bg=DarkTheme.BG_SECONDARY,
-            wraplength=260,
-            justify=tk.LEFT
-        ).pack(anchor=tk.W, padx=30, pady=(0, 26))
+        # ── 居中卡片 ──
+        card_wrapper = tk.Frame(self.root, bg=bg_color)
+        card_wrapper.pack(fill=tk.BOTH, expand=True, padx=60, pady=(0, 40))
+        card_wrapper.grid_rowconfigure(0, weight=1)
+        card_wrapper.grid_columnconfigure(0, weight=1)
 
-        for icon, title, desc in [
-            ("🗄️", "本地数据安全", "数据保存在本机 data 目录"),
-            ("🔄", "自动升级", "启动时自动检查数据库结构"),
-            ("🧬", "记录可回溯", "关键变更保留历史版本"),
-        ]:
-            item = tk.Frame(hero, bg=DarkTheme.BG_SECONDARY)
-            item.pack(fill=tk.X, padx=30, pady=8)
-            tk.Label(item, text=icon, font=("微软雅黑", 16), fg=DarkTheme.ACCENT_CYAN,
-                     bg=DarkTheme.BG_SECONDARY, width=3, anchor=tk.W).pack(side=tk.LEFT)
-            text_box = tk.Frame(item, bg=DarkTheme.BG_SECONDARY)
-            text_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            tk.Label(text_box, text=title, font=DarkTheme.FONT_BUTTON, fg=DarkTheme.TEXT_PRIMARY,
-                     bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W)
-            tk.Label(text_box, text=desc, font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
-                     bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W)
+        card = tk.Frame(card_wrapper, bg=DarkTheme.BG_CARD,
+                        highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        card.grid(row=0, column=0, sticky="")
 
-        footer = tk.Label(
-            hero, text="Enter 登录 · Esc 清空密码", font=DarkTheme.FONT_SMALL,
-            fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_SECONDARY
-        )
-        footer.pack(side=tk.BOTTOM, anchor=tk.W, padx=30, pady=24)
+        # 卡片内边距
+        inner = tk.Frame(card, bg=DarkTheme.BG_CARD)
+        inner.pack(padx=48, pady=36)
 
-        form_card = tk.Frame(outer, bg=DarkTheme.BG_CARD)
-        form_card.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(18, 0))
-        form_card.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        tk.Label(inner, text="管理员登录", font=("微软雅黑", 20, "bold"),
+                 fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD).pack(pady=(0, 6))
+        tk.Label(inner, text="请使用管理员账号登录系统",
+                 font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_CARD).pack(pady=(0, 24))
 
-        tk.Label(
-            form_card, text="欢迎回来", font=("微软雅黑", 24, "bold"),
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=42, pady=(46, 6))
-        tk.Label(
-            form_card, text="请输入管理员账号，继续管理租赁业务",
-            font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=42, pady=(0, 28))
+        # 用户名
+        self.username_entry = self._build_entry(inner, "用户名", "admin")
+        # 密码
+        self.password_entry = self._build_entry(inner, "密码", "admin123", show="●")
 
-        self.username_entry = self._build_entry(form_card, "👤 用户名", "admin")
-        self.password_entry = self._build_entry(form_card, "🔒 密码", "admin123", show="●")
-
-        action_row = tk.Frame(form_card, bg=DarkTheme.BG_CARD)
-        action_row.pack(fill=tk.X, padx=42, pady=(2, 20))
-        show_btn = tk.Button(
-            action_row, text="👁 显示密码", font=DarkTheme.FONT_SMALL,
+        # 操作行
+        act = tk.Frame(inner, bg=DarkTheme.BG_CARD)
+        act.pack(fill=tk.X, pady=(2, 16))
+        self.show_password_btn = tk.Button(
+            act, text="👁 显示密码", font=DarkTheme.FONT_SMALL,
             fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_TERTIARY,
-            activeforeground="white", activebackground=DarkTheme.ACCENT_BLUE,
-            relief=tk.FLAT, cursor="hand2", command=self._toggle_password
-        )
-        show_btn.pack(side=tk.LEFT)
-        self.show_password_btn = show_btn
-        DarkTheme.bind_hover(show_btn, DarkTheme.BG_TERTIARY, DarkTheme.BG_HOVER)
+            relief=tk.FLAT, cursor="hand2", command=self._toggle_password)
+        self.show_password_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(self.show_password_btn, DarkTheme.BG_TERTIARY, DarkTheme.BG_HOVER)
 
-        clear_btn = tk.Button(
-            action_row, text="清空", font=DarkTheme.FONT_SMALL,
-            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD,
-            activeforeground="white", activebackground=DarkTheme.BG_HOVER,
-            relief=tk.FLAT, cursor="hand2", command=self._clear_form
-        )
-        clear_btn.pack(side=tk.RIGHT)
-        DarkTheme.bind_hover(clear_btn, DarkTheme.BG_CARD, DarkTheme.BG_HOVER)
+        tk.Button(act, text="清空", font=DarkTheme.FONT_SMALL,
+                  fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD,
+                  relief=tk.FLAT, cursor="hand2", command=self._clear_form).pack(side=tk.RIGHT)
 
+        # 状态
         self.status_var = tk.StringVar(value=self._initial_status_text())
-        self.status_label = tk.Label(
-            form_card, textvariable=self.status_var, font=DarkTheme.FONT_SMALL,
-            fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD, anchor=tk.W
-        )
-        self.status_label.pack(fill=tk.X, padx=42, pady=(0, 12))
+        self.status_label = tk.Label(inner, textvariable=self.status_var, font=DarkTheme.FONT_SMALL,
+                                     fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD, anchor=tk.W)
+        self.status_label.pack(fill=tk.X, pady=(0, 14))
 
-        login_btn = tk.Button(
-            form_card, text="🚀  登录系统", font=("微软雅黑", 15, "bold"),
-            fg="white", bg=DarkTheme.ACCENT_BLUE,
-            activebackground=DarkTheme.ACCENT_CYAN, activeforeground="white",
-            relief=tk.FLAT, cursor="hand2", command=self._handle_login
-        )
-        login_btn.pack(fill=tk.X, padx=42, pady=(0, 18), ipady=8)
-        DarkTheme.bind_hover(login_btn, DarkTheme.ACCENT_BLUE, DarkTheme.ACCENT_CYAN)
+        # 登录按钮
+        login_btn = tk.Button(inner, text="登 录 系 统", font=("微软雅黑", 14, "bold"),
+                              fg="white", bg=DarkTheme.ACCENT_PRIMARY,
+                              relief=tk.FLAT, cursor="hand2", command=self._handle_login)
+        login_btn.pack(fill=tk.X, ipady=10)
+        DarkTheme.bind_hover(login_btn, DarkTheme.ACCENT_PRIMARY, DarkTheme.darken(DarkTheme.ACCENT_PRIMARY, 18))
 
-        tk.Label(
-            form_card, text="默认账号：admin / 默认密码：admin123",
-            font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=42)
+        # 底部提示
+        tk.Label(inner, text="默认账号：admin  ·  默认密码：admin123",
+                 font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
+                 bg=DarkTheme.BG_CARD).pack(pady=(12, 0))
+
+        # 全局热键
         self.root.bind('<Return>', lambda e: self._handle_login())
         self.root.bind('<Escape>', lambda e: self._clear_password())
-        
-        # 聚焦到用户名输入框
         self.username_entry.focus()
 
     def _configure_login_styles(self):
@@ -245,15 +203,14 @@ class LoginWindow:
 
     def _build_entry(self, parent, label, default="", show=None):
         """创建统一样式输入框"""
-        tk.Label(
-            parent, text=label, font=DarkTheme.FONT_LABEL,
-            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=42, pady=(0, 8))
+        tk.Label(parent, text=label, font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(
+            anchor=tk.W, pady=(0, 6))
         wrap = tk.Frame(parent, bg=DarkTheme.BG_INPUT)
-        wrap.pack(fill=tk.X, padx=42, pady=(0, 18))
+        wrap.pack(fill=tk.X, pady=(0, 16))
         wrap.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        entry = ttk.Entry(wrap, font=("微软雅黑", 13), style="Login.TEntry", show=show)
-        entry.pack(fill=tk.X, ipady=3)
+        entry = ttk.Entry(wrap, font=("微软雅黑", 14), style="Login.TEntry", show=show)
+        entry.pack(fill=tk.X, ipady=4)
         entry.insert(0, default)
         entry.bind("<FocusIn>", lambda e, frame=wrap: frame.configure(highlightbackground=DarkTheme.BORDER_FOCUS))
         entry.bind("<FocusOut>", lambda e, frame=wrap: frame.configure(highlightbackground=DarkTheme.BORDER_COLOR))
