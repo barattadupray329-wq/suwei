@@ -131,6 +131,27 @@ class AIAssistantFrame(ttk.Frame):
         if m: d["月租"] = m.group(1)
         return d
 
+    def _extract_components(self, text):
+        """从成本计算器文本中提取配件和价格"""
+        components = []
+        for line in text.strip().split("\n"):
+            line = line.strip()
+            if not line: continue
+            # 格式: 配件名 价格 (末尾)
+            m = re.search(r'([\u4e00-\u9fa5a-zA-Z0-9\s:：\-/＋+]+?)\s+(\d+(?:\.\d+)?)\s*$', line)
+            if m:
+                name = m.group(1).strip().rstrip(",，")
+                price = float(m.group(2))
+                if price > 0: components.append({"name": name, "price": price})
+                continue
+            # 格式: 配件名: 价格
+            m = re.search(r'([\u4e00-\u9fa5a-zA-Z0-9\s\-/]+)[:：](\d+(?:\.\d+)?)', line)
+            if m:
+                name = m.group(1).strip()
+                price = float(m.group(2))
+                if price > 0: components.append({"name": name, "price": price})
+        return components
+
     def _do_smart_fill(self):
         txt = self.af_input.get("1.0", tk.END).strip()
         if not txt:
