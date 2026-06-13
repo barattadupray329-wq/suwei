@@ -20,8 +20,9 @@ print("[PASS] 02. modules.logger")
 tests.append(True)
 
 # 3. Hardware brands
-from modules.hardware_brands import CPU_BRANDS, GPU_BRANDS, BRAND_MAP, REFERENCE_PRICES
-print(f"[PASS] 03. modules.hardware_brands ({len(CPU_BRANDS)} CPUs, {len(GPU_BRANDS)} GPUs, {len(REFERENCE_PRICES)} prices)")
+from modules.hardware_brands import CPU_BRANDS, GPU_BRANDS, BRAND_MAP
+from modules.hardware_models import HARDWARE_MODELS
+print(f"[PASS] 03. modules.hardware_brands ({len(CPU_BRANDS)} CPUs, {len(GPU_BRANDS)} GPUs, {len(HARDWARE_MODELS)} models)")
 tests.append(True)
 
 # 4. Token manager
