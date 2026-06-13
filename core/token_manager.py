@@ -5,9 +5,12 @@
 """
 
 import json
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta
+
+logger = logging.getLogger("suwei_app")
 
 
 class TokenManager:
@@ -33,7 +36,7 @@ class TokenManager:
             with open(self.token_file, "w", encoding="utf-8") as f:
                 json.dump(self.tokens, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存令牌失败: {e}")
+            logger.error(f"保存令牌失败: {e}")
 
     def generate(self, username: str) -> str:
         """生成24小时有效令牌"""

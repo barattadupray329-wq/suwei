@@ -23,8 +23,17 @@ class RenewHistoryDialog:
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
         self._center()
         self._build()
+
+    def _on_close(self):
+        """安全关闭窗口，释放 grab"""
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
 
     def _center(self):
         self.win.update_idletasks()
@@ -208,8 +217,17 @@ class AdvancedFilterDialog:
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
         self._center()
         self._build()
+
+    def _on_close(self):
+        """安全关闭窗口，释放 grab"""
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
 
     def _center(self):
         self.win.update_idletasks()
@@ -311,8 +329,17 @@ class ReportDialog:
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
         self._center()
         self._build()
+
+    def _on_close(self):
+        """安全关闭窗口，释放 grab"""
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
 
     def _center(self):
         self.win.update_idletasks()
@@ -406,7 +433,7 @@ class ReportDialog:
         DarkTheme.bind_hover(exp_btn, DarkTheme.ACCENT_GREEN)
         cls_btn = tk.Button(btns, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
             bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-            command=self.win.destroy, padx=14, pady=8)
+            command=self._on_close, padx=14, pady=8)
         cls_btn.pack(side=tk.LEFT)
         DarkTheme.bind_hover(cls_btn, DarkTheme.BG_HOVER)
 
@@ -429,6 +456,15 @@ class ReportDialog:
         win.transient(self.win)
         win.grab_set()
         win.configure(bg=DarkTheme.BG_PRIMARY)
+
+        def _safe_close(w=win):
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _safe_close)
 
         main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
@@ -500,7 +536,7 @@ class ReportDialog:
                   command=lambda: self._save_chart(fig), padx=14, pady=6).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(btn_row, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy, padx=14, pady=6).pack(side=tk.LEFT)
+                  command=_safe_close, padx=14, pady=6).pack(side=tk.LEFT)
 
     def _save_chart(self, fig):
         """保存图表为图片"""

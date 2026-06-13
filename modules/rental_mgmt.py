@@ -846,40 +846,16 @@ class RentalManagementFrame(ttk.Frame):
     def _show_ai_panel(self):
         """右侧显示 AI 助手面板"""
         self._clear_right_panel()
-
-        canvas = tk.Canvas(self._right_frame, bg=DarkTheme.BG_PRIMARY, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self._right_frame, orient="vertical", command=canvas.yview)
-        content = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
-        content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
-                                                                width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=400)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        def _on_canvas_configure(event):
-            canvas.itemconfig(canvas_frame, width=event.width)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        # 标题
-        hdr = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
-        hdr.pack(fill=tk.X, padx=12, pady=(12, 8))
-        tk.Label(hdr, text="🤖 AI 助手", font=DarkTheme.FONT_SUBTITLE,
-                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
-        tk.Button(hdr, text="✕", font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
-                  bg=DarkTheme.BG_PRIMARY, relief=tk.FLAT, cursor="hand2",
-                  command=self._show_right_placeholder).pack(side=tk.RIGHT)
-
-        tk.Label(content, text="AI 助手功能开发中，敬请期待",
-                 font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_MUTED,
-                 bg=DarkTheme.BG_PRIMARY).pack(pady=40)
-        tk.Button(content, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=self._show_right_placeholder, padx=14, pady=8).pack(pady=(20, 0))
+        
+        from modules.ai_assistant_frame import AIAssistantFrame
+        ai_frame = AIAssistantFrame(
+            self._right_frame,
+            self,
+            self.dm,
+            on_record_created=lambda rec: self._refresh(),
+            on_navigate_to_record=lambda rid: self._navigate_to_record(rid)
+        )
+        ai_frame.pack(fill=tk.BOTH, expand=True)
 
     def _batch_operations(self):
         """批量操作对话框"""
@@ -894,6 +870,15 @@ class RentalManagementFrame(ttk.Frame):
         x = (win.winfo_screenwidth() // 2) - (w // 2)
         y = (win.winfo_screenheight() // 2) - (h // 2)
         win.geometry(f"{w}x{h}+{x}+{y}")
+
+        def _safe_close(w=win):
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _safe_close)
 
         main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
@@ -941,7 +926,7 @@ class RentalManagementFrame(ttk.Frame):
                   padx=14, pady=8).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy, padx=14, pady=8).pack(side=tk.LEFT)
+                  command=_safe_close, padx=14, pady=8).pack(side=tk.LEFT)
 
     def _execute_batch(self, scope, action, win):
         """执行批量操作"""
@@ -980,6 +965,15 @@ class RentalManagementFrame(ttk.Frame):
         status_win.grab_set()
         status_win.configure(bg=DarkTheme.BG_PRIMARY)
 
+        def _safe_close(w=status_win):
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+
+        status_win.protocol("WM_DELETE_WINDOW", _safe_close)
+
         main = tk.Frame(status_win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
@@ -999,7 +993,7 @@ class RentalManagementFrame(ttk.Frame):
                   padx=14, pady=6).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=status_win.destroy, padx=14, pady=6).pack(side=tk.LEFT)
+                  command=_safe_close, padx=14, pady=6).pack(side=tk.LEFT)
 
     def _do_batch_status(self, records, new_status, status_win, batch_win):
         """执行批量状态更改"""
@@ -1732,6 +1726,23 @@ class RentalManagementFrame(ttk.Frame):
         y = (win.winfo_screenheight() // 2) - 175
         win.geometry(f"400x350+{x}+{y}")
 
+        def _safe_close(w=win):
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _safe_close)
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text=f"租赁人: {name}", font=DarkTheme.FONT_LABEL,
+            w.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _safe_close)
+
         main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
@@ -1756,7 +1767,7 @@ class RentalManagementFrame(ttk.Frame):
                   command=lambda: self._process_payment(rec, refs, win), padx=14, pady=8).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy, padx=14, pady=8).pack(side=tk.LEFT)
+                  command=_safe_close, padx=14, pady=8).pack(side=tk.LEFT)
 
     def _process_payment(self, rec, refs, win):
         """处理收款记录"""
@@ -1794,6 +1805,26 @@ class RentalManagementFrame(ttk.Frame):
             messagebox.showerror("错误", "金额格式不正确")
         except Exception as e:
             messagebox.showerror("错误", f"收款失败: {e}")
+
+    def _navigate_to_record(self, rid):
+        """从AI助手导航到指定记录"""
+        rec = self._find_record(rid)
+        if rec:
+            # 清除搜索过滤以显示完整列表
+            self.search_var.set("")
+            self.status_var.set("全部")
+            self._shown = list(self._all)
+            self._render_tree()
+            # 选中对应记录并显示详情
+            for item in self.tree.get_children():
+                if self.tree.item(item)["values"][0] == rid:
+                    self.tree.selection_set(item)
+                    self.tree.focus(item)
+                    self.tree.see(item)
+                    break
+            self._show_detail_panel(rec)
+        else:
+            messagebox.showinfo("提示", f"未找到记录 {rid}")
 
     def _export_contract(self, rec):
         """导出租赁合同为文本文件"""

@@ -39,8 +39,17 @@ class HardwareDialog:
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
         self._center_window(900, 620)
         self._build_ui()
+
+    def _on_close(self):
+        """安全关闭窗口，释放 grab"""
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
 
     def _center_window(self, w, h):
         self.win.update_idletasks()
@@ -233,8 +242,17 @@ class HardwareItemDialog:
         self.win.transient(parent)
         self.win.grab_set()
         self.win.configure(bg=DarkTheme.BG_PRIMARY)
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
         self._center(750, 600)
         self._build()
+
+    def _on_close(self):
+        """安全关闭窗口，释放 grab"""
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
 
     def _center(self, w, h):
         self.win.update_idletasks()

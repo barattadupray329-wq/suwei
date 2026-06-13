@@ -185,6 +185,15 @@ class DashboardFrame(ttk.Frame):
         y = (win.winfo_screenheight() // 2) - 250
         win.geometry(f"800x500+{x}+{y}")
 
+        def _safe_close(w=win):
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _safe_close)
+
         main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
@@ -241,7 +250,7 @@ class DashboardFrame(ttk.Frame):
         btn.pack(fill=tk.X, pady=(8, 0))
         tk.Button(btn, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=win.destroy, padx=20, pady=8).pack(side=tk.LEFT)
+                  command=_safe_close, padx=20, pady=8).pack(side=tk.LEFT)
         DarkTheme.bind_hover(btn.winfo_children()[0], DarkTheme.BG_HOVER)
 
     def _export_report(self):
