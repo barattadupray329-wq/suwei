@@ -13,6 +13,7 @@ from modules.dashboard import DashboardFrame
 from modules.rental_mgmt import RentalManagementFrame
 from modules.due_reminder import DueReminderFrame
 from modules.hardware_brands_ui import HardwareBrandFrame
+from modules.user_mgmt import UserManagementFrame
 
 
 class MainWindow:
@@ -135,6 +136,7 @@ class MainWindow:
             ("📋  租赁管理",      "rental"),
             ("⏰  到期提醒",      "reminder"),
             ("💻  硬件品牌库",    "hardware_brands"),
+            ("👥  用户管理",      "user_mgmt"),
         ]
         for text, key in nav_items:
             btn = ttk.Button(sidebar, text=text, style="Nav.TButton",
@@ -198,8 +200,23 @@ class MainWindow:
             self.current_module = DueReminderFrame(self.content_frame, self.data_manager)
         elif module_key == "hardware_brands":
             self.current_module = HardwareBrandFrame(self.content_frame, self.data_manager)
+        elif module_key == "user_mgmt":
+            user_role = self._get_user_role()
+            self.current_module = UserManagementFrame(self.content_frame, self.data_manager, user_role)
 
         self.current_module.pack(fill=tk.BOTH, expand=True)
+    
+    def _get_user_role(self):
+        """获取当前用户角色"""
+        try:
+            settings = self.data_manager.data.get("settings", {})
+            users = settings.get("users", [])
+            for user in users:
+                if user.get("username") == self.username:
+                    return user.get("role", "admin")
+        except Exception:
+            pass
+        return "admin"
     
     def _refresh_current(self):
         """F5 刷新当前模块"""

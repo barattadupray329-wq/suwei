@@ -87,6 +87,7 @@ class RentalManagementFrame(ttk.Frame):
         for txt, cmd, clr in [
             ("🔍 高级筛选", self._advanced_filter, DarkTheme.ACCENT_PURPLE),
             ("📋 报表", self._show_report, DarkTheme.ACCENT_CYAN),
+            ("⚡ 批量操作", self._batch_operations, DarkTheme.ACCENT_YELLOW),
         ]:
             b = tk.Button(btn_row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
                            relief=tk.FLAT, cursor="hand2", command=cmd, padx=10, pady=4)
@@ -222,7 +223,9 @@ class RentalManagementFrame(ttk.Frame):
             ("✏️ 编辑", lambda r=rec: self._show_edit_form(r), DarkTheme.ACCENT_YELLOW),
             ("🔄 续租", lambda r=rec: self._show_renew_form(r), DarkTheme.ACCENT_BLUE),
             ("📜 续租历史", lambda r=rec: self._show_renew_history(r), DarkTheme.ACCENT_PURPLE),
+            ("💰 收款", lambda r=rec: self._show_payment_form(r), DarkTheme.ACCENT_GREEN),
             ("⚙️ 硬件", lambda r=rec: self._edit_hardware_in_record(r), DarkTheme.ACCENT_CYAN),
+            ("📄 合同", lambda r=rec: self._export_contract(r), DarkTheme.ACCENT_PRIMARY),
         ]:
             b = tk.Button(btn_row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
                            relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
@@ -878,6 +881,251 @@ class RentalManagementFrame(ttk.Frame):
                   bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
                   command=self._show_right_placeholder, padx=14, pady=8).pack(pady=(20, 0))
 
+    def _batch_operations(self):
+        """批量操作对话框"""
+        win = tk.Toplevel(self)
+        win.title("⚡ 批量操作")
+        win.geometry("500x450")
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        win.update_idletasks()
+        w, h = 500, 450
+        x = (win.winfo_screenwidth() // 2) - (w // 2)
+        y = (win.winfo_screenheight() // 2) - (h // 2)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text="⚡ 批量操作", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_YELLOW, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
+
+        # 筛选条件
+        filter_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        filter_frame.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Label(filter_frame, text="操作范围：", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W)
+        
+        scope_var = tk.StringVar(value="selected")
+        for val, txt in [("selected", "已选中项"), ("current_filter", "当前筛选结果"), ("all", "全部记录")]:
+            tk.Radiobutton(filter_frame, text=txt, variable=scope_var, value=val,
+                          font=DarkTheme.FONT_NORMAL, bg=DarkTheme.BG_PRIMARY,
+                          fg=DarkTheme.TEXT_PRIMARY, selectcolor=DarkTheme.ACCENT_BLUE).pack(anchor=tk.W)
+
+        tk.Label(main, text="操作类型：", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(10, 4))
+
+        action_var = tk.StringVar(value="status_change")
+        action_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        action_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        actions = [
+            ("status_change", "📝 批量更改状态"),
+            ("export", "📤 批量导出为 Excel"),
+            ("renew", "🔄 批量续租（加 1 个月）"),
+            ("delete", "🗑️ 批量删除"),
+        ]
+        for val, txt in actions:
+            tk.Radiobutton(action_frame, text=txt, variable=action_var, value=val,
+                          font=DarkTheme.FONT_NORMAL, bg=DarkTheme.BG_PRIMARY,
+                          fg=DarkTheme.TEXT_PRIMARY, selectcolor=DarkTheme.ACCENT_BLUE).pack(anchor=tk.W)
+
+        # 操作按钮
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X, pady=(16, 0))
+        tk.Button(btn, text="✅ 执行操作", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                  command=lambda: self._execute_batch(scope_var.get(), action_var.get(), win),
+                  padx=14, pady=8).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=win.destroy, padx=14, pady=8).pack(side=tk.LEFT)
+
+    def _execute_batch(self, scope, action, win):
+        """执行批量操作"""
+        # 获取目标记录
+        if scope == "selected":
+            selected = self.tree.selection()
+            if not selected:
+                messagebox.showwarning("提示", "请先在列表中选中记录")
+                return
+            target_ids = [self.tree.item(iid)["values"][0] for iid in selected]
+            target_records = [self._find_record(rid) for rid in target_ids]
+        elif scope == "current_filter":
+            target_records = list(self._shown)
+        else:  # all
+            target_records = list(self._all)
+
+        if not target_records:
+            messagebox.showinfo("提示", "没有可操作的记录")
+            return
+
+        if action == "status_change":
+            self._batch_status_change(target_records, win)
+        elif action == "export":
+            self._batch_export(target_records, win)
+        elif action == "renew":
+            self._batch_renew(target_records, win)
+        elif action == "delete":
+            self._batch_delete(target_records, win)
+
+    def _batch_status_change(self, records, win):
+        """批量更改状态"""
+        status_win = tk.Toplevel(win)
+        status_win.title("📝 批量更改状态")
+        status_win.geometry("350x180")
+        status_win.transient(win)
+        status_win.grab_set()
+        status_win.configure(bg=DarkTheme.BG_PRIMARY)
+
+        main = tk.Frame(status_win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text=f"将 {len(records)} 条记录更改为：", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 8))
+
+        status_var = tk.StringVar(value="在租")
+        status_combo = ttk.Combobox(main, textvariable=status_var, state="readonly",
+                                    values=["在租", "已退租", "已丢失", "已买断", "已逾期"], width=20)
+        status_combo.pack(fill=tk.X, pady=(0, 12))
+
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X)
+        tk.Button(btn, text="✅ 确认", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                  command=lambda: self._do_batch_status(records, status_var.get(), status_win, win),
+                  padx=14, pady=6).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=status_win.destroy, padx=14, pady=6).pack(side=tk.LEFT)
+
+    def _do_batch_status(self, records, new_status, status_win, batch_win):
+        """执行批量状态更改"""
+        if not messagebox.askyesno("确认", f"确定将 {len(records)} 条记录更改为「{new_status}」吗？"):
+            return
+        
+        count = 0
+        for rec in records:
+            rec["status"] = new_status
+            self.dm.refresh_record_business_fields(rec)
+            count += 1
+        
+        self.dm.save()
+        messagebox.showinfo("成功", f"已批量更改 {count} 条记录状态为「{new_status}」")
+        status_win.destroy()
+        batch_win.destroy()
+        self._refresh()
+
+    def _batch_export(self, records, win):
+        """批量导出为 Excel"""
+        fp = filedialog.asksaveasfilename(
+            title="批量导出记录",
+            defaultextension=".xlsx",
+            filetypes=[("Excel 文件", "*.xlsx"), ("所有文件", "*.*")],
+            initialfile=f"批量导出_{len(records)}条_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        )
+        if not fp:
+            return
+        
+        try:
+            from openpyxl import Workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "租赁记录"
+
+            headers = ["记录ID", "数量", "租赁人", "联系电话", "身份证", "地址",
+                      "起租日期", "到期日期", "月租", "总租金", "押金", "已付金额", "未付金额", "逾期天数", "状态"]
+            for col, h in enumerate(headers, 1):
+                ws.cell(row=1, column=col, value=h)
+
+            for row_idx, rec in enumerate(records, 2):
+                renter = rec.get("renter", {})
+                lease = rec.get("lease_info", {})
+                ws.cell(row=row_idx, column=1, value=rec.get("id", ""))
+                ws.cell(row=row_idx, column=2, value=int(rec.get("quantity", 1)))
+                ws.cell(row=row_idx, column=3, value=renter.get("name", ""))
+                ws.cell(row=row_idx, column=4, value=renter.get("phone", ""))
+                ws.cell(row=row_idx, column=5, value=renter.get("id_card", ""))
+                ws.cell(row=row_idx, column=6, value=renter.get("address", ""))
+                ws.cell(row=row_idx, column=7, value=lease.get("start_date", ""))
+                ws.cell(row=row_idx, column=8, value=lease.get("end_date", ""))
+                ws.cell(row=row_idx, column=9, value=float(lease.get("monthly_rent", 0) or 0))
+                ws.cell(row=row_idx, column=10, value=float(lease.get("total_rent", 0) or 0))
+                ws.cell(row=row_idx, column=11, value=float(lease.get("deposit", 0) or 0))
+                ws.cell(row=row_idx, column=12, value=float(rec.get("paid_amount", 0) or 0))
+                ws.cell(row=row_idx, column=13, value=float(rec.get("unpaid_amount", 0) or 0))
+                ws.cell(row=row_idx, column=14, value=int(rec.get("overdue_days", 0) or 0))
+                ws.cell(row=row_idx, column=15, value=rec.get("status", ""))
+
+            wb.save(fp)
+            messagebox.showinfo("成功", f"已导出 {len(records)} 条记录\n{fp}")
+            win.destroy()
+        except ImportError:
+            messagebox.showerror("错误", "缺少 openpyxl 库，请先安装: pip install openpyxl")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败：{e}")
+
+    def _batch_renew(self, records, win):
+        """批量续租（加 1 个月）"""
+        if not messagebox.askyesno("确认续租", f"确定将 {len(records)} 条在租记录续租 1 个月吗？"):
+            return
+        
+        count = 0
+        for rec in records:
+            if rec.get("status") not in ("在租", "已逾期"):
+                continue
+            lease = rec.get("lease_info", {})
+            end_str = lease.get("end_date", "")
+            if not end_str:
+                continue
+            
+            try:
+                cur_end = datetime.strptime(end_str, "%Y-%m-%d")
+                new_end = cur_end + timedelta(days=30)
+                monthly_rent = float(lease.get("monthly_rent", 0) or 0)
+                
+                lease["end_date"] = new_end.strftime("%Y-%m-%d")
+                lease["total_rent"] = float(lease.get("total_rent", 0) or 0) + monthly_rent
+                
+                rec.setdefault("renew_history", []).append({
+                    "renew_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "renew_time": 1.0, "renew_unit": "月", "renew_amount": monthly_rent,
+                    "old_end_date": cur_end.strftime("%Y-%m-%d"),
+                    "new_end_date": new_end.strftime("%Y-%m-%d"),
+                    "operator": self.app.username or "系统",
+                })
+                self.dm.refresh_record_business_fields(rec)
+                count += 1
+            except Exception:
+                continue
+        
+        if count > 0:
+            self.dm.save()
+            messagebox.showinfo("成功", f"已批量续租 {count} 条记录")
+        else:
+            messagebox.showinfo("提示", "没有可续租的记录")
+        
+        win.destroy()
+        self._refresh()
+
+    def _batch_delete(self, records, win):
+        """批量删除"""
+        if not messagebox.askyesno("确认删除", f"确定删除 {len(records)} 条记录吗？此操作不可恢复！"):
+            return
+        
+        count = 0
+        for rec in records:
+            rid = rec.get("id", "")
+            if rid:
+                self.dm.delete_record(rid)
+                count += 1
+        
+        messagebox.showinfo("成功", f"已批量删除 {count} 条记录")
+        win.destroy()
+        self._refresh()
+
     def _clear_right_panel(self):
         """清空右侧面板"""
         self._current_form_refs = {}
@@ -1461,4 +1709,171 @@ class RentalManagementFrame(ttk.Frame):
             self._refresh()
         except Exception as e:
             messagebox.showerror("错误", f"续租失败：{e}")
+
+    def _show_payment_form(self, rec):
+        """收款记录弹窗"""
+        from tkinter import simpledialog
+        rid = rec.get("id", "")
+        renter = rec.get("renter", {})
+        name = renter.get("name", "")
+        paid = float(rec.get("paid_amount", 0) or 0)
+        total = float(rec.get("lease_info", {}).get("total_rent", 0) or 0)
+        unpaid = total - paid
+
+        # 弹出收款对话框
+        win = tk.Toplevel(self)
+        win.title(f"💰 收款 - {rid}")
+        win.geometry("400x350")
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        win.update_idletasks()
+        x = (win.winfo_screenwidth() // 2) - 200
+        y = (win.winfo_screenheight() // 2) - 175
+        win.geometry(f"400x350+{x}+{y}")
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text=f"租赁人: {name}", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 4))
+        tk.Label(main, text=f"总租金: ¥{total:.2f}", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 4))
+        tk.Label(main, text=f"已付: ¥{paid:.2f}", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 4))
+        tk.Label(main, text=f"未付: ¥{unpaid:.2f}", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.ACCENT_RED if unpaid > 0 else DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 12))
+
+        refs = {}
+        refs['amount_e'] = self._make_field(main, "收款金额", str(unpaid) if unpaid > 0 else "")
+        refs['method_e'] = self._make_field(main, "收款方式", "现金")
+        refs['note_e'] = self._make_field(main, "备注", "")
+
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X, pady=(12, 0))
+        tk.Button(btn, text="✅ 确认收款", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
+                  command=lambda: self._process_payment(rec, refs, win), padx=14, pady=8).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=win.destroy, padx=14, pady=8).pack(side=tk.LEFT)
+
+    def _process_payment(self, rec, refs, win):
+        """处理收款记录"""
+        try:
+            amount_str = refs['amount_e'].get().strip()
+            if not amount_str:
+                messagebox.showwarning("提示", "请输入收款金额")
+                return
+            amount = float(amount_str)
+            if amount <= 0:
+                messagebox.showwarning("提示", "金额必须大于 0")
+                return
+
+            method = refs['method_e'].get().strip() or "现金"
+            note = refs['note_e'].get().strip()
+
+            old_paid = float(rec.get("paid_amount", 0) or 0)
+            rec["paid_amount"] = old_paid + amount
+
+            # 记录付款历史
+            self.dm.append_payment_history(
+                rec, amount, operator=self.app.username or "系统",
+                method=method, note=note
+            )
+
+            self.dm.refresh_record_business_fields(rec)
+            self.dm.save()
+
+            new_unpaid = float(rec.get("lease_info", {}).get("total_rent", 0) or 0) - rec["paid_amount"]
+            messagebox.showinfo("成功", f"收款 ¥{amount:.2f} 已记录\n剩余未付: ¥{max(0, new_unpaid):.2f}")
+            win.destroy()
+            self._show_detail_panel(rec)
+            self._refresh()
+        except ValueError:
+            messagebox.showerror("错误", "金额格式不正确")
+        except Exception as e:
+            messagebox.showerror("错误", f"收款失败: {e}")
+
+    def _export_contract(self, rec):
+        """导出租赁合同为文本文件"""
+        from tkinter import filedialog
+        rid = rec.get("id", "")
+        renter = rec.get("renter", {})
+        lease = rec.get("lease_info", {})
+        name = renter.get("name", "")
+        phone = renter.get("phone", "")
+        id_card = renter.get("id_card", "")
+        address = renter.get("address", "")
+        start_date = lease.get("start_date", "")
+        end_date = lease.get("end_date", "")
+        monthly_rent = float(lease.get("monthly_rent", 0) or 0)
+        total_rent = float(lease.get("total_rent", 0) or 0)
+        deposit = float(lease.get("deposit", 0) or 0)
+        quantity = int(rec.get("quantity", 1) or 1)
+        status = rec.get("status", "")
+        paid_amount = float(rec.get("paid_amount", 0) or 0)
+        hardware = rec.get("hardware", {})
+        hardware_summary = self.dm.summarize_hardware(rec)
+
+        contract_text = f"""========================================
+        速维电脑租赁合同
+========================================
+
+合同编号: {rid}
+签订日期: {start_date}
+
+【出租方】
+名称: 速维电脑租赁
+联系电话: 13800138000
+地址: XX市XX区XX路XX号
+
+【承租方】
+姓名: {name}
+联系电话: {phone}
+身份证号: {id_card}
+联系地址: {address}
+
+【租赁物品清单】
+数量: {quantity} 套
+{hardware_summary}
+
+【租赁期限】
+起租日期: {start_date}
+到期日期: {end_date}
+
+【租金及押金】
+月租金: ¥{monthly_rent:.2f}
+总租金: ¥{total_rent:.2f}
+押金: ¥{deposit:.2f}
+已付金额: ¥{paid_amount:.2f}
+未付金额: ¥{max(0, total_rent - paid_amount):.2f}
+
+【合同状态】
+当前状态: {status}
+
+【备注】
+{rec.get("notes", "无")}
+
+========================================
+出租方签字: ______________    日期: ____________
+承租方签字: ______________    日期: ____________
+========================================
+"""
+
+        fp = filedialog.asksaveasfilename(
+            title="导出租赁合同",
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+            initialfile=f"租赁合同_{rid}_{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        )
+        if not fp:
+            return
+
+        try:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(contract_text)
+            messagebox.showinfo("成功", f"合同已导出\n{fp}")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
 

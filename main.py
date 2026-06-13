@@ -22,7 +22,7 @@ def main():
     dm = DataManager()
     auth = AuthManager(dm)
 
-    def on_login_success(username: str):
+    def on_login_success(username: str, user_role: str = "admin"):
         """登录成功后启动主应用"""
         from core.app import MainWindow
         # 使用闭包捕获 dm，避免作用域错误

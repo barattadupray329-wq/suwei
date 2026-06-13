@@ -126,12 +126,13 @@ class HardwareBrandFrame(ttk.Frame):
                                     fg=DarkTheme.TEXT_PRIMARY,
                                     activebackground=DarkTheme.ACCENT_BLUE,
                                     activeforeground="white")
+        self.context_menu.add_command(label="📋 查看型号", command=self._show_brand_models)
         self.context_menu.add_command(label="🗑 删除选中", command=self._delete_selected)
         self.context_menu.add_command(label="✏️ 编辑名称", command=self._rename_selected)
         self.tree.bind("<Button-3>", self._show_context_menu)
 
-        # 双击编辑
-        self.tree.bind("<Double-1>", lambda e: self._rename_selected())
+        # 双击查看型号
+        self.tree.bind("<Double-1>", lambda e: self._show_brand_models())
 
         # 键盘删除
         self.tree.bind("<Delete>", lambda e: self._delete_selected())
@@ -151,6 +152,7 @@ class HardwareBrandFrame(ttk.Frame):
         # 操作按钮
         btn_opts = [
             ("➕ 添加品牌", self._add_brand, DarkTheme.ACCENT_BLUE),
+            ("📋 查看型号", self._show_brand_models, DarkTheme.ACCENT_CYAN),
             ("🗑 删除选中", self._delete_selected, DarkTheme.ACCENT_RED),
             ("📥 从文本导入", self._import_from_text, DarkTheme.ACCENT_GREEN),
             ("📄 从 CSV 导入", self._import_csv, DarkTheme.ACCENT_GREEN),
@@ -253,6 +255,82 @@ class HardwareBrandFrame(ttk.Frame):
             self.manager.delete_brand(self.current_category, old_name)
             self._load_brands()
             self.count_label.config(text=f"✅ 已重命名「{old_name}」→「{new_name}」")
+
+    def _show_brand_models(self):
+        """查看当前品牌下的所有型号"""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("提示", "请先选择一个品牌")
+            return
+        iid = selected[0]
+        display_name = self.tree.item(iid, "values")[1]
+        # 提取品牌名称（去掉 "(N 个型号)" 后缀）
+        brand_name = display_name.split(" (")[0]
+
+        # 查询该品牌下的所有型号
+        models = self.dm.search_models(brand_name, self.current_category, limit=200)
+        # 过滤精确匹配品牌
+        models = [m for m in models if m["brand"] == brand_name]
+
+        if not models:
+            messagebox.showinfo("提示", f"品牌「{brand_name}」下暂无型号")
+            return
+
+        # 创建型号查看窗口
+        win = tk.Toplevel(self)
+        win.title(f"📋 {brand_name} — 型号列表")
+        win.geometry("820x500")
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        # 居中
+        win.update_idletasks()
+        w, h = 820, 500
+        x = (win.winfo_screenwidth() // 2) - (w // 2)
+        y = (win.winfo_screenheight() // 2) - (h // 2)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text=f"📋 {brand_name} 型号列表 ({len(models)} 款)", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
+
+        cols = ("型号", "规格", "参考成本", "参考月租", "发布年份")
+        tree = ttk.Treeview(main, columns=cols, show="headings", height=min(len(models), 18))
+        widths = {"型号": 180, "规格": 220, "参考成本": 90, "参考月租": 90, "发布年份": 80}
+        for c in cols:
+            tree.heading(c, text=c)
+            tree.column(c, width=widths.get(c, 100), anchor="center")
+
+        vbar = ttk.Scrollbar(main, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vbar.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        for m in models:
+            specs = m.get("specs", {})
+            if isinstance(specs, str):
+                try:
+                    import json
+                    specs = json.loads(specs)
+                except:
+                    specs = {}
+            spec_str = ", ".join(f"{k}:{v}" for k, v in specs.items()) if specs else "—"
+            tree.insert("", tk.END, values=(
+                m["model_name"],
+                spec_str,
+                f"¥{m.get('reference_cost', 0) or 0:.0f}",
+                f"¥{m.get('reference_rent', 0) or 0:.0f}",
+                m.get("release_year", "—"),
+            ))
+
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X, pady=(10, 0))
+        tk.Button(btn, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=win.destroy, padx=20, pady=8).pack(side=tk.LEFT)
+        DarkTheme.bind_hover(btn.winfo_children()[0], DarkTheme.BG_HOVER)
 
     # ── 右键菜单 ─────────────────────────────────────────────────────
 

@@ -21,21 +21,34 @@ class AuthManager:
         self.max_failed_attempts = 5
         self.lock_minutes = 10
     
-    def verify_credentials(self, username: str, password: str) -> bool:
-        """验证用户名和密码"""
+    def verify_credentials(self, username: str, password: str) -> tuple:
+        """验证用户名和密码，返回 (success, user_role)"""
         settings = self.data_manager.data.setdefault("settings", {})
         admin_user = settings.get("default_admin", "admin")
 
         if self.is_locked():
-            return False
+            return (False, None)
 
+        # 尝试多用户登录
+        from modules.user_mgmt import UserManager
+        user_mgr = UserManager(self.data_manager)
+        user = user_mgr.verify_user(username, password)
+        if user:
+            self.current_user = username
+            self.is_authenticated = True
+            settings["failed_login_count"] = 0
+            settings["locked_until"] = None
+            self.data_manager.save()
+            return (True, user.get("role", "admin"))
+
+        # 兼容旧版管理员登录
         if username == admin_user and self.data_manager.verify_password(password):
             self.current_user = username
             self.is_authenticated = True
             settings["failed_login_count"] = 0
             settings["locked_until"] = None
             self.data_manager.save()
-            return True
+            return (True, "admin")
         
         failed_count = int(settings.get("failed_login_count", 0)) + 1
         settings["failed_login_count"] = failed_count
@@ -43,7 +56,7 @@ class AuthManager:
             locked_until = datetime.now() + timedelta(minutes=self.lock_minutes)
             settings["locked_until"] = locked_until.strftime("%Y-%m-%d %H:%M:%S")
         self.data_manager.save()
-        return False
+        return (False, None)
 
     def is_locked(self) -> bool:
         """检查账户是否处于锁定状态"""
@@ -266,10 +279,11 @@ class LoginWindow:
             messagebox.showerror("账户锁定", self.auth_manager.lock_remaining_text())
             return
         
-        if self.auth_manager.verify_credentials(username, password):
+        success, user_role = self.auth_manager.verify_credentials(username, password)
+        if success:
             self._set_status("登录成功，正在进入系统...", DarkTheme.ACCENT_GREEN)
             self.root.destroy()
-            self.on_login_success(username)
+            self.on_login_success(username, user_role)
         else:
             settings = self.auth_manager.data_manager.data.get("settings", {})
             failed_count = int(settings.get("failed_login_count", 0))

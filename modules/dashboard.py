@@ -32,6 +32,22 @@ class DashboardFrame(ttk.Frame):
             fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY
         ).pack(side=tk.LEFT)
 
+        # 操作按钮行
+        btn_row = tk.Frame(head, bg=DarkTheme.BG_PRIMARY)
+        btn_row.pack(side=tk.RIGHT)
+        tk.Button(btn_row, text="🔄 刷新", font=DarkTheme.FONT_SMALL,
+                  fg="white", bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                  command=self._refresh, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_row, text="💾 备份数据", font=DarkTheme.FONT_SMALL,
+                  fg="white", bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
+                  command=self._do_backup, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_row, text="📜 日志", font=DarkTheme.FONT_SMALL,
+                  fg="white", bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                  command=self._show_logs, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_row, text="📊 报表导出", font=DarkTheme.FONT_SMALL,
+                  fg="white", bg=DarkTheme.ACCENT_YELLOW, relief=tk.FLAT, cursor="hand2",
+                  command=self._export_report, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
+
         self.clock_label = tk.Label(head, text="", font=DarkTheme.FONT_LABEL,
                                      fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY)
         self.clock_label.pack(side=tk.RIGHT, pady=6)
@@ -125,6 +141,195 @@ class DashboardFrame(ttk.Frame):
             now = datetime.now()
             self.clock_label.config(text=f"🕐 {now.strftime('%Y-%m-%d %H:%M:%S')} 星期{['一','二','三','四','五','六','日'][now.weekday()]}")
             self.after(1000, self._update_clock)
+
+    def _refresh(self):
+        """刷新仪表板内容"""
+        for w in self.winfo_children():
+            w.destroy()
+        self._build()
+        self._update_clock()
+
+    def _do_backup(self):
+        """执行数据备份"""
+        from tkinter import messagebox
+        result = self.data_manager.backup_data()
+        if result:
+            last = self.data_manager.data.get("settings", {}).get("last_backup", "")
+            messagebox.showinfo("备份成功", f"数据已备份到:\n{result}\n\n备份时间: {last}")
+        else:
+            messagebox.showerror("备份失败", "备份数据时发生错误，请检查目录权限")
+
+    def _show_logs(self):
+        """显示操作日志"""
+        from modules.logger import get_logger
+        import os
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
+        if not os.path.exists(log_dir):
+            from tkinter import messagebox
+            messagebox.showinfo("提示", "暂无日志记录")
+            return
+        log_files = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
+        if not log_files:
+            from tkinter import messagebox
+            messagebox.showinfo("提示", "暂无日志文件")
+            return
+        # 显示最新日志
+        win = tk.Toplevel(self)
+        win.title("📜 操作日志")
+        win.geometry("800x500")
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        win.update_idletasks()
+        x = (win.winfo_screenwidth() // 2) - 400
+        y = (win.winfo_screenheight() // 2) - 250
+        win.geometry(f"800x500+{x}+{y}")
+
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
+
+        tk.Label(main, text="📜 操作日志", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
+
+        # 过滤栏
+        filter_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        filter_frame.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(filter_frame, text="过滤:", font=DarkTheme.FONT_SMALL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
+        filter_var = tk.StringVar(value="ALL")
+        for level, txt in [("ALL", "全部"), ("INFO", "INFO"), ("WARNING", "WARN"), ("ERROR", "ERROR")]:
+            tk.Button(filter_frame, text=txt, font=DarkTheme.FONT_SMALL,
+                      fg="white" if level != "ALL" else DarkTheme.TEXT_PRIMARY,
+                      bg=DarkTheme.ACCENT_BLUE if level == "INFO" else (
+                          DarkTheme.ACCENT_YELLOW if level == "WARNING" else (
+                              DarkTheme.ACCENT_RED if level == "ERROR" else DarkTheme.BG_TERTIARY)),
+                      relief=tk.FLAT, cursor="hand2",
+                      command=lambda lv=level: _filter_logs(lv)).pack(side=tk.LEFT, padx=2)
+
+        text_widget = tk.Text(main, font=("Consolas", 9), wrap=tk.WORD,
+                              bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY,
+                              insertbackground=DarkTheme.TEXT_PRIMARY)
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        # 读取最新日志
+        latest_log = os.path.join(log_dir, log_files[0])
+        try:
+            with open(latest_log, "r", encoding="utf-8") as f:
+                log_content = f.read()
+        except:
+            log_content = "无法读取日志文件"
+
+        all_lines = log_content.split("\n")
+
+        def _filter_logs(level):
+            if level == "ALL":
+                filtered = all_lines
+            else:
+                filtered = [l for l in all_lines if f"[{level}]" in l]
+            text_widget.config(state=tk.NORMAL)
+            text_widget.delete("1.0", tk.END)
+            text_widget.insert("1.0", "\n".join(filtered[-500:]))  # 最多显示500行
+            text_widget.config(state=tk.DISABLED)
+
+        _filter_logs("ALL")
+
+        tk.Label(main, text=f"共 {len(all_lines)} 行日志 (来自 {log_files[0]})",
+                 font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
+                 bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(4, 0))
+
+        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        btn.pack(fill=tk.X, pady=(8, 0))
+        tk.Button(btn, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
+                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                  command=win.destroy, padx=20, pady=8).pack(side=tk.LEFT)
+        DarkTheme.bind_hover(btn.winfo_children()[0], DarkTheme.BG_HOVER)
+
+    def _export_report(self):
+        """导出统计报表 Excel"""
+        from tkinter import messagebox, filedialog
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        except ImportError:
+            messagebox.showerror("错误", "缺少 openpyxl 库，请先安装: pip install openpyxl")
+            return
+
+        fp = filedialog.asksaveasfilename(
+            title="导出统计报表",
+            defaultextension=".xlsx",
+            filetypes=[("Excel 文件", "*.xlsx")],
+            initialfile=f"租赁报表_{self.data_manager.data.get('settings', {}).get('last_backup', datetime.now().strftime('%Y%m%d_%H%M%S'))}.xlsx"
+        )
+        if not fp:
+            return
+
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "租赁统计报表"
+
+            # 样式
+            title_font = Font(name="微软雅黑", size=14, bold=True, color="4472C4")
+            header_font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            normal_font = Font(name="微软雅黑", size=11)
+            thin_border = Border(
+                left=Side(style="thin"), right=Side(style="thin"),
+                top=Side(style="thin"), bottom=Side(style="thin")
+            )
+
+            # 标题
+            ws.merge_cells("A1:B1")
+            ws["A1"] = "速维电脑租赁管理系统 — 统计报表"
+            ws["A1"].font = title_font
+            ws["A2"] = f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            ws["A2"].font = normal_font
+
+            # 基本统计
+            stats = self.data_manager.get_stats()
+            ws["A4"] = "基本统计"
+            ws["A4"].font = Font(name="微软雅黑", size=12, bold=True, color="4472C4")
+            
+            row = 5
+            ws.cell(row=row, column=1, value="项目").font = header_font
+            ws.cell(row=row, column=1).fill = header_fill
+            ws.cell(row=row, column=2, value="数量").font = header_font
+            ws.cell(row=row, column=2).fill = header_fill
+            for label, key in [("总记录", "total"), ("在租", "active"), ("逾期", "expired"),
+                               ("退租", "returned"), ("丢失", "lost"), ("买断", "bought")]:
+                row += 1
+                c1 = ws.cell(row=row, column=1, value=label)
+                c1.font = normal_font
+                c1.border = thin_border
+                c2 = ws.cell(row=row, column=2, value=stats[key])
+                c2.font = normal_font
+                c2.border = thin_border
+
+            # 财务汇总
+            row += 2
+            records = self.data_manager.get_records()
+            total_rent = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) for r in records)
+            paid = sum(float(r.get("paid_amount", 0) or 0) for r in records)
+            ws.cell(row=row, column=1, value="财务汇总").font = Font(name="微软雅黑", size=12, bold=True, color="4472C4")
+            row += 1
+            for label, val in [("总租金", total_rent), ("已收金额", paid), ("未收金额", total_rent - paid)]:
+                c1 = ws.cell(row=row, column=1, value=label)
+                c1.font = normal_font
+                c1.border = thin_border
+                c2 = ws.cell(row=row, column=2, value=val)
+                c2.font = normal_font
+                c2.number_format = '"¥"#,##0.00'
+                c2.border = thin_border
+                row += 1
+
+            # 列宽
+            ws.column_dimensions["A"].width = 20
+            ws.column_dimensions["B"].width = 18
+
+            wb.save(fp)
+            messagebox.showinfo("成功", f"报表已导出:\n{fp}")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
 
     def _make_card(self, parent, card_info, row, col):
         title, value, color = card_info

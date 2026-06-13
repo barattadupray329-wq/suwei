@@ -31,7 +31,7 @@
    ├── modules/             # UI 模块
    ├── theme/               # 主题配色
    ├── data/                # 数据存储（自动生成）
-   └── test_*.py            # 验证脚本
+   └── test_*.py            # 验证脚本（根目录）
    ```
 2. **运行主程序**
    打开终端（PowerShell/CMD），进入项目目录并执行：
@@ -154,13 +154,23 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --name "速维电
    - 创建 `rental_records`
    - 创建 `record_versions`
    - 创建状态、租赁人、到期日期索引
-4. 将数据库版本设置为当前程序支持版本。
+4. 依次执行后续 Migration（002-005）升级数据库结构。
 5. 如果 SQLite 记录为空且存在旧版 `data/rental_data.json`，自动导入 JSON 记录。
 6. 每次新增、更新、删除、逾期检查、回滚都会写入 `record_versions` 历史表。
 7. 每次保存后同步导出 `data/rental_data.json`，用于兼容旧工具和人工查看。
+
+### Migration 列表
+| 版本 | Migration | 说明 |
+|------|-----------|------|
+| 1 | `_migration_001_initial_schema` | 初始表结构：settings、rental_records、record_versions 及索引 |
+| 2 | `_migration_002_brand_library` | 硬件品牌库表：hardware_brands（category + name + sort_order） |
+| 3 | `_migration_003_hardware_models` | 硬件型号库表：hardware_models（含规格、参考价格/月租、发布年份） |
+| 4 | `_migration_004_brand_library_refactor` | 重构品牌库：从 brand+model 混合名称分离为纯品牌名称 |
+| 5 | `_migration_005_sync_models` | 同步型号库：补充二手/老平台常用型号，更新参考价格 |
+
 当前数据库版本：
 ```text
-DB_VERSION = 1
+DB_VERSION = 5
 ```
 ---
 ## 🌿 分支策略
