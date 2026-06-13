@@ -19,31 +19,28 @@ from core.auth import LoginWindow, AuthManager
 
 
 def main():
-    """系统入口 — 单窗口模式，避免登录闪烁"""
+    """系统入口 — 登录优先架构，认证后才创建主窗口"""
     # 初始化数据管理
     dm = DataManager()
     auth = AuthManager(dm)
 
-    # 创建唯一根窗口 — 先设为完全透明，防止黑框闪现
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes('-alpha', 0.0)  # 完全透明，避免 Windows 上闪现黑框
+    login_result = {"username": None, "role": None}
 
     def on_login_success(username: str, user_role: str = "admin"):
-        """登录成功后启动主应用"""
-        from core.app import MainWindow
-        from theme.colors import DarkTheme
-        root.configure(bg=DarkTheme.BG_PRIMARY)
-        app = MainWindow(username, dm, root=root)
-        root.update_idletasks()  # 确保布局完成
-        root.attributes('-alpha', 1.0)  # 恢复不透明（窗口已完全渲染）
-        root.deiconify()
-        app.run()
-    
-    # 显示登录对话框（挂载在隐藏根窗口上）
+        """登录成功回调"""
+        login_result["username"] = username
+        login_result["role"] = user_role
+
+    # 登录窗口作为独立根窗口（无黑框问题）
     from core.auth import LoginWindow
-    login = LoginWindow(parent=root, auth_manager=auth, on_login_success=on_login_success)
+    login = LoginWindow(auth_manager=auth, on_login_success=on_login_success)
     login.run()
+
+    # 登录窗口已销毁，认证通过则创建主应用
+    if login_result["username"]:
+        from core.app import MainWindow
+        app = MainWindow(login_result["username"], dm)
+        app.run()
 
 
 if __name__ == "__main__":
