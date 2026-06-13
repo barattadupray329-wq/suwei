@@ -24,15 +24,18 @@ def main():
     dm = DataManager()
     auth = AuthManager(dm)
 
-    # 创建唯一根窗口
+    # 创建唯一根窗口（先隐藏，防止黑框闪烁）
     root = tk.Tk()
-    root.withdraw()  # 先隐藏根窗口，避免显示空白/黑色窗口
+    root.withdraw()  # 隐藏根窗口
 
     def on_login_success(username: str, user_role: str = "admin"):
         """登录成功后启动主应用"""
         from core.app import MainWindow
-        root.deiconify()  # 显示主窗口
+        from theme.colors import DarkTheme
+        root.configure(bg=DarkTheme.BG_PRIMARY)
         app = MainWindow(username, dm, root=root)
+        root.update()  # 确保所有控件渲染完成
+        root.deiconify()  # 最后才显示窗口
         app.run()
     
     # 显示登录对话框（挂载在隐藏根窗口上）
