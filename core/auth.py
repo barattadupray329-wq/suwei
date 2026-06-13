@@ -98,17 +98,16 @@ class AuthManager:
 
 
 class LoginWindow:
-    """登录窗口 — 独立根窗口，登录优先架构"""
+    """登录窗口 — 单根窗口架构的登录态"""
 
     MIN_W, MIN_H = 520, 640
 
-    def __init__(self, auth_manager, on_login_success):
+    def __init__(self, auth_manager):
         self.auth_manager = auth_manager
-        self.on_login_success = on_login_success
         self.password_visible = False
+        self._result = (None, None)  # (username, role)
 
-        # 登录窗口使用自己的 tk.Tk() 根窗口
-        # 登录后此根窗口被销毁，主应用创建全新的根窗口，彻底消除黑框
+        # 创建唯一根窗口 — 整个应用生命周期只此一个 Tk 实例
         self.root = tk.Tk()
         self.root.title("速维电脑租赁管理系统 — 登录")
         self.root.minsize(self.MIN_W, self.MIN_H)
@@ -284,8 +283,14 @@ class LoginWindow:
         success, user_role = self.auth_manager.verify_credentials(username, password)
         if success:
             self._set_status("登录成功，正在进入系统...", DarkTheme.ACCENT_GREEN)
-            self.root.destroy()
-            self.on_login_success(username, user_role)
+            self._result = (username, user_role)
+            # 清空登录窗口所有子控件，为后续构建主 UI 做准备
+            for w in self.root.winfo_children():
+                w.destroy()
+            # 设置根窗口标题和尺寸为主应用默认值
+            self.root.title("速维电脑租赁管理系统 V2")
+            self.root.geometry("1280x760")
+            self.root.quit()  # 退出 mainloop，控制权回到 main()
         else:
             settings = self.auth_manager.data_manager.data.get("settings", {})
             failed_count = int(settings.get("failed_login_count", 0))
@@ -300,5 +305,6 @@ class LoginWindow:
             self.password_entry.focus()
     
     def run(self):
-        """运行登录窗口"""
+        """运行登录窗口，返回 (username, user_role)"""
         self.root.mainloop()
+        return self._result

@@ -19,27 +19,20 @@ from core.auth import LoginWindow, AuthManager
 
 
 def main():
-    """系统入口 — 登录优先架构，认证后才创建主窗口"""
+    """系统入口 — 单根窗口架构，登录窗口原地变身为应用主窗口"""
     # 初始化数据管理
     dm = DataManager()
     auth = AuthManager(dm)
 
-    login_result = {"username": None, "role": None}
-
-    def on_login_success(username: str, user_role: str = "admin"):
-        """登录成功回调"""
-        login_result["username"] = username
-        login_result["role"] = user_role
-
-    # 登录窗口作为独立根窗口（无黑框问题）
+    # 登录窗口作为唯一根窗口启动
     from core.auth import LoginWindow
-    login = LoginWindow(auth_manager=auth, on_login_success=on_login_success)
-    login.run()
+    login = LoginWindow(auth_manager=auth)
+    username, user_role = login.run()  # 返回 (username, role) 或 (None, None)
 
-    # 登录窗口已销毁，认证通过则创建主应用
-    if login_result["username"]:
+    # 登录成功：将登录根窗口原地改造为主应用窗口
+    if username:
         from core.app import MainWindow
-        app = MainWindow(login_result["username"], dm)
+        app = MainWindow(username, dm, root=login.root)  # 复用同一根窗口
         app.run()
 
 
