@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 速维电脑租赁管理系统 V2 - 主启动入口
-全新深色主题重构版本
+单根窗口架构：隐藏根窗口 + Toplevel 登录，彻底消除黑框闪烁
 """
 
 import sys
 import os
-
 import tkinter as tk
 
 # 确保项目根目录在 sys.path 中
@@ -17,22 +16,39 @@ from core.data_manager import DataManager
 from core.auth import LoginWindow, AuthManager
 
 
-
 def main():
-    """系统入口 — 单根窗口架构，登录窗口原地变身为应用主窗口"""
+    """系统入口 — 单根窗口架构"""
     # 初始化数据管理
     dm = DataManager()
     auth = AuthManager(dm)
 
-    # 登录窗口作为唯一根窗口启动
-    from core.auth import LoginWindow
-    login = LoginWindow(auth_manager=auth)
-    username, user_role = login.run()  # 返回 (username, role) 或 (None, None)
+    # 1. 创建唯一根窗口，并立即隐藏（此时无可见窗口，绝无黑框）
+    root = tk.Tk()
+    root.withdraw()
 
-    # 登录成功：将登录根窗口原地改造为主应用窗口
-    if username:
+    # 2. 登录窗口挂载在隐藏根窗口上
+    login = LoginWindow(parent=root, auth_manager=auth)
+    login.run()  # 阻塞等待，直到登录窗口销毁
+
+    # 3. 登录窗口已销毁，检查登录结果
+    if login.result:
+        username, user_role = login.result
         from core.app import MainWindow
-        app = MainWindow(username, dm, root=login.root)  # 复用同一根窗口
+        from theme.colors import DarkTheme
+
+        # 配置根窗口属性
+        root.configure(bg=DarkTheme.BG_PRIMARY)
+        root.title("速维电脑租赁管理系统 V2")
+        root.minsize(1024, 640)
+
+        # 4. 在根窗口中构建主应用 UI（此时根窗口仍是隐藏的）
+        app = MainWindow(username, dm, root=root)
+
+        # 5. 所有 UI 渲染完成后，才显示根窗口
+        root.update_idletasks()
+        root.deiconify()
+
+        # 6. 进入主循环
         app.run()
 
 

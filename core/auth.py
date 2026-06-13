@@ -98,17 +98,17 @@ class AuthManager:
 
 
 class LoginWindow:
-    """登录窗口 — 单根窗口架构的登录态"""
+    """登录窗口 — Toplevel 模式挂载在隐藏根窗口上"""
 
     MIN_W, MIN_H = 520, 640
 
-    def __init__(self, auth_manager):
+    def __init__(self, parent, auth_manager):
         self.auth_manager = auth_manager
         self.password_visible = False
-        self._result = (None, None)  # (username, role)
+        self.result = None  # 登录成功时设置为 (username, user_role)
 
-        # 创建唯一根窗口 — 整个应用生命周期只此一个 Tk 实例
-        self.root = tk.Tk()
+        # 使用 Toplevel 挂载在父窗口上，避免创建额外根窗口
+        self.root = tk.Toplevel(parent)
         self.root.title("速维电脑租赁管理系统 — 登录")
         self.root.minsize(self.MIN_W, self.MIN_H)
         self.root.configure(bg=DarkTheme.BG_PRIMARY)
@@ -283,14 +283,8 @@ class LoginWindow:
         success, user_role = self.auth_manager.verify_credentials(username, password)
         if success:
             self._set_status("登录成功，正在进入系统...", DarkTheme.ACCENT_GREEN)
-            self._result = (username, user_role)
-            # 清空登录窗口所有子控件，为后续构建主 UI 做准备
-            for w in self.root.winfo_children():
-                w.destroy()
-            # 设置根窗口标题和尺寸为主应用默认值
-            self.root.title("速维电脑租赁管理系统 V2")
-            self.root.geometry("1280x760")
-            self.root.quit()  # 退出 mainloop，控制权回到 main()
+            self.result = (username, user_role)
+            self.root.destroy()  # 销毁登录窗口，结束 wait_window
         else:
             settings = self.auth_manager.data_manager.data.get("settings", {})
             failed_count = int(settings.get("failed_login_count", 0))
@@ -305,6 +299,6 @@ class LoginWindow:
             self.password_entry.focus()
     
     def run(self):
-        """运行登录窗口，返回 (username, user_role)"""
-        self.root.mainloop()
-        return self._result
+        """运行登录窗口（阻塞等待直到窗口销毁）"""
+        self.root.grab_set()
+        self.root.wait_window()
