@@ -98,16 +98,17 @@ class AuthManager:
 
 
 class LoginWindow:
-    """登录窗口 — 居中漂浮卡片式"""
+    """登录窗口 — 居中漂浮卡片式（Toplevel 模式，避免黑框）"""
 
     MIN_W, MIN_H = 520, 640
 
-    def __init__(self, auth_manager, on_login_success):
+    def __init__(self, parent, auth_manager, on_login_success):
         self.auth_manager = auth_manager
         self.on_login_success = on_login_success
         self.password_visible = False
 
-        self.root = tk.Tk()
+        # 使用 Toplevel 而不是 tk.Tk，避免创建额外根窗口
+        self.root = tk.Toplevel(parent)
         self.root.title("速维电脑租赁管理系统 — 登录")
         self.root.minsize(self.MIN_W, self.MIN_H)
         self.root.configure(bg=DarkTheme.BG_PRIMARY)
@@ -298,5 +299,6 @@ class LoginWindow:
             self.password_entry.focus()
     
     def run(self):
-        """运行登录窗口"""
-        self.root.mainloop()
+        """运行登录窗口（阻塞等待登录完成）"""
+        self.root.grab_set()
+        self.root.wait_window()

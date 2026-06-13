@@ -19,13 +19,14 @@ from modules.user_mgmt import UserManagementFrame
 class MainWindow:
     """主应用窗口"""
 
-    def __init__(self, username: str, data_manager: DataManager):
+    def __init__(self, username: str, data_manager: DataManager, root: tk.Tk = None):
         self.username = username
         self.current_module = None
         self.data_manager = data_manager
         self.data_manager.check_overdue()
 
-        self.root = tk.Tk()
+        # 支持传入已有根窗口，避免多窗口闪烁
+        self.root = root if root else tk.Tk()
         self.root.title("速维电脑租赁管理系统 V2")
         self.root.geometry("1280x760")
         self.root.minsize(1024, 640)
