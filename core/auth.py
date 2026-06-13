@@ -6,7 +6,6 @@
 """
 
 import tkinter as tk
-import sys
 import ctypes
 import ctypes.wintypes
 from tkinter import ttk, messagebox
