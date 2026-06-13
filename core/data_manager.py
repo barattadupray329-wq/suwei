@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 1
+    DB_VERSION = 5
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -32,6 +32,7 @@ class DataManager:
         self._migrate()
         self._import_json_if_needed()
         self.data = self._load_data()
+        self._init_brand_defaults()
 
     # ── Migration ──────────────────────────────────────────────────────
 
@@ -41,6 +42,18 @@ class DataManager:
         if current < 1:
             self._migration_001_initial_schema()
             self._set_schema_version(1)
+        if current < 2:
+            self._migration_002_brand_library()
+            self._set_schema_version(2)
+        if current < 3:
+            self._migration_003_hardware_models()
+            self._set_schema_version(3)
+        if current < 4:
+            self._migration_004_brand_library_refactor()
+            self._set_schema_version(4)
+        if current < 5:
+            self._migration_005_sync_models()
+            self._set_schema_version(5)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -94,6 +107,358 @@ class DataManager:
             """
         )
         self.conn.commit()
+
+    def _migration_002_brand_library(self):
+        """Migration 002：硬件品牌库表。"""
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hardware_brands (
+                category TEXT NOT NULL,
+                name TEXT NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                PRIMARY KEY (category, name)
+            )
+            """
+        )
+        self.conn.commit()
+
+    def _migration_003_hardware_models(self):
+        """Migration 003：硬件型号库表。"""
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS hardware_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                brand TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                specs TEXT,
+                reference_cost REAL,
+                reference_rent REAL,
+                release_year INTEGER,
+                is_active INTEGER DEFAULT 1,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_category ON hardware_models(category);
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_brand ON hardware_models(brand);
+            CREATE INDEX IF NOT EXISTS idx_hardware_models_name ON hardware_models(model_name);
+            """
+        )
+        self.conn.commit()
+        # 初始化硬件型号数据
+        self._init_hardware_model_defaults()
+
+    def _migration_004_brand_library_refactor(self):
+        """Migration 004：重构品牌库，分离品牌和型号"""
+        # 备份旧数据
+        old_brands = self.conn.execute(
+            "SELECT category, name FROM hardware_brands"
+        ).fetchall()
+        
+        # 清空旧表
+        self.conn.execute("DELETE FROM hardware_brands")
+        
+        # 导入新品牌数据
+        from modules.hardware_brands import BRAND_MAP
+        inserted = set()
+        for category, brands in BRAND_MAP.items():
+            for idx, brand in enumerate(brands):
+                key = (category, brand)
+                if key not in inserted:
+                    try:
+                        self.conn.execute(
+                            "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                            (category, brand, idx)
+                        )
+                        inserted.add(key)
+                    except sqlite3.IntegrityError:
+                        pass
+        
+        self.conn.commit()
+        
+        # 从旧数据中提取可能遗漏的品牌
+        for row in old_brands:
+            category, full_name = row["category"], row["name"]
+            # 简单处理：如果旧名称包含型号，提取品牌部分
+            brand_name = self._extract_brand_from_full_name(full_name)
+            if brand_name:
+                try:
+                    self.conn.execute(
+                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                        (category, brand_name, 999)
+                    )
+                    inserted.add((category, brand_name))
+                except sqlite3.IntegrityError:
+                    pass
+        
+        self.conn.commit()
+
+    def _migration_005_sync_models(self):
+        """Migration 005：同步硬件型号库，补充常用二手/老平台型号"""
+        from modules.hardware_models import HARDWARE_MODELS
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 获取数据库中已有型号的 (category, brand, model_name) 组合
+        existing = set()
+        rows = self.conn.execute(
+            "SELECT category, brand, model_name FROM hardware_models"
+        ).fetchall()
+        for r in rows:
+            existing.add((r["category"], r["brand"], r["model_name"]))
+        
+        added, updated = 0, 0
+        for model in HARDWARE_MODELS:
+            key = (model["category"], model["brand"], model["model_name"])
+            if key not in existing:
+                try:
+                    self.conn.execute(
+                        """INSERT INTO hardware_models(
+                            category, brand, model_name, specs, reference_cost,
+                            reference_rent, release_year, is_active, updated_at
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            model["category"],
+                            model["brand"],
+                            model["model_name"],
+                            json.dumps(model.get("specs", {}), ensure_ascii=False),
+                            model.get("reference_cost"),
+                            model.get("reference_rent"),
+                            model.get("release_year"),
+                            1,
+                            now,
+                        ),
+                    )
+                    added += 1
+                except sqlite3.IntegrityError:
+                    pass
+            else:
+                # 更新已有型号的参考价格/月租
+                try:
+                    self.conn.execute(
+                        """UPDATE hardware_models 
+                           SET specs = ?, reference_cost = ?, reference_rent = ?, 
+                               release_year = ?, is_active = 1, updated_at = ?
+                           WHERE category = ? AND brand = ? AND model_name = ?""",
+                        (
+                            json.dumps(model.get("specs", {}), ensure_ascii=False),
+                            model.get("reference_cost"),
+                            model.get("reference_rent"),
+                            model.get("release_year"),
+                            now,
+                            model["category"],
+                            model["brand"],
+                            model["model_name"],
+                        ),
+                    )
+                    updated += 1
+                except sqlite3.IntegrityError:
+                    pass
+        
+        self.conn.commit()
+        print(f"[Migration 005] 型号同步完成：新增 {added} 条，更新 {updated} 条")
+
+    def _extract_brand_from_full_name(self, full_name: str) -> str:
+        """从完整名称中提取品牌"""
+        # 常见品牌关键词
+        brand_keywords = [
+            "Intel", "AMD", "NVIDIA", "华硕", "技嘉", "微星", "华擎", 
+            "铭瑄", "七彩虹", "映泰", "金士顿", "芝奇", "海盗船", "威刚",
+            "金百达", "宇瞻", "光威", "玖合", "三星", "西数", "铠侠",
+            "致态", "希捷", "长江存储", "航嘉", "长城", "酷冷至尊",
+            "振华", "安钛克", "海韵", "先马", "联力", "恩杰", "乔思伯",
+            "追风者", "九州风神", "利民", "猫头鹰", "瓦尔基里", "雅浚",
+            "戴尔", "AOC", "飞利浦", "LG", "小米", "HKC", "商途"
+        ]
+        
+        for keyword in brand_keywords:
+            if full_name.startswith(keyword):
+                return keyword
+        
+        # 尝试按空格分割取第一部分
+        parts = full_name.split()
+        if len(parts) > 0:
+            return parts[0]
+        
+        return full_name
+    # ── 硬件品牌库 ───────────────────────────────────────────────────
+
+    def _init_brand_defaults(self, force=False):
+        """首次初始化品牌库默认数据。"""
+        row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_brands").fetchone()
+        if row and row["total"] > 0 and not force:
+            return
+        from modules.hardware_brands import BRAND_MAP
+        for category, items in BRAND_MAP.items():
+            for idx, name in enumerate(items):
+                try:
+                    self.conn.execute(
+                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                        (category, name, idx),
+                    )
+                except sqlite3.IntegrityError:
+                    pass
+        self.conn.commit()
+
+    def get_brands(self, category: str) -> List[str]:
+        """获取指定分类的品牌列表。"""
+        rows = self.conn.execute(
+            "SELECT name FROM hardware_brands WHERE category = ? ORDER BY sort_order, name",
+            (category,),
+        ).fetchall()
+        return [r["name"] for r in rows]
+
+    def get_all_brands(self) -> Dict[str, List[str]]:
+        """获取所有分类品牌。"""
+        rows = self.conn.execute(
+            "SELECT category, name FROM hardware_brands ORDER BY category, sort_order, name"
+        ).fetchall()
+        result: Dict[str, List[str]] = {}
+        for r in rows:
+            result.setdefault(r["category"], []).append(r["name"])
+        return result
+
+    def add_brand(self, category: str, name: str) -> bool:
+        """添加品牌条目。"""
+        try:
+            row = self.conn.execute(
+                "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
+                (category,),
+            ).fetchone()
+            next_order = (row["mx"] or 0) + 1 if row else 0
+            self.conn.execute(
+                "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                (category, name, next_order),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_brand(self, category: str, name: str) -> bool:
+        """删除品牌条目。"""
+        self.conn.execute(
+            "DELETE FROM hardware_brands WHERE category = ? AND name = ?",
+            (category, name),
+        )
+        self.conn.commit()
+        return self.conn.total_changes > 0
+
+    def import_brands(self, category: str, names: List[str]) -> int:
+        """批量导入品牌，返回新增数量。"""
+        existing = set(self.get_brands(category))
+        added = 0
+        row = self.conn.execute(
+            "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
+            (category,),
+        ).fetchone()
+        next_order = (row["mx"] or 0) + 1 if row else 0
+        for name in names:
+            name = name.strip()
+            if not name or name in existing:
+                continue
+            try:
+                self.conn.execute(
+                    "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
+                    (category, name, next_order),
+                )
+                next_order += 1
+                existing.add(name)
+                added += 1
+            except sqlite3.IntegrityError:
+                pass
+        self.conn.commit()
+        return added
+
+    # ── 硬件型号库 ───────────────────────────────────────────────────
+
+    def _init_hardware_model_defaults(self):
+        """初始化硬件型号默认数据。"""
+        row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_models").fetchone()
+        if row and row["total"] > 0:
+            return
+        # 从硬件品牌模块导入默认数据
+        from modules.hardware_models import HARDWARE_MODELS
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for model in HARDWARE_MODELS:
+            try:
+                self.conn.execute(
+                    """INSERT INTO hardware_models(
+                        category, brand, model_name, specs, reference_cost,
+                        reference_rent, release_year, is_active, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        model["category"],
+                        model["brand"],
+                        model["model_name"],
+                        json.dumps(model.get("specs", {}), ensure_ascii=False),
+                        model.get("reference_cost"),
+                        model.get("reference_rent"),
+                        model.get("release_year"),
+                        1,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                pass
+        self.conn.commit()
+
+    def search_models(self, query: str, category: str = None, limit: int = 20) -> List[Dict]:
+        """搜索硬件型号，支持模糊匹配。"""
+        if category:
+            rows = self.conn.execute(
+                """SELECT id, category, brand, model_name, specs, reference_cost,
+                          reference_rent, release_year
+                   FROM hardware_models
+                   WHERE is_active = 1
+                     AND category = ?
+                     AND (brand LIKE ? OR model_name LIKE ?)
+                   ORDER BY release_year DESC, brand
+                   LIMIT ?""",
+                (category, f"%{query}%", f"%{query}%", limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """SELECT id, category, brand, model_name, specs, reference_cost,
+                          reference_rent, release_year
+                   FROM hardware_models
+                   WHERE is_active = 1
+                     AND (brand LIKE ? OR model_name LIKE ?)
+                   ORDER BY release_year DESC, brand
+                   LIMIT ?""",
+                (f"%{query}%", f"%{query}%", limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_models_by_category(self, category: str) -> List[Dict]:
+        """获取指定分类的所有型号。"""
+        rows = self.conn.execute(
+            """SELECT id, category, brand, model_name, specs, reference_cost,
+                      reference_rent, release_year
+               FROM hardware_models
+               WHERE category = ? AND is_active = 1
+               ORDER BY brand, model_name""",
+            (category,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_model_by_id(self, model_id: int) -> Optional[Dict]:
+        """根据 ID 获取硬件型号。"""
+        row = self.conn.execute(
+            """SELECT id, category, brand, model_name, specs, reference_cost,
+                      reference_rent, release_year
+               FROM hardware_models
+               WHERE id = ?""",
+            (model_id,),
+        ).fetchone()
+        if row:
+            result = dict(row)
+            if result.get("specs"):
+                try:
+                    result["specs"] = json.loads(result["specs"])
+                except json.JSONDecodeError:
+                    pass
+            return result
+        return None
 
     # ── 兼容数据结构 ─────────────────────────────────────────────────
 
@@ -401,6 +766,126 @@ class DataManager:
             self.conn.commit()
             self._export_json_snapshot()
         return updated
+    def calculate_unpaid_amount(self, record: Dict) -> float:
+        """计算未付金额：总租金 - 已付金额。"""
+        lease = record.get("lease_info", {})
+        try:
+            total = float(lease.get("total_rent", 0) or 0)
+        except (ValueError, TypeError):
+            total = 0.0
+        try:
+            paid = float(record.get("paid_amount", 0) or 0)
+        except (ValueError, TypeError):
+            paid = 0.0
+        return max(total - paid, 0.0)
+
+    def calculate_overdue_days(self, record: Dict) -> int:
+        """计算逾期天数。已退租/已丢失/已买断记录不再累计逾期。"""
+        from datetime import date
+
+        if record.get("status") in ("已退租", "已丢失", "已买断"):
+            return 0
+        end_date_str = record.get("lease_info", {}).get("end_date", "")
+        if not end_date_str:
+            return 0
+        try:
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return 0
+        return max((date.today() - end_date).days, 0)
+
+    def summarize_hardware(self, record: Dict) -> str:
+        """生成硬件配置摘要，支持多设备清单格式。"""
+        hardware = record.get("hardware", {}) or {}
+        if not hardware:
+            return "未填写"
+        items = hardware.get("items") if isinstance(hardware, dict) else None
+        if not items:
+            # 兼容旧格式
+            parts = []
+            pc_type = hardware.get("pc_type", hardware.get("device_type", ""))
+            for key, label in [
+                ("cpu", "CPU"), ("motherboard", "主板"), ("ram", "内存"),
+                ("disk", "硬盘"), ("gpu", "显卡"), ("monitor", "显示器"),
+                ("laptop", "笔记本"),
+            ]:
+                if hardware.get(key):
+                    parts.append(f"{label}:{hardware[key]}")
+            if pc_type and not parts:
+                return f"{pc_type}（无配置详情）"
+            return " / ".join(parts) if parts else (pc_type or "未填写")
+        
+        # 新多设备格式
+        lines = []
+        for item in items:
+            qty = item.get("quantity", 1)
+            dev_type = item.get("device_type", "设备")
+            rent = item.get("unit_rent", "")
+            parts = []
+            for key, label in [
+                ("model", "型号"), ("cpu", "CPU"), ("ram", "内存"),
+                ("disk", "硬盘"), ("gpu", "显卡"),
+                ("case", "机箱"), ("psu", "电源"), ("fan", "风扇"),
+                ("monitor", "显示器"), ("laptop", "笔记本"),
+            ]:
+                if item.get(key):
+                    parts.append(f"{label}:{item[key]}")
+            cost = item.get("unit_cost", "")
+            rent_text = f"，月租¥{rent}" if rent else ""
+            cost_text = f"，成本¥{cost}" if cost else ""
+            detail = " / ".join(parts) if parts else "未填配置"
+            lines.append(f"{dev_type}×{qty:g}{cost_text}{rent_text}: {detail}")
+        return "；\n".join(lines) if lines else "未填写"
+
+    def refresh_record_business_fields(self, record: Dict) -> Dict:
+        """刷新记录中的业务衍生字段。"""
+        record["unpaid_amount"] = self.calculate_unpaid_amount(record)
+        record["overdue_days"] = self.calculate_overdue_days(record)
+        record["hardware_summary"] = self.summarize_hardware(record)
+        if record["overdue_days"] > 0 and record.get("status") == "在租":
+            record["status"] = "已逾期"
+        return record
+
+    def append_payment_history(
+        self,
+        record: Dict,
+        amount: float,
+        operator: str = "系统",
+        method: str = "",
+        note: str = "",
+    ) -> None:
+        """追加付款流水。amount 为本次新增付款金额。"""
+        if amount <= 0:
+            return
+        record.setdefault("payment_history", []).append({
+            "payment_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "amount": float(amount),
+            "method": method,
+            "operator": operator or "系统",
+            "note": note,
+        })
+
+    def append_hardware_history(
+        self,
+        record: Dict,
+        old_hardware: Dict,
+        new_hardware: Dict,
+        operator: str = "系统",
+        note: str = "",
+    ) -> bool:
+        """硬件配置有变化时追加变更历史。"""
+        old_hardware = old_hardware or {}
+        new_hardware = new_hardware or {}
+        if old_hardware == new_hardware:
+            return False
+        record.setdefault("hardware_history", []).append({
+            "change_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "operator": operator or "系统",
+            "old_hardware": old_hardware,
+            "new_hardware": new_hardware,
+            "note": note,
+        })
+        return True
 
     def _generate_id(self) -> str:
         """生成唯一 ID。"""
