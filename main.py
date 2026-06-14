@@ -24,6 +24,7 @@ from core.auth import AuthManager
 from theme.colors import DarkTheme
 from modules.nutstore_sync import init_sync_manager, get_sync_manager
 from modules.splash_screen import show_splash_with_sync
+from modules.sync_server_manager import init_sync_server, get_sync_server_manager
 
 
 def main():
@@ -97,6 +98,14 @@ def main():
         
         # 启动后台坚果云监控
         sync_manager.start_monitoring(lambda: None)
+        
+        # 启动 HTTP 同步服务器（主电脑自动启动）
+        logger.info("初始化 HTTP 同步服务器...")
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        sync_server = init_sync_server(project_root)
+        if sync_server.is_running:
+            server_url = sync_server.get_server_url()
+            logger.info(f"✅ HTTP 同步服务器已启动: {server_url}")
         
         root.update_idletasks()
         app.run()
