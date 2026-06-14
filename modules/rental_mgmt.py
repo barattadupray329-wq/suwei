@@ -1739,14 +1739,6 @@ class RentalManagementFrame(ttk.Frame):
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
         tk.Label(main, text=f"租赁人: {name}", font=DarkTheme.FONT_LABEL,
-            w.destroy()
-
-        win.protocol("WM_DELETE_WINDOW", _safe_close)
-
-        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
-
-        tk.Label(main, text=f"租赁人: {name}", font=DarkTheme.FONT_LABEL,
                  fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 4))
         tk.Label(main, text=f"总租金: ¥{total:.2f}", font=DarkTheme.FONT_LABEL,
                  fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 4))

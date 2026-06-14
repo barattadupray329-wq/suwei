@@ -513,8 +513,8 @@ class AIAssistantFrame(ttk.Frame):
         stats = self.dm.get_stats()
         today = date.today()
         
-        # 数据统计
-        if any(w in ql for w in ("统计", "多少", "数据", "汇总")):
+        # ── 数据统计 ──
+        if any(w in ql for w in ("统计", "汇总", "概况", "数据")) and any(w in ql for w in ("总", "全部", "整体")):
             total_rent = sum(float(r.get("lease_info",{}).get("total_rent",0) or 0) for r in records)
             paid = sum(float(r.get("paid_amount",0) or 0) for r in records)
             avg_rent = total_rent / len(records) if records else 0
@@ -531,11 +531,28 @@ class AIAssistantFrame(ttk.Frame):
                    f"• 回款率: {paid/max(1,total_rent)*100:.1f}%\n" \
                    f"• 平均租金: ¥{avg_rent:,.0f}"
         
-        # 逾期相关
-        if any(w in ql for w in ("逾期", "过期", "超期")):
+        # ── 数量查询 ──
+        if any(w in ql for w in ("几个", "多少", "有几个", "有几个", "多少客户", "多少记录", "客户数", "记录数")):
+            if any(w in ql for w in ("客户", "人", "用户")):
+                return f"📊 当前系统共有 {stats['total']} 个客户记录\n" \
+                       f"其中在租 {stats['active']} 个，逾期 {stats['expired']} 个，已退租 {stats['returned']} 个"
+            return f"📊 当前系统共有 {stats['total']} 条记录"
+        
+        # ── 在租状态 ──
+        if any(w in ql for w in ("在租", "租用", "活跃", "active")):
+            active = [r for r in records if r.get("status") == "在租"]
+            if not active:
+                return "✅ 当前没有在租的记录。"
+            return f"📋 在租记录共 {len(active)} 条\n\n" + \
+                   "\n".join(f"• {r.get('renter',{}).get('name','未知')} | 到期: {r.get('lease_info',{}).get('end_date','未知')} | ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}"
+                            for r in active[:5]) + \
+                   (f"\n... 等共{len(active)}条" if len(active) > 5 else "")
+        
+        # ── 逾期相关 ──
+        if any(w in ql for w in ("逾期", "过期", "超期", "没还", "未还")):
             overdue = [r for r in records if r.get("status") == "已逾期"]
             if not overdue:
-                return "✅ 当前没有逾期记录。"
+                return "✅ 当前没有逾期记录，所有客户都按时归还或续租了。"
             total_overdue_rent = sum(float(r.get("lease_info",{}).get("total_rent",0) or 0) for r in overdue)
             return f"⚠️ 当前有 {len(overdue)} 条逾期记录：\n\n" + \
                    "\n".join(f"• {r.get('renter',{}).get('name','未知')} | 到期: {r.get('lease_info',{}).get('end_date','未知')} | 租金: ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}" 
@@ -543,7 +560,7 @@ class AIAssistantFrame(ttk.Frame):
                    (f"\n... 等共{len(overdue)}条" if len(overdue) > 5 else "") + \
                    f"\n\n💰 逾期总金额: ¥{total_overdue_rent:,.0f}\n\n建议及时联系客户确认续租或归还事宜。"
         
-        # 即将到期
+        # ── 即将到期 ──
         if any(w in ql for w in ("即将到期", "快到期", "到期提醒", "到期")):
             upcoming = []
             for r in records:
@@ -558,16 +575,16 @@ class AIAssistantFrame(ttk.Frame):
                 except: pass
             upcoming.sort(key=lambda x: x[2])
             if not upcoming:
-                return "✅ 30天内没有即将到期的记录。"
+                return "✅ 30天内没有即将到期的记录，所有在租客户都还比较稳定。"
             urgent = [u for u in upcoming if u[2] <= 3]
             warning = [u for u in upcoming if 3 < u[2] <= 7]
             normal = [u for u in upcoming if u[2] > 7]
-            response = f"⏰ 到期提醒：\n\n"
+            response = f"⏰ 到期提醒：共 {len(upcoming)} 条记录将在30天内到期\n\n"
             if urgent:
-                response += f"🔴 紧急({len(urgent)}条)：\n" + \
+                response += f"🔴 紧急({len(urgent)}条，3天内)：\n" + \
                            "\n".join(f"  • {name} - {end} (剩余{days}天)" for name, end, days in urgent[:3]) + "\n\n"
             if warning:
-                response += f"🟡 警告({len(warning)}条)：\n" + \
+                response += f"🟡 警告({len(warning)}条，7天内)：\n" + \
                            "\n".join(f"  • {name} - {end} (剩余{days}天)" for name, end, days in warning[:3]) + "\n\n"
             if normal:
                 response += f"🟢 正常({len(normal)}条)：\n" + \
@@ -575,17 +592,19 @@ class AIAssistantFrame(ttk.Frame):
                            (f"\n  ... 等共{len(normal)}条" if len(normal) > 3 else "")
             return response
         
-        # 高价值客户
-        if any(w in ql for w in ("高价值", "大客户", "金额高", "top")):
+        # ── 高价值客户 ──
+        if any(w in ql for w in ("高价值", "大客户", "金额高", "top", "排行")):
             sorted_rec = sorted(records, 
                                key=lambda r: float(r.get("lease_info",{}).get("total_rent",0) or 0), 
                                reverse=True)
+            if not sorted_rec:
+                return "📋 当前没有记录。"
             return f"⭐ 高价值客户 Top 5：\n\n" + \
                    "\n".join(f"{i}. {r.get('renter',{}).get('name','?')} | {r.get('status','')} | ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}" 
                             for i, r in enumerate(sorted_rec[:5], 1))
         
-        # 欠款/未付
-        if any(w in ql for w in ("欠款", "未付", "未付清")):
+        # ── 欠款/未付 ──
+        if any(w in ql for w in ("欠款", "未付", "未付清", "没付", "没付完")):
             unpaid_records = []
             for r in records:
                 total = float(r.get("lease_info",{}).get("total_rent",0) or 0)
@@ -593,17 +612,17 @@ class AIAssistantFrame(ttk.Frame):
                 if paid < total:
                     unpaid_records.append((r.get("renter",{}).get("name",""), total - paid, total, paid))
             if not unpaid_records:
-                return "✅ 所有客户均已付清款项。"
+                return "✅ 所有客户均已付清款项，财务状况良好！"
             unpaid_records.sort(key=lambda x: x[1], reverse=True)
             total_unpaid = sum(u[1] for u in unpaid_records)
-            return f"💰 欠款情况：\n\n" + \
+            return f"💰 欠款情况：共 {len(unpaid_records)} 条未付清记录\n\n" + \
                    "\n".join(f"• {name} | 未付: ¥{unpaid:,.0f} | 总租: ¥{total:,.0f} | 已付: ¥{paid:,.0f}" 
                             for name, unpaid, total, paid in unpaid_records[:5]) + \
                    (f"\n... 等共{len(unpaid_records)}条" if len(unpaid_records) > 5 else "") + \
                    f"\n\n总计未收款: ¥{total_unpaid:,.0f}"
         
-        # 收入/财务
-        if any(w in ql for w in ("收入", "财务", "金额", "钱")):
+        # ── 收入/财务 ──
+        if any(w in ql for w in ("收入", "财务", "金额", "钱", "营收", "利润")):
             total_rent = sum(float(r.get("lease_info",{}).get("total_rent",0) or 0) for r in records)
             paid = sum(float(r.get("paid_amount",0) or 0) for r in records)
             by_status = {}
@@ -619,26 +638,97 @@ class AIAssistantFrame(ttk.Frame):
                    f"按状态分布：\n" + \
                    "\n".join(f"• {k}: ¥{v:,.0f}" for k, v in by_status.items())
         
-        # 硬件
-        if any(w in ql for w in ("硬件", "设备", "cpu", "显卡", "gpu")):
+        # ── 硬件/设备 ──
+        if any(w in ql for w in ("硬件", "设备", "cpu", "显卡", "gpu", "配置")):
             hw_count = {}
             for r in records:
                 hw = r.get("hardware", {})
                 for k, v in hw.items():
                     hw_count[k] = hw_count.get(k, 0) + 1
             if not hw_count:
-                return "📦 暂无硬件信息记录。"
+                return "📦 暂无硬件信息记录，可以在租赁记录中添加硬件配置信息。"
             return f"💻 硬件统计：\n\n" + \
                    "\n".join(f"• {k}: {v}条记录" for k, v in hw_count.items())
         
-        # 默认响应
+        # ── 退租相关 ──
+        if any(w in ql for w in ("退租", "归还", "已还", "return")):
+            returned = [r for r in records if r.get("status") == "已退租"]
+            if not returned:
+                return "✅ 当前没有退租记录。"
+            return f"📋 已退租记录共 {len(returned)} 条\n\n" + \
+                   "\n".join(f"• {r.get('renter',{}).get('name','未知')} | ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}"
+                            for r in returned[:5]) + \
+                   (f"\n... 等共{len(returned)}条" if len(returned) > 5 else "")
+        
+        # ── 买断相关 ──
+        if any(w in ql for w in ("买断", "购买", "已买", "bought")):
+            bought = [r for r in records if r.get("status") == "已买断"]
+            if not bought:
+                return "✅ 当前没有买断记录。"
+            return f"📋 已买断记录共 {len(bought)} 条\n\n" + \
+                   "\n".join(f"• {r.get('renter',{}).get('name','未知')} | ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}"
+                            for r in bought[:5]) + \
+                   (f"\n... 等共{len(bought)}条" if len(bought) > 5 else "")
+        
+        # ── 丢失相关 ──
+        if any(w in ql for w in ("丢失", "遗失", "lost")):
+            lost = [r for r in records if r.get("status") == "已丢失"]
+            if not lost:
+                return "✅ 当前没有丢失记录。"
+            return f"⚠️ 丢失记录共 {len(lost)} 条\n\n" + \
+                   "\n".join(f"• {r.get('renter',{}).get('name','未知')} | ¥{float(r.get('lease_info',{}).get('total_rent',0) or 0):,.0f}"
+                            for r in lost[:5]) + \
+                   (f"\n... 等共{len(lost)}条" if len(lost) > 5 else "")
+        
+        # ── 建议/提醒 ──
+        if any(w in ql for w in ("建议", "提醒", "注意", "需要", "action", "todo")):
+            suggestions = []
+            overdue_count = sum(1 for r in records if r.get("status") == "已逾期")
+            if overdue_count > 0:
+                suggestions.append(f"⚠️ 有 {overdue_count} 条记录已逾期，建议及时联系客户")
+            
+            upcoming = []
+            for r in records:
+                if r.get("status") != "在租": continue
+                end_str = r.get("lease_info", {}).get("end_date", "")
+                if not end_str: continue
+                try:
+                    dt = datetime.strptime(end_str, "%Y-%m-%d").date()
+                    days = (dt - today).days
+                    if days <= 7:
+                        upcoming.append(r.get("renter", {}).get("name", ""))
+                except: pass
+            if upcoming:
+                suggestions.append(f"⏰ {', '.join(upcoming[:3])}{' 等' if len(upcoming) > 3 else ''} 的租赁即将到期，建议确认续租")
+            
+            unpaid = [r for r in records if float(r.get("paid_amount", 0) or 0) < float(r.get("lease_info", {}).get("total_rent", 0) or 0)]
+            if unpaid:
+                total_unpaid = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) - float(r.get("paid_amount", 0) or 0) for r in unpaid)
+                suggestions.append(f"💰 有 {len(unpaid)} 条记录未付清，涉及金额 ¥{total_unpaid:,.0f}")
+            
+            if not suggestions:
+                return "✅ 当前业务状态良好，无需特别处理。"
+            return "📋 智能建议：\n\n" + "\n".join(suggestions)
+        
+        # ── 问候语 ──
+        if any(w in ql for w in ("你好", "hello", "hi", "嗨", "嘿")):
+            return "您好！我是租赁管理AI助手。😊\n\n您可以问我：\n• 有多少客户？\n• 有哪些逾期记录？\n• 哪些即将到期？\n• 高价值客户有哪些？\n• 欠款情况如何？"
+        
+        # ── 感谢/告别 ──
+        if any(w in ql for w in ("谢谢", "感谢", "bye", "再见", "拜拜")):
+            return "不客气！如果有其他问题随时问我。祝您工作顺利！😊"
+        
+        # ── 默认响应 ──
         return f"🤔 我理解您的问题：{query}\n\n" \
                f"目前我支持以下查询：\n" \
                f"• 数据统计（总数、金额等）\n" \
+               f"• 客户数量查询\n" \
                f"• 逾期提醒\n" \
                f"• 到期提醒\n" \
                f"• 高价值客户\n" \
                f"• 欠款情况\n" \
                f"• 财务收入\n" \
-               f"• 硬件统计\n\n" \
-               f"您可以尝试问我：\"统计一下总数据\" 或 \"有多少逾期记录？\""
+               f"• 硬件统计\n" \
+               f"• 退租/买断/丢失记录\n" \
+               f"• 智能建议\n\n" \
+               f"您可以尝试问我：\"有多少客户了\" 或 \"有哪些逾期记录？\""
