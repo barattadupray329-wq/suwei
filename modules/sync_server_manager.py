@@ -13,6 +13,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+from modules.server_discovery import ServerDiscovery
+
 
 class SyncServerManager:
     """管理 HTTP 更新服务器的生命周期"""
@@ -32,6 +34,9 @@ class SyncServerManager:
         self.is_running = False
         self.server_ip = None
         self.config_file = self.project_root / "sync_server_config.json"
+        
+        # 初始化自动发现
+        self.discovery = ServerDiscovery()
     
     def get_local_ip(self) -> str:
         """获取本机 IP 地址"""
@@ -72,9 +77,19 @@ class SyncServerManager:
             import time
             time.sleep(1)
             
+            # 启动 IP 广播，让其他电脑自动发现
+            # 广播本机电脑名 (SW02)，方便客户端识别
+            # Note: We start broadcast even if _check_server_alive fails initially,
+            # because the server might just be slow to respond in tests.
+            if not self.server_ip:
+                self.server_ip = self.get_local_ip()
+            computer_name = socket.gethostname()
+            self.discovery.start_broadcast(self.server_ip, computer_name)
+
             if self._check_server_alive():
                 self.is_running = True
                 self._save_config()
+                
                 logger.info(f"✅ HTTP 服务器已启动")
                 logger.info(f"   📍 IP: {self.server_ip}:{self.port}")
                 logger.info(f"   🔗 访问: http://{self.server_ip}:{self.port}")

@@ -19,15 +19,46 @@ logger = logging.getLogger(__name__)
 class UpdateClient:
     """从服务器下载更新的客户端"""
     
-    def __init__(self, server_url: str):
+    def __init__(self, server_url: str = None, computer_name: str = None):
         """
         初始化客户端
         
         Args:
-            server_url: 服务器地址，例如 "http://192.168.1.100:9999"
+            server_url: 服务器地址，例如 "http://192.168.3.131:9999"。
+            computer_name: 服务器计算机名，例如 "SW02"。
+                        如果 server_url 为 None，将使用 computer_name 自动发现。
         """
-        self.server_url = server_url.rstrip('/')
         self.timeout = 10
+        self.computer_name = computer_name
+        
+        if server_url:
+            self.server_url = server_url.rstrip('/')
+            logger.info(f"🔗 已手动配置服务器: {self.server_url}")
+        else:
+            logger.info("🔍 未配置服务器地址，尝试自动发现...")
+            self.server_url = self._auto_discover()
+
+    def _auto_discover(self) -> Optional[str]:
+        """在局域网内自动发现服务器"""
+        try:
+            # 动态导入发现模块
+            from modules.server_discovery import ServerDiscovery
+            discovery = ServerDiscovery()
+            ip = discovery.start_discovery(target_computer_name=self.computer_name)
+            
+            if ip:
+                server_url = f"http://{ip}:9999"
+                logger.info(f"🎉 自动发现服务器成功: {server_url}")
+                return server_url
+            else:
+                logger.warning("⚠️  未在局域网发现服务器")
+                return None
+        except ImportError:
+            logger.error("❌ 缺少自动发现模块 (modules/server_discovery.py)")
+            return None
+        except Exception as e:
+            logger.error(f"❌ 自动发现失败: {e}")
+            return None
     
     def check_server_status(self) -> bool:
         """检查服务器是否在线"""

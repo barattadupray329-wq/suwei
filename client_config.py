@@ -14,7 +14,7 @@ CONFIG_FILE = Path(__file__).parent / "sync_client_config.json"
 def create_default_config():
     """创建默认配置文件"""
     default_config = {
-        "server_url": "http://192.168.1.100:9999",  # 请修改为你主电脑的 IP
+        "server_url": "",  # Will be set by auto-discovery or input
         "check_interval": 60,
         "auto_update": True,
         "data_sync_enabled": True,
@@ -24,19 +24,34 @@ def create_default_config():
     print("=" * 60)
     print("🔧 速维电脑租赁管理系统 - 客户端配置")
     print("=" * 60)
-    print("\n请输入主电脑的 IP 地址和端口（默认：192.168.1.100:9999）")
-    print("格式: http://IP:端口 (例如: http://192.168.1.100:9999)")
-    print()
     
-    server_url = input("📍 服务器地址 [http://192.168.1.100:9999]: ").strip()
-    if not server_url:
-        server_url = default_config["server_url"]
+    # 尝试自动发现
+    print("\n🔍 正在局域网内自动搜索服务器...")
+    print("(等待 3 秒...)")
     
-    # 验证 URL 格式
-    if not server_url.startswith("http://") and not server_url.startswith("https://"):
-        server_url = "http://" + server_url
+    try:
+        from update_client import UpdateClient
+        temp_client = UpdateClient()  # 无参数调用会触发自动发现
+        discovered_url = temp_client.server_url
+    except Exception as e:
+        discovered_url = None
     
-    default_config["server_url"] = server_url
+    if discovered_url:
+        print(f"\n🎉 发现服务器: {discovered_url}")
+        default_config["server_url"] = discovered_url
+    else:
+        print("\n⚠️  未发现服务器，请手动输入。")
+        print("格式: http://IP:端口 (例如: http://192.168.1.100:9999)")
+        print()
+        server_url = input("📍 服务器地址 [http://192.168.1.100:9999]: ").strip()
+        if not server_url:
+            server_url = "http://192.168.1.100:9999"
+        
+        # 验证 URL 格式
+        if not server_url.startswith("http://") and not server_url.startswith("https://"):
+            server_url = "http://" + server_url
+        
+        default_config["server_url"] = server_url
     
     print("\n⚙️  其他设置:")
     print()
