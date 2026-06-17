@@ -11,6 +11,7 @@ from theme.colors import DarkTheme
 from core.data_manager import DataManager
 from modules.dashboard import DashboardFrame
 from modules.rental_mgmt import RentalManagementFrame
+from modules.rental_mgmt_v2_integration import RentalContractsV2Frame
 from modules.due_reminder import DueReminderFrame
 from modules.hardware_brands_ui import HardwareBrandFrame
 from modules.user_mgmt import UserManagementFrame
@@ -143,6 +144,7 @@ class MainWindow:
         nav_items = [
             ("📊  仪表板",        "dashboard"),
             ("📋  租赁管理",      "rental"),
+            ("📄  新版合同(v2)",  "rental_v2"),
             ("⏰  到期提醒",      "reminder"),
             ("💻  硬件品牌库",    "hardware_brands"),
             ("👥  用户管理",      "user_mgmt"),
@@ -228,6 +230,7 @@ class MainWindow:
         nav_items = [
             ("📊  仪表板",        "dashboard"),
             ("📋  租赁管理",      "rental"),
+            ("📄  新版合同(v2)",  "rental_v2"),
             ("⏰  到期提醒",      "reminder"),
             ("💻  硬件品牌库",    "hardware_brands"),
             ("👥  用户管理",      "user_mgmt"),
@@ -291,6 +294,8 @@ class MainWindow:
             self.current_module = DashboardFrame(target_frame, self.data_manager)
         elif module_key == "rental":
             self.current_module = RentalManagementFrame(target_frame, self)
+        elif module_key == "rental_v2":
+            self.current_module = RentalContractsV2Frame(target_frame, self)
         elif module_key == "reminder":
             self.current_module = DueReminderFrame(target_frame, self.data_manager)
         elif module_key == "hardware_brands":
