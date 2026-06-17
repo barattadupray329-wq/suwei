@@ -695,7 +695,7 @@ class ExchangeFrequencyReport:
     # 明细视图列定义(Day 3)
     DETAIL_COLUMNS = ("exchange_id", "customer_name", "old_device", "new_device", 
                       "exchange_date", "reason", "operator", "notes")
-    DETAIL_HEADINGS = ("换机ID", "客户名称", "柧厂设备", "新设备",
+    DETAIL_HEADINGS = ("换机ID", "客户名称", "原设备", "新设备",
                        "换机日期", "换机原因", "作业人员", "备注")
     DETAIL_WIDTHS = (90, 150, 120, 120, 120, 100, 100, 160)
     
