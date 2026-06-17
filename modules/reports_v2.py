@@ -442,51 +442,235 @@ class ArrearsDetailReport:
     - 导出为CSV
     """
     
+    # 列定义（Day 2）
+    COLUMNS = ("contract_id", "customer_name", "total_rent", "paid_amount",
+               "unpaid_amount", "overdue_days", "status", "sign_date", "notes")
+    HEADINGS = ("合同编号", "客户名称", "应收总额", "已收金额",
+                "未收金额", "逾期天数", "状态", "签订日期", "备注")
+    WIDTHS = (100, 150, 100, 100, 100, 80, 80, 110, 160)
+    
     def __init__(self, frame: tk.Frame, engine: ReportEngine):
         self.frame = frame
         self.engine = engine
         self.treeview = None
         self.data = []
+        self.sort_reverse = {}  # 跟踪每列的排序状态
         
-        # TODO: Day 1-2 实现
-        # - 创建 Treeview (9列)
-        # - 绑定排序
-        # - 绑定双击事件
-        # - 高亮逾期合同
-        pass
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        """设置UI组件"""
+        # 创建Treeview
+        self.treeview = ttk.Treeview(
+            self.frame,
+            columns=self.COLUMNS,
+            show="headings",
+            height=20
+        )
+        self.treeview.pack(fill=tk.BOTH, expand=True)
+        
+        # 配置列
+        for col, heading, width in zip(self.COLUMNS, self.HEADINGS, self.WIDTHS):
+            self.treeview.heading(col, text=heading, command=lambda c=col: self.on_sort_column(c))
+            self.treeview.column(col, width=width, minwidth=70, anchor=tk.CENTER)
+        
+        # 绑定事件
+        self.treeview.bind("<Double-Button-1>", self.on_row_double_click)
+        
+        # 标签配置（条件格式化）
+        self.treeview.tag_configure("overdue", foreground=DarkTheme.ACCENT_RED)
+        self.treeview.tag_configure("normal", foreground=DarkTheme.TEXT_PRIMARY)
     
     def load_data(self, customer_name: str = None):
-        """加载欠款明细数据"""
-        # TODO: 调用 engine.get_contract_arrears_detail(customer_name)
-        # TODO: 保存到 self.data
-        # TODO: 渲染到 Treeview
-        pass
+        """加载欠款明细数据
+        
+        Args:
+            customer_name: 可选的客户名称过滤
+        """
+        try:
+            self.data = self.engine.get_contract_arrears_detail(customer_name)
+            self.render_table(self.data)
+        except Exception as exc:
+            messagebox.showerror("数据加载失败", f"加载欠款数据时出错:\n{exc}")
     
     def render_table(self, data: List[Dict]):
-        """渲染数据到表格"""
-        # TODO: 清空现有数据
-        # TODO: 插入新数据行
-        # TODO: 应用条件格式化（高亮逾期）
-        pass
+        """渲染数据到表格
+        
+        Args:
+            data: 欠款明细列表
+        """
+        # 清空现有数据
+        for item in self.treeview.get_children():
+            self.treeview.delete(item)
+        
+        # 插入新数据行
+        for row in data:
+            overdue_days = row.get("overdue_days", 0) or 0
+            values = (
+                row.get("contract_id", ""),
+                row.get("customer_name", ""),
+                self._format_money(row.get("total_rent", 0)),
+                self._format_money(row.get("paid_amount", 0)),
+                self._format_money(row.get("unpaid_amount", 0)),
+                overdue_days,
+                "逾期" if overdue_days > 0 else "正常",
+                row.get("sign_date", ""),
+                row.get("notes", "")
+            )
+            tag = "overdue" if overdue_days > 0 else "normal"
+            self.treeview.insert("", tk.END, values=values, tags=(tag,))
     
-    def on_sort_column(self, column: str, reverse: bool = False):
-        """按列排序"""
-        # TODO: 实现排序逻辑
-        # TODO: 更新表格显示
-        pass
+    def on_sort_column(self, column: str, reverse: bool = None):
+        """按列排序
+        
+        Args:
+            column: 列名
+            reverse: 是否反向排序（None时自动切换）
+        """
+        if reverse is None:
+            # 切换排序状态
+            reverse = self.sort_reverse.get(column, False)
+            reverse = not reverse
+        
+        self.sort_reverse[column] = reverse
+        
+        # 排序数据
+        try:
+            col_index = self.COLUMNS.index(column)
+            
+            def sort_key(item):
+                value = item.get(column, "")
+                # 数值列特殊处理
+                if column in ["total_rent", "paid_amount", "unpaid_amount", "overdue_days"]:
+                    try:
+                        return float(str(value).replace(",", ""))
+                    except (ValueError, TypeError):
+                        return 0
+                return str(value).lower()
+            
+            sorted_data = sorted(self.data, key=sort_key, reverse=reverse)
+            self.render_table(sorted_data)
+        except Exception as exc:
+            messagebox.showerror("排序失败", f"排序时出错:\n{exc}")
     
     def on_row_double_click(self, event):
-        """双击查看合同收款历史"""
-        # TODO: 获取选中行的 contract_id
-        # TODO: 调用 engine.get_contract_payment_detail()
-        # TODO: 弹出详情窗口
-        pass
+        """双击查看合同收款历史
+        
+        Args:
+            event: Tkinter事件对象
+        """
+        selection = self.treeview.selection()
+        if not selection:
+            return
+        
+        item = selection[0]
+        values = self.treeview.item(item, "values")
+        if not values:
+            return
+        
+        contract_id = values[0]  # 第一列是合同编号
+        
+        try:
+            # 获取合同的收款历史
+            payment_detail = self.engine.get_contract_payment_detail(contract_id)
+            
+            # 创建详情窗口
+            detail_window = tk.Toplevel(self.frame)
+            detail_window.title(f"合同 {contract_id} - 收款历史")
+            detail_window.geometry("700x500")
+            detail_window.resizable(True, True)
+            
+            # 合同信息头
+            header_frame = tk.Frame(detail_window, bg=DarkTheme.BG_SECONDARY)
+            header_frame.pack(fill=tk.X, padx=16, pady=12)
+            
+            tk.Label(
+                header_frame,
+                text=f"合同编号: {contract_id} | 客户: {values[1]} | 应收: {values[2]}",
+                font=DarkTheme.FONT_LABEL,
+                fg=DarkTheme.TEXT_PRIMARY,
+                bg=DarkTheme.BG_SECONDARY
+            ).pack(anchor=tk.W)
+            
+            # 收款历史表格
+            tree_frame = tk.Frame(detail_window)
+            tree_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+            
+            detail_tree = ttk.Treeview(
+                tree_frame,
+                columns=("payment_date", "amount", "payment_method", "receipt_number"),
+                show="headings",
+                height=15
+            )
+            detail_tree.pack(fill=tk.BOTH, expand=True)
+            
+            # 配置详情表格列
+            detail_tree.heading("payment_date", text="收款日期")
+            detail_tree.column("payment_date", width=120, minwidth=100, anchor=tk.CENTER)
+            
+            detail_tree.heading("amount", text="金额")
+            detail_tree.column("amount", width=100, minwidth=80, anchor=tk.CENTER)
+            
+            detail_tree.heading("payment_method", text="支付方式")
+            detail_tree.column("payment_method", width=100, minwidth=80, anchor=tk.CENTER)
+            
+            detail_tree.heading("receipt_number", text="凭证号")
+            detail_tree.column("receipt_number", width=120, minwidth=100, anchor=tk.W)
+            
+            # 填充数据
+            for payment in payment_detail:
+                values_detail = (
+                    payment.get("payment_date", ""),
+                    self._format_money(payment.get("amount", 0)),
+                    payment.get("payment_method", ""),
+                    payment.get("receipt_number", "")
+                )
+                detail_tree.insert("", tk.END, values=values_detail)
+            
+            # 统计信息
+            total_paid = sum(float(str(p.get("amount", 0)).replace(",", "")) 
+                           for p in payment_detail if p.get("amount"))
+            
+            summary_frame = tk.Frame(detail_window, bg=DarkTheme.BG_CARD)
+            summary_frame.pack(fill=tk.X, padx=16, pady=12)
+            
+            tk.Label(
+                summary_frame,
+                text=f"总收款: ¥{total_paid:,.2f} | 共 {len(payment_detail)} 笔",
+                font=DarkTheme.FONT_NORMAL,
+                fg=DarkTheme.TEXT_PRIMARY,
+                bg=DarkTheme.BG_CARD
+            ).pack(anchor=tk.W, pady=6)
+            
+        except Exception as exc:
+            messagebox.showerror("查看详情失败", f"获取收款历史时出错:\n{exc}")
     
     def export_csv(self) -> str:
-        """导出为CSV"""
-        # TODO: 调用 engine.export_arrears_to_csv()
-        # TODO: 返回 CSV 字符串
-        pass
+        """导出为CSV
+        
+        Returns:
+            CSV格式的字符串
+        """
+        try:
+            return self.engine.export_arrears_to_csv()
+        except Exception as exc:
+            messagebox.showerror("导出失败", f"导出CSV时出错:\n{exc}")
+            return ""
+    
+    @staticmethod
+    def _format_money(value) -> str:
+        """格式化金额
+        
+        Args:
+            value: 金额值
+            
+        Returns:
+            格式化后的金额字符串
+        """
+        try:
+            return f"{float(value or 0):,.2f}"
+        except (TypeError, ValueError):
+            return "0.00"
 
 
 class ExchangeFrequencyReport:
