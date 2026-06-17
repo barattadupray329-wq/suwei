@@ -25,6 +25,13 @@ class KpiCard(tk.Frame):
         "flat": "#9e9e9e",
         None: "#9e9e9e",
     }
+    TREND_MAGNITUDE_COLORS = {
+        "significant_up": "#2e7d32",  # 深绿
+        "significant_down": "#c62828",  # 深红
+        "slight_up": "#4caf50",  # 绿
+        "slight_down": "#f44336",  # 红
+        "stable": "#9e9e9e",  # 灰
+    }
 
     def __init__(
         self,
@@ -39,7 +46,7 @@ class KpiCard(tk.Frame):
         Args:
             parent: 父容器。
             title: KPI标题。
-            unit: 单位，例如“元”、“%”、“个”。
+            unit: 单位，例如"元"、"%"、"个"。
             width: 卡片宽度。
             height: 卡片高度。
         """
@@ -56,9 +63,12 @@ class KpiCard(tk.Frame):
         self.unit = unit
         self.value: Any = 0
         self.trend: Optional[str] = None
+        self.trend_info: Dict[str, Any] = {}  # 趋势详细信息
         self.on_click: Optional[Callable[[str], None]] = None
         self.is_loading = False
         self.error_message: Optional[str] = None
+        self.value_history: list = []  # 值历史记录，最多30个
+        self.max_history = 30
 
         self.pack_propagate(False)
         self._create_card_ui()
@@ -110,12 +120,22 @@ class KpiCard(tk.Frame):
         )
         self.unit_label.pack(anchor="e")
 
+        self.trend_pct_label = tk.Label(
+            self,
+            text="",
+            bg="#2b2b2b",
+            fg="#9e9e9e",
+            font=("Microsoft YaHei UI", 9, "bold"),
+            anchor="w",
+        )
+        self.trend_pct_label.pack(fill="x", padx=12, pady=(0, 2))
+
         self.subtitle_label = tk.Label(
             self,
             text="",
             bg="#2b2b2b",
             fg="#757575",
-            font=("Microsoft YaHei UI", 9),
+            font=("Microsoft YaHei UI", 8),
             anchor="w",
         )
         self.subtitle_label.pack(fill="x", padx=12, pady=(0, 8))
@@ -127,6 +147,7 @@ class KpiCard(tk.Frame):
             self.title_label,
             self.value_label,
             self.trend_label,
+            self.trend_pct_label,
             self.unit_label,
             self.subtitle_label,
         ]
@@ -139,6 +160,7 @@ class KpiCard(tk.Frame):
         self,
         value: Any,
         trend: Optional[str] = None,
+        trend_info: Optional[Dict[str, Any]] = None,
         subtitle: str = "",
     ):
         """更新KPI数值。
@@ -146,12 +168,24 @@ class KpiCard(tk.Frame):
         Args:
             value: KPI数值。
             trend: 趋势，可选值为 up/down/flat。
+            trend_info: 趋势详细信息，包含 percentage、magnitude等。
             subtitle: 卡片底部辅助说明。
         """
         self.value = value
         self.trend = trend
+        self.trend_info = trend_info or {}
         self.is_loading = False
         self.error_message = None
+        
+        # 记录值历史
+        try:
+            numeric_value = float(value)
+            self.value_history.append(numeric_value)
+            if len(self.value_history) > self.max_history:
+                self.value_history.pop(0)
+        except (TypeError, ValueError):
+            pass
+        
         self.subtitle_label.config(text=subtitle)
         self._update_display()
 
@@ -185,13 +219,18 @@ class KpiCard(tk.Frame):
 
         if self.error_message:
             self.value_label.config(text="错误", fg="#f44336")
+            self.trend_pct_label.config(text="")
             return
 
         self.value_label.config(text=self._format_value(self.value), fg="#ffffff")
-        self.trend_label.config(
-            text=self.TREND_SYMBOLS.get(self.trend, ""),
-            fg=self.TREND_COLORS.get(self.trend, "#9e9e9e"),
-        )
+        
+        # 更新趋势符号和颜色
+        trend_symbol = self.TREND_SYMBOLS.get(self.trend, "")
+        trend_color = self._get_trend_color()
+        self.trend_label.config(text=trend_symbol, fg=trend_color)
+        
+        # 更新趋势百分比
+        self._update_trend_percentage(trend_color)
 
     def _format_value(self, value: Any) -> str:
         """格式化卡片数值。"""
@@ -225,6 +264,36 @@ class KpiCard(tk.Frame):
                 child.config(bg="#2b2b2b")
             except tk.TclError:
                 pass
+
+    def _get_trend_color(self) -> str:
+        """根据趋势信息获取趋势色涨。"""
+        if not self.trend_info or "magnitude" not in self.trend_info:
+            return self.TREND_COLORS.get(self.trend, "#9e9e9e")
+
+        magnitude = self.trend_info.get("magnitude", "flat")
+        if self.trend == "up":
+            if magnitude == "significant":
+                return self.TREND_MAGNITUDE_COLORS["significant_up"]
+            return self.TREND_MAGNITUDE_COLORS["slight_up"]
+        elif self.trend == "down":
+            if magnitude == "significant":
+                return self.TREND_MAGNITUDE_COLORS["significant_down"]
+            return self.TREND_MAGNITUDE_COLORS["slight_down"]
+        return self.TREND_MAGNITUDE_COLORS["stable"]
+
+    def _update_trend_percentage(self, trend_color: str):
+        """更新趋势百分比标签。"""
+        if not self.trend_info or "percentage" not in self.trend_info:
+            self.trend_pct_label.config(text="")
+            return
+
+        percentage = self.trend_info.get("percentage", 0)
+        if percentage == 0:
+            self.trend_pct_label.config(text="")
+            return
+
+        pct_text = f"{percentage:+.1f}%" if percentage != 0 else "0%"
+        self.trend_pct_label.config(text=pct_text, fg=trend_color)
 
 
 class DashboardV2Frame(tk.Frame):
@@ -260,6 +329,7 @@ class DashboardV2Frame(tk.Frame):
         self.previous_data: Dict[str, Any] = {}
         self.is_loading = False
         self.last_refresh_time: Optional[datetime] = None
+        self.drill_down_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
         self._create_toolbar()
         self._create_kpi_grid()
@@ -383,10 +453,11 @@ class DashboardV2Frame(tk.Frame):
         for title, _unit, key in self.KPI_CONFIGS:
             current = metrics.get(key, 0)
             previous = self.previous_data.get(key, current)
-            trend = self._calculate_trend(current, previous)
+            trend_info = self._build_trend_info(current, previous)
             self.kpi_cards[title].set_value(
                 current,
-                trend=trend,
+                trend=trend_info.get("direction"),
+                trend_info=trend_info,
                 subtitle=subtitles.get(key, ""),
             )
 
@@ -419,9 +490,28 @@ class DashboardV2Frame(tk.Frame):
         """自动刷新开关事件。"""
         self.set_auto_refresh(self.auto_refresh_var.get())
 
+    def set_drill_down_callback(self, callback: Callable[[str, Dict[str, Any]], None]):
+        """设置鮲取导航回调函数。
+
+        Args:
+            callback: 回调函数，接受KPI标题引数字关键fkey。
+        """
+        self.drill_down_callback = callback
+
     def _on_kpi_click(self, title: str):
-        """KPI卡片点击事件，Day 3可扩展为钻取导航。"""
-        self.status_label.config(text=f"已选择：{title}")
+        """اKPI卡片点击事件，触发鮲取导航。"""
+        key = self.kpi_key_map.get(title)
+        if key and self.drill_down_callback:
+            drill_down_params = {
+                "kpi_title": title,
+                "kpi_key": key,
+                "current_value": self.data_cache.get(key, 0),
+                "previous_value": self.previous_data.get(key, 0),
+            }
+            self.drill_down_callback(key, drill_down_params)
+            self.status_label.config(text=f"正跳转到：{title}详情...")
+        else:
+            self.status_label.config(text=f"已选择：{title}")
 
     def _export_data(self):
         """导出数据占位逻辑，Day 3扩展为CSV导出。"""
@@ -535,3 +625,50 @@ class DashboardV2Frame(tk.Frame):
         if current_value < previous_value:
             return "down"
         return "flat"
+
+    def _build_trend_info(self, current: Any, previous: Any) -> Dict[str, Any]:
+        """构建趋势详细信息，包含方向、百分比、等级。
+
+        Args:
+            current: 当前值。
+            previous: 上一次值。
+
+        Returns:
+            趋势信息字典，包含 direction, percentage, magnitude。
+        """
+        trend_info: Dict[str, Any] = {}
+        try:
+            current_value = float(current)
+            previous_value = float(previous)
+        except (TypeError, ValueError):
+            return {
+                "direction": "flat",
+                "percentage": 0,
+                "magnitude": "flat",
+            }
+
+        # 计算方向
+        if current_value > previous_value:
+            trend_info["direction"] = "up"
+        elif current_value < previous_value:
+            trend_info["direction"] = "down"
+        else:
+            trend_info["direction"] = "flat"
+
+        # 计算百分比变化
+        if previous_value == 0:
+            trend_info["percentage"] = 0 if current_value == 0 else 100.0
+        else:
+            percentage_change = ((current_value - previous_value) / abs(previous_value)) * 100
+            trend_info["percentage"] = round(percentage_change, 2)
+
+        # 计算等级（显著/微微变化）
+        percentage_abs = abs(trend_info["percentage"])
+        if percentage_abs >= 5:  # 比例变化增程
+            trend_info["magnitude"] = "significant"
+        elif percentage_abs > 0:
+            trend_info["magnitude"] = "slight"
+        else:
+            trend_info["magnitude"] = "flat"
+
+        return trend_info

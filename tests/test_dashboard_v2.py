@@ -31,28 +31,29 @@ import time
 
 
 class TestKpiCard(unittest.TestCase):
-    \"\"\"KPI卡片组件测试\"\"\"
+    """KPI卡片组件测试"""
     
     def setUp(self):
-        \"\"\"测试前准备\"\"\"
-        # TODO: Day 4 - 实现setUp
+        """测试前准备"""
         self.root = tk.Tk()
-        pass
+        self.root.withdraw()  # 隐藏窗口
+        self.card = KpiCard(self.root, "月度收入", "元")
     
     def tearDown(self):
-        \"\"\"测试后清理\"\"\"
-        # TODO: Day 4 - 实现tearDown
+        """测试后清理"""
         try:
             self.root.destroy()
         except:
             pass
     
     def test_card_creation(self):
-        \"\"\"测试：卡片创建\"\"\"
-        # TODO: Day 4 - 实现测试
-        # - 创建KpiCard实例
-        # - 验证属性初始化
-        pass
+        """测试：卡片创建"""
+        self.assertIsNotNone(self.card)
+        self.assertEqual(self.card.title, "月度收入")
+        self.assertEqual(self.card.unit, "元")
+        self.assertEqual(self.card.value, 0)
+        self.assertFalse(self.card.is_loading)
+        self.assertIsNone(self.card.error_message)
     
     def test_set_value(self):
         \"\"\"测试：设置数值\"\"\"
