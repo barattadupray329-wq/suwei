@@ -1,6 +1,6 @@
 # 速维电脑租赁管理系统 V2 - 项目结构文档
 
-> 生成时间: 2026-06-13
+> 最后更新: 2026-06-17
 > 版本: v2.1.0+
 > 分支: main (已推送至 origin/main)
 
@@ -8,62 +8,79 @@
 
 ## 项目总览
 
+### 四版本架构
+
+项目采用四版本架构，核心逻辑独立，各版本共享同一套核心代码：
+
 ```
 速维电脑租赁管理系统_v2/
-├── main.py                      # 启动入口 (1.3KB) — 登录优先架构
-├── README.md                    # 项目文档 (11.7KB)
+├── main.py                      # 版本选择器入口
+├── PROJECT_RULES.md             # 开发规则文档
+├── ARCHITECTURE.md              # 架构重构计划
 ├── PROJECT_STRUCTURE.md         # 项目结构 (本文档)
-├── COMMIT_LOG.md                # 提交日志 (4.1KB)
-├── TEST_REPORT.md               # 测试报告 (10.6KB)
-├── PHASE3_REPORT.md             # 第三阶段报告 (3.6KB)
 │
-├── core/                        # 核心逻辑层
+├── core/                        # 核心逻辑层 (所有版本共享)
 │   ├── __init__.py
-│   ├── app.py                   # 主窗口管理 (11KB) — 导航、模块切换、样式配置
-│   ├── auth.py                  # 认证管理 (13.4KB) — 多用户登录、密码哈希、账户锁定
-│   ├── data_manager.py          # 数据管理 (40.4KB) — SQLite CRUD、Migration、JSON同步、版本回溯
-│   └── token_manager.py         # 令牌管理 (2.5KB) — 登录令牌生成与验证
+│   ├── app.py                   # 主窗口管理 - 导航、模块切换
+│   ├── auth.py                  # 认证管理 - 多用户登录、密码哈希
+│   ├── data_manager.py          # 数据管理 - SQLite CRUD、Migration
+│   └── token_manager.py         # 令牌管理
 │
-├── modules/                     # UI 功能模块
-│   ├── __init__.py
-│   ├── ai_assistant.py          # AI助手 (45.6KB) — 智能提取、自然语言查询、成本计算
-│   ├── dashboard.py             # 仪表板 (16.6KB) — 数据概览、财务统计、到期提醒、备份、日志
-│   ├── due_reminder.py          # 到期提醒 (7.8KB)
-│   ├── hardware_brands.py       # 品牌数据 (3.9KB) — 品牌常量定义
-│   ├── hardware_brands_ui.py    # 品牌管理UI (19KB) — 分类浏览、增删改查、导入导出、型号查看
-│   ├── hardware_mgmt.py         # 硬件管理 (24.3KB) — 硬件配置对话框
-│   ├── hardware_models.py       # 型号数据 (17.4KB) — 74款硬件型号数据库
-│   ├── logger.py                # 日志记录 (1KB)
-│   ├── rental_mgmt.py           # 租赁管理 (93.5KB) — CRUD、续租、导入导出、收款、合同、批量操作
-│   ├── reports.py               # 报表 (29.2KB) — 续租历史、高级筛选、统计报表、图表、Excel导出
-│   └── user_mgmt.py             # 用户管理 (17.2KB) — 多用户CRUD、角色权限控制 (新增)
+├── modules/                     # 功能模块层
+│   │
+│   ├── # 核心功能模块 (所有版本共享)
+│   ├── rental_mgmt.py           # 租赁管理 - CRUD、续租、导入导出
+│   ├── ai_assistant.py          # AI助手
+│   ├── dashboard.py             # 仪表板
+│   ├── due_reminder.py          # 到期提醒
+│   ├── user_mgmt.py             # 用户管理
+│   ├── reports.py               # 报表统计
+│   ├── hardware_brands.py       # 品牌数据
+│   ├── hardware_brands_ui.py    # 品牌管理UI
+│   ├── hardware_mgmt.py         # 硬件配置
+│   ├── hardware_models.py       # 型号数据
+│   ├── logger.py                # 日志记录
+│   │
+│   └── # 版本特定模块 (网络版)
+│   ├── nutstore_sync.py         # 坚果云同步
+│   ├── sync_server_manager.py   # HTTP同步服务器
+│   ├── server_discovery.py      # 服务器发现
+│   ├── splash_screen.py         # 启动屏幕
+│   ├── client_setup.py          # 客户端配置
+│   └── mode_selection.py        # 模式选择
+│
+├── versions/                    # 版本入口层
+│   ├── __init__.py              # 版本选择器
+│   ├── standalone/              # 单机版
+│   │   ├── main.py              # 单机版入口
+│   │   └── config.py            # 单机版配置
+│   ├── network/                 # 网络版
+│   │   ├── main.py              # 网络版入口
+│   │   └── config.py            # 网络版配置
+│   └── lan/                     # 局域网版 (预留)
+│       ├── main.py              # 预留入口
+│       └── config.py            # 预留配置
 │
 ├── theme/                       # 主题系统
-│   ├── __init__.py
-│   └── colors.py                # 主题配色 (3.1KB) — 深色主题、状态颜色、字体定义
+│   └── colors.py                # 深色主题配色
 │
 ├── widgets/                     # 通用组件
-│   └── autocomplete.py          # 自动补全 (8.9KB) — 硬件型号智能补全
-│
-├── utils/                       # 工具类
-│   └── __init__.py
+│   └── autocomplete.py          # 智能补全
 │
 ├── data/                        # 数据存储 (自动生成)
 │   ├── rental_data.db           # SQLite 主数据库
-│   ├── rental_data.json         # JSON 兼容快照
-│   ├── backup_*.json            # 时间戳备份文件
+│   └── rental_data.json         # JSON 快照
 │
-├── logs/                        # 运行日志 (自动生成)
-│   └── *.log                    # 按日期分类的日志文件
+├── logs/                        # 运行日志
 │
 ├── tests/                       # 测试目录
-│   └── test_hardware_*.py       # 硬件相关测试
 │
-├── test_full_integration.py     # 全模块集成测试 (3.5KB)
-├── test_sql_migration.py        # 迁移与版本回溯测试 (3.3KB)
-├── test_rental_ai_functional.py # AI与租赁功能测试 (16.2KB)
-├── test_integration.py          # 集成测试 (5.3KB)
-├── test_new_features.py         # 新功能测试 (11KB)
+├── test_full_integration.py     # 全模块集成测试
+├── test_sql_migration.py        # 迁移与版本回溯测试
+├── test_rental_ai_functional.py # AI与租赁功能测试
+├── test_integration.py          # 集成测试
+├── test_new_features.py         # 新功能测试
+├── test_rental_module.py        # 租赁管理端到端测试
 │
 ├── dist/                        # 打包输出
 ├── build/                       # PyInstaller 构建

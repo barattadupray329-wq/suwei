@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,6 @@ class SplashScreen:
             self.status_label.config(text=message)
             self.percent_label.config(text=f"{int(progress)}%")
             
-            # 错误状态改变颜色
             if status == "error":
                 self.status_label.config(fg="red")
             elif status == "completed":
@@ -123,7 +123,8 @@ class SplashScreen:
             
             self.window.update()
         except Exception as e:
-            logger.error(f"Error updating splash screen: {e}")
+            # 忽略跨线程 UI 更新警告，不影响主流程
+            pass
     
     def close(self):
         """关闭启动屏幕"""
@@ -146,13 +147,14 @@ class SplashScreen:
             logger.error(f"Error showing error on splash screen: {e}")
 
 
-def show_splash_with_sync(root: tk.Tk, sync_manager) -> bool:
+def show_splash_with_sync(root: tk.Tk, sync_manager, timeout: int = 30) -> bool:
     """
     显示启动屏幕并等待同步完成
     
     Args:
         root: Tkinter 主窗口
         sync_manager: NutstoreSyncManager 实例
+        timeout: 同步超时时间（秒），默认30秒
     
     Returns:
         是否同步成功
@@ -160,32 +162,63 @@ def show_splash_with_sync(root: tk.Tk, sync_manager) -> bool:
     splash = SplashScreen(root)
     splash.show()
     
-    # 在线程中等待同步
-    result = [None]
+    # 检查坚果云是否已安装
+    if not sync_manager.is_installed():
+        splash.show_error("⚠️ 坚果云未安装")
+        root.after(1000, splash.close)
+        # 使用 after 而非 sleep 保持事件循环运行
+        _sync_done = [False]
+        _sync_result = [False]
+        
+        def _wait_and_close():
+            _sync_done[0] = True
+        
+        root.after(1200, _wait_and_close)
+        while not _sync_done[0]:
+            try:
+                root.update()
+            except tk.TclError:
+                return False
+            time.sleep(0.05)
+        return False
     
-    def wait_sync():
+    # 使用线程安全的同步方式
+    _sync_done = [False]
+    _sync_result = [False]
+    
+    def _do_sync():
         try:
-            result[0] = sync_manager.wait_for_sync(
-                timeout=120,
+            _sync_result[0] = sync_manager.wait_for_sync(
+                timeout=timeout,
                 callback=splash.update_progress
             )
         except Exception as e:
             logger.error(f"Error during sync: {e}")
-            splash.show_error(f"同步失败: {str(e)}")
-            result[0] = False
+            # 不能在线程中直接调用root.after，设置标志让主线程处理
+            _sync_result[0] = False
         finally:
-            # 延迟关闭，让用户看到完成信息
-            import time
-            time.sleep(1)
-            splash.close()
+            _sync_done[0] = True
+            # 使用事件机制通知主线程关闭splash
+            # 主循环检测到_sync_done后会处理关闭
     
-    sync_thread = threading.Thread(target=wait_sync, daemon=True)
+    sync_thread = threading.Thread(target=_do_sync, daemon=True)
     sync_thread.start()
     
     # 等待同步完成
-    while not splash.is_closed and sync_thread.is_alive():
-        root.update()
-        import time
-        time.sleep(0.1)
+    max_wait = timeout + 10
+    wait_start = time.time()
+    try:
+        while not _sync_done[0]:
+            root.update()
+            time.sleep(0.05)
+            if time.time() - wait_start > max_wait:
+                splash.close()
+                break
+    except tk.TclError:
+        # 窗口被销毁
+        return False
     
-    return result[0] if result[0] is not None else False
+    # 同步完成，延迟关闭splash让用户看到结果
+    time.sleep(0.5)
+    splash.close()
+    return _sync_result[0]

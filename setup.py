@@ -25,6 +25,15 @@ hiddenimports = [
     'logging',
     'pathlib',
     'datetime',
+    'requests',
+    'update_server',
+    'update_client',
+    'modules.server_discovery',
+    'modules.sync_server_manager',
+    'http.server',
+    'urllib.request',
+    'urllib.parse',
+    'socketserver',
 ]
 
 # 数据文件和文件夹

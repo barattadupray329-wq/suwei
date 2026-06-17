@@ -31,9 +31,11 @@ def main():
     # 2. 认证
     print("\n[2] 用户认证")
     auth = AuthManager(dm)
-    assert auth.verify_credentials("admin", "admin123") == True
+    success, role = auth.verify_credentials("admin", "admin123")
+    assert success == True
+    assert role == "admin"
     assert auth.is_authenticated == True
-    print("    ✅ admin/admin123 登录成功")
+    print("    ✅ admin/admin123 登录成功 (role: admin)")
     auth.verify_credentials("wrong", "pass")
     assert auth.is_authenticated == True  # already logged in
     auth.logout()

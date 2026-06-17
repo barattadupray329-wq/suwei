@@ -24,9 +24,9 @@ class NutstoreSyncManager:
     
     # 坚果云可能的安装位置
     NUTSTORE_PATHS = [
-        r"C:\Program Files\Nutstore\",
-        r"C:\Program Files (x86)\Nutstore\",
-        os.path.expanduser("~/AppData/Local/Nutstore/"),
+        r"C:\Program Files\Nutstore",
+        r"C:\Program Files (x86)\Nutstore",
+        os.path.expanduser("~/AppData/Local/Nutstore"),
     ]
     
     NUTSTORE_EXECUTABLE = "Nutstore.exe"
@@ -69,12 +69,13 @@ class NutstoreSyncManager:
     def is_running(self) -> bool:
         """检查坚果云进程是否在运行"""
         try:
-            # 使用 tasklist 检查进程
+            # 使用 tasklist 检查进程，指定 gbk 编码兼容中文 Windows
             result = subprocess.run(
                 ["tasklist"],
                 capture_output=True,
-                text=True,
-                timeout=5
+                timeout=5,
+                encoding='gbk',
+                errors='ignore'
             )
             return "Nutstore.exe" in result.stdout
         except Exception as e:

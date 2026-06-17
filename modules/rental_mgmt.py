@@ -150,7 +150,7 @@ class RentalManagementFrame(ttk.Frame):
         content = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                                 width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -200,7 +200,7 @@ class RentalManagementFrame(ttk.Frame):
             row = tk.Frame(details, bg=DarkTheme.BG_PRIMARY)
             row.pack(fill=tk.X, pady=2)
             tk.Label(row, text=f"{lbl}:", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                     bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 6))
+                     bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 6))
             tk.Label(row, text=str(val), font=DarkTheme.FONT_NORMAL, fg=color,
                      bg=DarkTheme.BG_PRIMARY, wraplength=260, justify=tk.LEFT).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -459,16 +459,18 @@ class RentalManagementFrame(ttk.Frame):
                     messagebox.showerror("错误", "CSV 缺少表头")
                     return
                 for idx, row in enumerate(reader, 2):
-                    rid, nm = row.get("记录ID", "").strip(), row.get("租赁人", "").strip()
+                    rid = row.get("记录ID", "").strip()
+                    nm = row.get("租赁人", "").strip()
                     if not rid or not nm:
                         errs.append((idx, "记录ID和租赁人不能为空"))
                         continue
                     if rid in existing:
                         errs.append((idx, f"ID {rid} 已存在"))
                         continue
+                    qty_str = (row.get("数量") or "1").strip() or "1"
                     rec = {
                         "id": rid,
-                        "quantity": float(row.get("数量", "1").strip() or 1),
+                        "quantity": float(qty_str),
                         "renter": {"name": nm, "phone": row.get("联系电话", "").strip(),
                                    "id_card": row.get("身份证", "").strip(), "address": row.get("地址", "").strip()},
                         "lease_info": {"start_date": row.get("起租日期", "").strip(),
@@ -531,7 +533,7 @@ class RentalManagementFrame(ttk.Frame):
         form = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                              width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -565,7 +567,7 @@ class RentalManagementFrame(ttk.Frame):
             ("总租金最大值", "total_rent_max"), ("已付金额最小值", "paid_min"),
             ("已付金额最大值", "paid_max"),
         ]:
-            refs[key] = self._make_field(form, label, "")
+            refs[key] = self._make_field(form, label, "", width=26)
 
         # 按钮
         btn = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
@@ -651,7 +653,7 @@ class RentalManagementFrame(ttk.Frame):
         content = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                                 width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -707,7 +709,7 @@ class RentalManagementFrame(ttk.Frame):
         ]:
             row = tk.Frame(amount_box, bg=DarkTheme.BG_CARD)
             row.pack(fill=tk.X, padx=12, pady=2)
-            tk.Label(row, text=f"{lbl}：", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD, width=10, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Label(row, text=f"{lbl}：", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD, width=12, anchor=tk.W).pack(side=tk.LEFT)
             tk.Label(row, text=f"¥{val:.2f}", font=("微软雅黑", 14, "bold"), fg=color, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT)
 
         # 状态分布
@@ -1126,12 +1128,12 @@ class RentalManagementFrame(ttk.Frame):
         for w in self._right_frame.winfo_children():
             w.destroy()
 
-    def _make_field(self, parent, label, default="", width=22):
+    def _make_field(self, parent, label, default="", width=26):
         """创建紧凑输入行，返回 Entry 控件"""
         row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
         row.pack(fill=tk.X, pady=3)
         tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                 bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
+                 bg=DarkTheme.BG_PRIMARY, width=12, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
         ent = ttk.Entry(row, width=width, font=DarkTheme.FONT_NORMAL)
         ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
         if default is not None:
@@ -1157,7 +1159,7 @@ class RentalManagementFrame(ttk.Frame):
         form = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                              width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1355,7 +1357,7 @@ class RentalManagementFrame(ttk.Frame):
         form = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                              width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1418,30 +1420,37 @@ class RentalManagementFrame(ttk.Frame):
         hw_btn.pack(side=tk.LEFT)
         DarkTheme.bind_hover(hw_btn, DarkTheme.ACCENT_PURPLE)
 
-        # 自动计算
+        # 自动计算（仅当用户修改月租或月数时触发，不覆盖手动输入）
         def _auto_calc(*_):
             try:
                 m_rent = float(refs['monthly_e'].get().strip() or 0)
                 months = float(refs['months_e'].get().strip() or 0)
+                if months <= 0 or m_rent <= 0:
+                    return
                 start_str = refs['start_e'].get().strip()
                 total = m_rent * months
-                refs['total_e'].delete(0, tk.END)
-                refs['total_e'].insert(0, f"{total:.2f}")
+                # 仅当总租金为0或为空时才自动计算，避免覆盖手动修改
+                current_total = refs['total_e'].get().strip()
+                if not current_total or current_total == "0.00" or current_total == "0":
+                    refs['total_e'].delete(0, tk.END)
+                    refs['total_e'].insert(0, f"{total:.2f}")
                 if start_str and months > 0:
                     try:
                         ds = datetime.strptime(start_str, "%Y-%m-%d")
                         de = ds + timedelta(days=int(months * 30))
-                        refs['end_e'].delete(0, tk.END)
-                        refs['end_e'].insert(0, de.strftime("%Y-%m-%d"))
+                        # 仅当到期日期为空或为默认值时才自动计算
+                        current_end = refs['end_e'].get().strip()
+                        if not current_end:
+                            refs['end_e'].delete(0, tk.END)
+                            refs['end_e'].insert(0, de.strftime("%Y-%m-%d"))
                     except ValueError:
                         pass
             except ValueError:
                 pass
 
-        for w in (refs['monthly_e'], refs['months_e'], refs['start_e']):
+        for w in (refs['monthly_e'], refs['months_e']):
             w.bind("<KeyRelease>", _auto_calc)
             w.bind("<FocusOut>", _auto_calc)
-        _auto_calc()
 
         # 按钮
         btn = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
@@ -1568,7 +1577,7 @@ class RentalManagementFrame(ttk.Frame):
         form = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
                                                              width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=400)
+        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=600)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1661,7 +1670,9 @@ class RentalManagementFrame(ttk.Frame):
             if new_paid < 0:
                 messagebox.showwarning("提示", "已付金额不能为负")
                 return
-            if new_paid > cur_total + amt:
+            # 修复：比较新已付金额与新总租金（当前总租金 + 续租金额）
+            new_total = cur_total + amt
+            if new_paid > new_total:
                 messagebox.showwarning("提示", "已付金额不能大于总租金")
                 return
 
@@ -1674,13 +1685,17 @@ class RentalManagementFrame(ttk.Frame):
                 add_months = t_val
             new_end_str = new_end.strftime("%Y-%m-%d")
 
+            # 计算准确的总租赁月数
+            old_start = lease.get("start_date", "")
+            if old_start:
+                old_start_dt = datetime.strptime(old_start, "%Y-%m-%d")
+                total_months = (new_end - old_start_dt).days / 30.0
+            else:
+                total_months = float(lease.get("lease_months", 0) or 0) + add_months
+
             lease["end_date"] = new_end_str
-            lease["total_rent"] = cur_total + amt
-            if "lease_months" in lease:
-                try:
-                    lease["lease_months"] = float(lease["lease_months"]) + add_months
-                except (ValueError, TypeError):
-                    pass
+            lease["total_rent"] = new_total
+            lease["lease_months"] = round(total_months, 2)
 
             rec.setdefault("renew_history", []).append({
                 "renew_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

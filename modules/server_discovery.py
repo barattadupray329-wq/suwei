@@ -106,8 +106,14 @@ class ServerDiscovery:
                                 found_name = parts[2]
                                 
                                 # 如果指定了电脑名，必须匹配；否则连接第一个
+                                # 排除特定电脑名的逻辑也在此处理
+                                if target_name and exclude_computer_name and found_name.lower() == exclude_computer_name.lower():
+                                    logger.debug(f"排除本机: {found_name}")
+                                    continue
+                                    
                                 if not target_name or found_name.lower() == target_name.lower():
                                     self.discovered_ip = found_ip
+                                    self.computer_name = found_name
                                     self._stop_event.set()
                                     logger.info(f"🎉 匹配到目标: {found_name} -> {found_ip}")
                                     break
@@ -117,6 +123,36 @@ class ServerDiscovery:
                         break
             except Exception as e:
                 logger.error(f"监听错误：{e}")
+
+    def find_server(self, timeout=DISCOVER_TIMEOUT, exclude_computer_name=None):
+        """客户端：同步发现服务器，返回 (IP, 电脑名)
+        Args:
+            timeout: 等待时间
+            exclude_computer_name: 排除的电脑名 (避免客户端发现自己是服务端)
+        """
+        logger.info(f"🔍 正在搜索局域网内的服务器... (排除：{exclude_computer_name})")
+        self.discovered_ip = None
+        self.computer_name = None
+        self._stop_event.clear()
+        
+        discovery_thread = threading.Thread(
+            target=self._discovery_loop, 
+            args=(timeout, exclude_computer_name), 
+            daemon=True, 
+            name="SyncDiscovery"
+        )
+        discovery_thread.start()
+        
+        # 等待直到超时或发现 IP
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.discovered_ip:
+                logger.info(f"✅ 发现服务器: {self.computer_name} ({self.discovered_ip})")
+                return self.discovered_ip, self.computer_name
+            time.sleep(0.1)
+        
+        logger.info("❌ 未发现服务器")
+        return None
 
     def stop(self):
         """停止广播或监听"""
