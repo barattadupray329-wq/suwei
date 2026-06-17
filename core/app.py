@@ -9,11 +9,14 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from theme.colors import DarkTheme
 from core.data_manager import DataManager
+from core.report_engine import ReportEngine
 from modules.dashboard import DashboardFrame
+from modules.dashboard_v2 import DashboardV2Frame
 from modules.rental_mgmt import RentalManagementFrame
 from modules.rental_mgmt_v2_integration import RentalContractsV2Frame
 from modules.due_reminder import DueReminderFrame
 from modules.hardware_brands_ui import HardwareBrandFrame
+from modules.reports_v2 import ReportsV2Frame
 from modules.user_mgmt import UserManagementFrame
 
 
@@ -24,6 +27,8 @@ class MainWindow:
         self.username = username
         self.current_module = None
         self.data_manager = data_manager
+        self.report_engine = ReportEngine(data_manager)
+        self.navigation_history = []
         self.data_manager.check_overdue()
 
         # 支持传入已有根窗口或内容框架，避免多窗口闪烁
@@ -143,6 +148,8 @@ class MainWindow:
         self.nav_buttons = {}
         nav_items = [
             ("📊  仪表板",        "dashboard"),
+            ("📈  管理看板(v2)",  "dashboard_v2"),
+            ("📑  报表中心(v2)",  "reports_v2"),
             ("📋  租赁管理",      "rental"),
             ("📄  新版合同(v2)",  "rental_v2"),
             ("⏰  到期提醒",      "reminder"),
@@ -229,6 +236,8 @@ class MainWindow:
         self.nav_buttons = {}
         nav_items = [
             ("📊  仪表板",        "dashboard"),
+            ("📈  管理看板(v2)",  "dashboard_v2"),
+            ("📑  报表中心(v2)",  "reports_v2"),
             ("📋  租赁管理",      "rental"),
             ("📄  新版合同(v2)",  "rental_v2"),
             ("⏰  到期提醒",      "reminder"),
@@ -292,6 +301,16 @@ class MainWindow:
         # 加载新模块
         if module_key == "dashboard":
             self.current_module = DashboardFrame(target_frame, self.data_manager)
+        elif module_key == "dashboard_v2":
+            self.current_module = DashboardV2Frame(target_frame, self.report_engine)
+            if hasattr(self.current_module, "set_drill_down_callback"):
+                self.current_module.set_drill_down_callback(self._on_kpi_drill_down)
+            elif hasattr(self.current_module, "drill_down_callback"):
+                self.current_module.drill_down_callback = self._on_kpi_drill_down
+        elif module_key == "reports_v2":
+            self.current_module = ReportsV2Frame(target_frame, self.data_manager, self.report_engine)
+            if hasattr(self.current_module, "load_data"):
+                self.current_module.load_data()
         elif module_key == "rental":
             self.current_module = RentalManagementFrame(target_frame, self)
         elif module_key == "rental_v2":
@@ -305,6 +324,76 @@ class MainWindow:
             self.current_module = UserManagementFrame(target_frame, self.data_manager, user_role)
 
         self.current_module.pack(fill=tk.BOTH, expand=True)
+
+    def _on_kpi_drill_down(self, kpi_key: str, drill_params: dict = None):
+        """处理管理看板 KPI 下钻导航。"""
+        drill_params = drill_params or {}
+        current_key = self._get_current_module_key()
+        if current_key:
+            self.navigation_history.append(current_key)
+
+        report_kpis = {
+            "monthly_revenue",
+            "annual_revenue",
+            "unpaid_amount",
+            "overdue_contracts",
+            "payment_rate",
+            "monthly_exchanges",
+            "high_risk_customers",
+        }
+
+        if kpi_key in report_kpis:
+            self._switch_module("reports_v2")
+            self._apply_report_drill_down(kpi_key, drill_params)
+        elif kpi_key == "active_contracts":
+            self._switch_module("rental_v2")
+        else:
+            self.status_label.config(text=f"✓ 已下钻：{kpi_key}")
+
+    def _apply_report_drill_down(self, kpi_key: str, drill_params: dict):
+        """根据 KPI 类型应用报表下钻筛选。"""
+        if not isinstance(self.current_module, ReportsV2Frame):
+            return
+
+        exchange_kpis = {"monthly_exchanges", "high_risk_customers"}
+        report_type = "exchange" if kpi_key in exchange_kpis else "arrears"
+
+        filters = {}
+        filter_data = drill_params.get("filter_data", {})
+        if isinstance(filter_data, dict):
+            filters.update(filter_data)
+
+        if report_type == "exchange" and hasattr(self.current_module, "report_type_var"):
+            self.current_module.report_type_var.set("设备换机频率统计")
+            if hasattr(self.current_module, "report_header"):
+                self.current_module.report_header.configure(text="设备换机频率统计")
+        elif hasattr(self.current_module, "report_type_var"):
+            self.current_module.report_type_var.set("欠款明细报表")
+            if hasattr(self.current_module, "report_header"):
+                self.current_module.report_header.configure(text="欠款明细报表")
+
+        self.current_module.load_data(report_type, **filters)
+        self.status_label.config(text=f"✓ 已打开下钻报表：{kpi_key}")
+
+    def _get_current_module_key(self):
+        """返回当前模块对应的导航 key。"""
+        if isinstance(self.current_module, DashboardFrame):
+            return "dashboard"
+        if isinstance(self.current_module, DashboardV2Frame):
+            return "dashboard_v2"
+        if isinstance(self.current_module, ReportsV2Frame):
+            return "reports_v2"
+        if isinstance(self.current_module, RentalManagementFrame):
+            return "rental"
+        if isinstance(self.current_module, RentalContractsV2Frame):
+            return "rental_v2"
+        if isinstance(self.current_module, DueReminderFrame):
+            return "reminder"
+        if isinstance(self.current_module, HardwareBrandFrame):
+            return "hardware_brands"
+        if isinstance(self.current_module, UserManagementFrame):
+            return "user_mgmt"
+        return None
     
     def _get_user_role(self):
         """获取当前用户角色"""
