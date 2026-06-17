@@ -685,18 +685,51 @@ class ExchangeFrequencyReport:
     - 导出为CSV
     """
     
+    # 汇总视图列定义(Day 3)
+    SUMMARY_COLUMNS = ("customer_name", "exchange_count", "avg_period", "last_exchange_date",
+                       "fault_count", "upgrade_count", "risk_level", "contact")
+    SUMMARY_HEADINGS = ("客户名称", "换机次数", "平均换机天数", "最近换机日期",
+                        "故障次数", "升级次数", "风险等级", "联系方式")
+    SUMMARY_WIDTHS = (150, 90, 120, 130, 90, 90, 90, 140)
+    
+    # 明细视图列定义(Day 3)
+    DETAIL_COLUMNS = ("exchange_id", "customer_name", "old_device", "new_device", 
+                      "exchange_date", "reason", "operator", "notes")
+    DETAIL_HEADINGS = ("换机ID", "客户名称", "柧厂设备", "新设备",
+                       "换机日期", "换机原因", "作业人员", "备注")
+    DETAIL_WIDTHS = (90, 150, 120, 120, 120, 100, 100, 160)
+    
     def __init__(self, frame: tk.Frame, engine: ReportEngine):
         self.frame = frame
         self.engine = engine
         self.view_type = "summary"  # 默认汇总视图
         self.treeview = None
         self.data = []
+        self.summary_data = []
+        self.detail_data = []
+        self.sort_reverse = {}  # 跟踪每列的排序状态
         
-        # TODO: Day 2-3 实现
-        # - 创建两种视图的 Treeview
-        # - 视图切换逻辑
-        # - 数据加载
-        pass
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        """设置UI组件——汇总视图作为默认"""
+        # 创建汇总视图
+        self.treeview = ttk.Treeview(
+            self.frame,
+            columns=self.SUMMARY_COLUMNS,
+            show="headings",
+            height=20
+        )
+        self.treeview.pack(fill=tk.BOTH, expand=True)
+        
+        # 配置汇总视图列
+        for col, heading, width in zip(self.SUMMARY_COLUMNS, self.SUMMARY_HEADINGS, self.SUMMARY_WIDTHS):
+            self.treeview.heading(col, text=heading, command=lambda c=col: self.on_sort_column(c))
+            self.treeview.column(col, width=width, minwidth=70, anchor=tk.CENTER)
+        
+        # 标签配置（条件格式化）
+        self.treeview.tag_configure("high_risk", foreground=DarkTheme.ACCENT_RED)
+        self.treeview.tag_configure("normal", foreground=DarkTheme.TEXT_PRIMARY)
     
     def switch_view(self, view_type: str):
         """切换视图类型
@@ -704,35 +737,180 @@ class ExchangeFrequencyReport:
         Args:
             view_type: 'summary' 或 'detail'
         """
-        # TODO: 清空当前视图
-        # TODO: 创建新视图
-        # TODO: 加载对应数据
-        pass
+        if view_type == self.view_type:
+            return  # 已经是该视图，无需切换
+        
+        self.view_type = view_type
+        
+        # 清空现有数据
+        for item in self.treeview.get_children():
+            self.treeview.delete(item)
+        
+        # 重新配置标题和列定义
+        if view_type == "summary":
+            self.treeview.configure(columns=self.SUMMARY_COLUMNS)
+            for i, col in enumerate(self.SUMMARY_COLUMNS):
+                self.treeview.heading(col, text=self.SUMMARY_HEADINGS[i], 
+                                     command=lambda c=col: self.on_sort_column(c))
+                self.treeview.column(col, width=self.SUMMARY_WIDTHS[i], minwidth=70, anchor=tk.CENTER)
+            # 加载汇总数据
+            if self.summary_data:
+                self._render_summary_table(self.summary_data)
+        else:
+            self.treeview.configure(columns=self.DETAIL_COLUMNS)
+            for i, col in enumerate(self.DETAIL_COLUMNS):
+                self.treeview.heading(col, text=self.DETAIL_HEADINGS[i],
+                                     command=lambda c=col: self.on_sort_column(c))
+                self.treeview.column(col, width=self.DETAIL_WIDTHS[i], minwidth=70, anchor=tk.CENTER)
+            # 加载明细数据
+            if self.detail_data:
+                self._render_detail_table(self.detail_data)
     
     def load_summary(self, start_date: str = None, end_date: str = None):
-        """加载汇总视图数据"""
-        # TODO: 调用 engine.get_hardware_exchange_summary(start_date, end_date)
-        # TODO: 渲染到 Treeview
-        pass
+        """加载汇总视图数据
+        
+        Args:
+            start_date: 可选的开始日期
+            end_date: 可选的结束日期
+        """
+        try:
+            self.summary_data = self.engine.get_hardware_exchange_summary(start_date, end_date)
+            if self.view_type == "summary":
+                self._render_summary_table(self.summary_data)
+        except Exception as exc:
+            messagebox.showerror("数据加载失败", f"加载汇总数据时出错:\n{exc}")
     
     def load_detail(self, customer_name: str = None, reason: str = None,
                    start_date: str = None, end_date: str = None):
-        """加载明细视图数据"""
-        # TODO: 调用 engine.get_hardware_exchange_detail(...)
-        # TODO: 渲染到 Treeview
-        pass
+        """加载明细视图数据
+        
+        Args:
+            customer_name: 可选的客户名称过滤
+            reason: 可选的换机原因过滤
+            start_date: 可选的开始日期
+            end_date: 可选的结束日期
+        """
+        try:
+            # Day 3 TODO: 实现engine.get_hardware_exchange_detail()
+            self.detail_data = self.engine.get_hardware_exchange_detail(
+                customer_name=customer_name, reason=reason,
+                start_date=start_date, end_date=end_date
+            ) if hasattr(self.engine, 'get_hardware_exchange_detail') else []
+            if self.view_type == "detail":
+                self._render_detail_table(self.detail_data)
+        except Exception as exc:
+            messagebox.showerror("数据加载失败", f"加载明细数据时出错:\n{exc}")
+    
+    def _render_summary_table(self, data: List[Dict]):
+        """渲染汇总视图数据
+        
+        Args:
+            data: 汇总换机数据
+        """
+        # 清空现有数据
+        for item in self.treeview.get_children():
+            self.treeview.delete(item)
+        
+        # 插入新数据行
+        for row in data:
+            risk_level = row.get("risk_level", "正常")
+            values = (
+                row.get("customer_name", ""),
+                row.get("exchange_count", 0),
+                row.get("avg_period", row.get("exchange_days", "")),
+                row.get("last_exchange_date", ""),
+                row.get("fault_count", row.get("fault_rate", 0)),
+                row.get("upgrade_count", row.get("upgrade_rate", 0)),
+                risk_level,
+                row.get("contact", "")
+            )
+            tag = "high_risk" if "高" in str(risk_level) else "normal"
+            self.treeview.insert("", tk.END, values=values, tags=(tag,))
+    
+    def _render_detail_table(self, data: List[Dict]):
+        """渲染明细视图数据
+        
+        Args:
+            data: 明细换机记录
+        """
+        # 清空现有数据
+        for item in self.treeview.get_children():
+            self.treeview.delete(item)
+        
+        # 插入新数据行
+        for row in data:
+            values = (
+                row.get("exchange_id", ""),
+                row.get("customer_name", ""),
+                row.get("old_device", row.get("old_model", "")),
+                row.get("new_device", row.get("new_model", "")),
+                row.get("exchange_date", ""),
+                row.get("reason", ""),
+                row.get("operator", row.get("operator_id", "")),
+                row.get("notes", "")
+            )
+            tag = "fault" if "故障" in str(row.get("reason", "")) else "normal"
+            self.treeview.insert("", tk.END, values=values, tags=(tag,))
     
     def render_table(self, data: List[Dict]):
-        """渲染数据到表格"""
-        # TODO: 清空现有数据
-        # TODO: 插入新数据行
-        pass
+        """渲染数据到表格(府详视图类型)
+        
+        Args:
+            data: 待渲染数据
+        """
+        if self.view_type == "summary":
+            self._render_summary_table(data)
+        else:
+            self._render_detail_table(data)
+    
+    def on_sort_column(self, column: str, reverse: bool = None):
+        """按列排序
+        
+        Args:
+            column: 列名
+            reverse: 是否反向排序(为None时自动切换)
+        """
+        if reverse is None:
+            reverse = self.sort_reverse.get(column, False)
+            reverse = not reverse
+        
+        self.sort_reverse[column] = reverse
+        
+        # 排序数据
+        try:
+            data_to_sort = self.summary_data if self.view_type == "summary" else self.detail_data
+            
+            def sort_key(item):
+                value = item.get(column, "")
+                # 数值列特殊处理
+                if column in ["exchange_count", "avg_period", "fault_count", "upgrade_count", "exchange_days"]:
+                    try:
+                        return float(str(value).replace(",", ""))
+                    except (ValueError, TypeError):
+                        return 0
+                return str(value).lower()
+            
+            sorted_data = sorted(data_to_sort, key=sort_key, reverse=reverse)
+            self.render_table(sorted_data)
+        except Exception as exc:
+            messagebox.showerror("排序失败", f"排序时出错:\n{exc}")
     
     def export_csv(self) -> str:
-        """导出为CSV"""
-        # TODO: 调用 engine.export_exchange_to_csv(...)
-        # TODO: 返回 CSV 字符串
-        pass
+        """导出为CSV
+        
+        Returns:
+            CSV格式的字符串
+        """
+        try:
+            # Day 3 TODO: 实现export_exchange_to_csv()或作为分支方法
+            if self.view_type == "summary":
+                return self.engine.export_exchange_to_csv() if hasattr(self.engine, 'export_exchange_to_csv') else ""
+            else:
+                # 明细视图导出
+                return self.engine.export_exchange_to_csv() if hasattr(self.engine, 'export_exchange_to_csv') else ""
+        except Exception as exc:
+            messagebox.showerror("导出失败", f"导出CSV时出错:\n{exc}")
+            return ""
 
 
 # ═══════════════════════════════════════════════════════════════
