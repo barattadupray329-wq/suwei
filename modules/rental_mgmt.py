@@ -95,7 +95,7 @@ class RentalDetailDialog:
         renew_frame = tk.Frame(nb, bg=DarkTheme.BG_PRIMARY)
         nb.add(renew_frame, text="续租历史")
         self._add_history_tree(renew_frame, self.rec.get("renew_history", []),
-                               cols=["时间", "时长", "单位", "金额", "原到期", "新到期", "操作人"],
+                               cols=["时间", "时閵", "单位", "金额", "原到期", "新到期", "操作人"],
                                keys=["renew_date", "renew_time", "renew_unit", "renew_amount", "old_end_date", "new_end_date", "operator"])
 
         # Payment History
@@ -111,6 +111,13 @@ class RentalDetailDialog:
         self._add_history_tree(hw_hist_frame, self.rec.get("hardware_history", []),
                                cols=["时间", "备注", "操作人"],
                                keys=["change_date", "note", "operator"])
+        
+        # Rent Change History (new)
+        rent_hist_frame = tk.Frame(nb, bg=DarkTheme.BG_PRIMARY)
+        nb.add(rent_hist_frame, text="租金变更")
+        self._add_history_tree(rent_hist_frame, self.rec.get("rent_change_history", []),
+                               cols=["时间", "原月租", "新月租", "原总租", "新总租", "原因", "操作人"],
+                               keys=["change_date", "old_monthly_rent", "new_monthly_rent", "old_total_rent", "new_total_rent", "reason", "operator"])
 
         # System/Version History
         ver_frame = tk.Frame(nb, bg=DarkTheme.BG_PRIMARY)
@@ -248,9 +255,9 @@ class RentalManagementFrame(ttk.Frame):
         self.status_combo.pack(side=tk.LEFT, padx=(0, 8))
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
 
-        # 按钮容器 - 分两行显示
-        btn_container = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
-        btn_container.pack(fill=tk.X, pady=(0, 8))
+        # ── 操作按钮区 ──
+        btn_frame = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
+        btn_frame.pack(fill=tk.X, pady=(0, 12))
 
         action_btns = [
             ("➕ 新增", self.add_new_record, DarkTheme.ACCENT_CYAN),
@@ -262,23 +269,19 @@ class RentalManagementFrame(ttk.Frame):
             ("🤖 AI", self.open_ai, DarkTheme.ACCENT_PURPLE),
         ]
         
-        # 第一行（4个按钮）
-        btn_row1 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
-        btn_row1.pack(fill=tk.X, pady=(0, 4))
-        for txt, cmd, clr in action_btns[:4]:
-            b = tk.Button(btn_row1, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
-            b.pack(side=tk.LEFT, padx=1, fill=tk.BOTH, expand=True)
-            DarkTheme.bind_hover(b, clr)
-        
-        # 第二行（3个按钮）
-        btn_row2 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
-        btn_row2.pack(fill=tk.X)
-        for txt, cmd, clr in action_btns[4:]:
-            b = tk.Button(btn_row2, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
-            b.pack(side=tk.LEFT, padx=1, fill=tk.BOTH, expand=True)
-            DarkTheme.bind_hover(b, clr)
+        def _pack_action_row(parent, buttons):
+            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
+            row.pack(fill=tk.X, pady=(0, 4))
+            for txt, cmd, clr in buttons:
+                b = tk.Button(row, text=txt, font=DarkTheme.FONT_BUTTON, fg="white", bg=clr,
+                              relief=tk.FLAT, cursor="hand2", command=cmd,
+                              padx=6, pady=4, width=12)
+                b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
+                DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
+
+        # 固定两行显示，避免单行按钮在窗口较窄或右侧详情展开时被挤出可见区域
+        _pack_action_row(btn_frame, action_btns[:4])
+        _pack_action_row(btn_frame, action_btns[4:])
 
         # 分页容器
         self._page_frame = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
@@ -334,18 +337,13 @@ class RentalManagementFrame(ttk.Frame):
         scrollbar = ttk.Scrollbar(self._right_frame, orient="vertical", command=canvas.yview)
         content = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
         
-        def _on_content_configure(event):
-            # 根据内容大小更新 scrollregion
-            canvas.configure(scrollregion=canvas.bbox("all"))
-        
-        content.bind("<Configure>", _on_content_configure)
+        content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         def _on_canvas_configure(event):
-            # 无条件设置 canvas_frame 的宽度为 canvas 的实际宽度
             canvas.itemconfig(canvas_frame, width=event.width)
         canvas.bind("<Configure>", _on_canvas_configure)
 
@@ -405,9 +403,9 @@ class RentalManagementFrame(ttk.Frame):
         hw_text.insert("1.0", hardware_summary)
         hw_text.config(state=tk.DISABLED)
 
-        # 操作按钮 - 分两行显示
-        btn_container = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
-        btn_container.pack(fill=tk.X, padx=12, pady=(12, 8))
+        # 操作按钮
+        btn_area = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
+        btn_area.pack(fill=tk.X, padx=12, pady=(12, 8))
 
         action_buttons = [
             ("✏️ 编辑", lambda r=rec: self._show_edit_form(r), DarkTheme.ACCENT_YELLOW),
@@ -419,23 +417,19 @@ class RentalManagementFrame(ttk.Frame):
             ("📋 操作记录", lambda r=rec: self._show_operation_log(r), DarkTheme.ACCENT_PURPLE),
         ]
         
-        # 第一行按钮（3个）
-        btn_row1 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
-        btn_row1.pack(fill=tk.X, pady=(0, 4))
-        for txt, cmd, clr in action_buttons[:4]:
-            b = tk.Button(btn_row1, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=6, pady=4)
-            b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
-            DarkTheme.bind_hover(b, clr)
-        
-        # 第二行按钮（剩余的）
-        btn_row2 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
-        btn_row2.pack(fill=tk.X)
-        for txt, cmd, clr in action_buttons[4:]:
-            b = tk.Button(btn_row2, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=6, pady=4)
-            b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
-            DarkTheme.bind_hover(b, clr)
+        def _pack_detail_button_row(buttons, pady=(0, 4)):
+            row = tk.Frame(btn_area, bg=DarkTheme.BG_PRIMARY)
+            row.pack(fill=tk.X, pady=pady)
+            for txt, cmd, clr in buttons:
+                b = tk.Button(row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                              relief=tk.FLAT, cursor="hand2", command=cmd,
+                              padx=4, pady=4, width=14)
+                b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
+                DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
+
+        # 右侧详情宽度更小，分两行固定显示，避免按钮被裁切
+        _pack_detail_button_row(action_buttons[:4])
+        _pack_detail_button_row(action_buttons[4:], pady=(0, 0))
 
     def _refresh(self):
         self.dm.check_overdue()
