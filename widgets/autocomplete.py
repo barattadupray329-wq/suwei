@@ -34,11 +34,42 @@ class AutocompleteEntry(ttk.Entry):
         self._selected_index = -1
         self._current_results = []
         self._popup_hovering = False  # 鼠标是否在弹出窗口内
+        self._typing_timer = None  # 打字延迟计时器
+        self._user_typed = False  # 标记用户是否手动输入过
 
     def _on_entry_change(self, *args):
         """输入变化时查询并显示候选项"""
+        # 如果是通过程序设置的值（如自动选中后填充），不触发查询
+        if not self._user_typed:
+            # 检查是否是程序设置的值
+            query = self._var.get().strip()
+            if query and not self._is_user_input(query):
+                self._user_typed = False
+                return
+        
+        self._user_typed = True
+        
+        # 取消之前的计时器
+        if self._typing_timer:
+            self.after_cancel(self._typing_timer)
+        
+        # 设置延迟查询（300ms），给用户留出打字时间
+        self._typing_timer = self.after(300, self._delayed_query)
+    
+    def _is_user_input(self, text):
+        """判断是否为真实用户输入而非程序填充"""
+        # 如果文本格式为 "品牌 型号" 且与某个结果完全一致，则可能是程序填充
+        for item in self._current_results:
+            display = f"{item['brand']} {item['model_name']}"
+            if text == display:
+                return False
+        return True
+    
+    def _delayed_query(self):
+        """延迟查询，避免每次击键都触发数据库查询"""
+        self._typing_timer = None
         query = self._var.get().strip()
-        if len(query) < 1:
+        if len(query) < 2:  # 至少输入2个字符才开始查询
             self._hide_popup()
             return
         
@@ -47,17 +78,16 @@ class AutocompleteEntry(ttk.Entry):
             query, self._category, limit=20
         )
         
-        if len(self._current_results) == 1:
-            # 只有一个匹配项时自动选中并填充价格
+        if len(self._current_results) == 0:
+            self._hide_popup()
+        elif len(self._current_results) == 1 and not self._user_typed:
+            # 只有一个匹配项且用户没有手动输入过时自动填充
             self._hide_popup()
             self._select_single_item(self._current_results[0])
-        elif len(self._current_results) > 1:
-            # 多个匹配项时显示弹窗供手动选择
+        else:
+            # 多个匹配项或用户手动输入时显示弹窗
             self._show_popup()
             self._selected_index = -1
-        else:
-            # 无匹配项时隐藏弹窗
-            self._hide_popup()
 
     def _select_single_item(self, item):
         """选中唯一匹配项并填充价格"""

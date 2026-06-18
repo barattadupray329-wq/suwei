@@ -74,9 +74,6 @@ pyinstaller `
     --hidden-import=sqlite3 `
     --hidden-import=requests `
     --hidden-import=update_server `
-    --hidden-import=update_client `
-    --hidden-import=modules.server_discovery `
-    --hidden-import=modules.sync_server_manager `
     --add-data="theme:theme" `
     --add-data="modules:modules" `
     --add-data="core:core" `
@@ -128,12 +125,7 @@ Write-Host "  📦 exe:  dist\速维租赁管理系统.exe" -ForegroundColor Cya
 Write-Host "  📦 installer: 速维租赁管理系统_安装程序.exe (如果生成了)" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "部署说明:" -ForegroundColor Yellow
-Write-Host "  主电脑（你这台）:" -ForegroundColor Cyan
-Write-Host "    1. 双击 exe 运行，输入用户名密码登录" -ForegroundColor Gray
-Write-Host "    2. HTTP 同步服务器会自动启动" -ForegroundColor Gray
-Write-Host "  客户电脑:" -ForegroundColor Cyan
-Write-Host "    1. 复制 exe 到客户电脑" -ForegroundColor Gray
-Write-Host "    2. 运行 client_config.py 配置（自动发现主电脑 SW02）" -ForegroundColor Gray
-Write-Host "    3. 双击 exe 运行即可" -ForegroundColor Gray
-Write-Host "  无需安装坚果云！软件更新和数据同步全部通过 HTTP 自动完成" -ForegroundColor Green
+Write-Host "  1. 双击 exe 运行，输入用户名密码登录" -ForegroundColor Gray
+Write-Host "  2. 坚果云同步会自动启动" -ForegroundColor Gray
+Write-Host "  无需额外配置！" -ForegroundColor Green
 Write-Host ""

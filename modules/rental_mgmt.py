@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import csv
 from theme.colors import DarkTheme
 from modules.hardware_mgmt import HardwareDialog
-from modules.reports import RenewHistoryDialog, AdvancedFilterDialog, ReportDialog
 
 
 class RentalManagementFrame(ttk.Frame):
@@ -370,8 +369,8 @@ class RentalManagementFrame(ttk.Frame):
         self._show_report_panel()
 
     def add_new_record(self):
-        """切换到新增表单"""
-        self._show_add_form()
+        """弹出新增租赁记录窗口"""
+        self._show_add_form_dialog()
 
     def renew_lease(self):
         """切换到续租表单（优先使用选中记录）"""
@@ -1128,8 +1127,263 @@ class RentalManagementFrame(ttk.Frame):
         for w in self._right_frame.winfo_children():
             w.destroy()
 
+    def _show_add_form_dialog(self):
+        """弹出新增租赁记录窗口（内部保持卡片形式）"""
+        win = tk.Toplevel(self)
+        win.title("新增租赁记录")
+        win.geometry("950x700")
+        win.minsize(800, 600)
+        win.configure(bg=DarkTheme.BG_PRIMARY)
+        
+        # 居中窗口
+        def _center_window(w, h):
+            win.update_idletasks()
+            x = (win.winfo_screenwidth() // 2) - (w // 2)
+            y = (win.winfo_screenheight() // 2) - (h // 2)
+            win.geometry(f"{w}x{h}+{x}+{y}")
+        
+        _center_window(950, 700)
+        
+        # 在窗口内标题
+        hdr = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        hdr.pack(fill=tk.X, padx=16, pady=(12, 8))
+        tk.Label(hdr, text="➡️ 新增租赁记录", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
+        
+        # 将表单整合到窗口中
+        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+        refs = {}
+        
+        # 步骤标签
+        steps = ["① 客户信息", "② 租赁信息", "③ 金额与状态", "④ 硬件信息"]
+        current_step = {"index": 0}
+        step_bar = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        step_bar.pack(fill=tk.X, pady=(0, 8))
+        step_buttons = []
+        
+        card_host = tk.Frame(main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        card_host.pack(fill=tk.BOTH, expand=True)
+        cards = []
+        
+        # ── 卡睇1：客户信息 ──
+        card1 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        card1.pack(fill=tk.BOTH, expand=True)
+        cards.append(card1)
+        tk.Label(card1, text="客户基础信息", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['name_e'] = self._make_field(card1, "租赁人*", "")
+        refs['phone_e'] = self._make_field(card1, "联系电话*", "")
+        refs['id_e'] = self._make_field(card1, "身份证", "")
+        refs['quantity_e'] = self._make_field(card1, "数量*", "1")
+        addr_row = tk.Frame(card1, bg=DarkTheme.BG_PRIMARY)
+        addr_row.pack(fill=tk.X, pady=3)
+        tk.Label(addr_row, text="地址", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.NW).pack(side=tk.LEFT, padx=(0, 4))
+        addr_t = tk.Text(addr_row, height=3, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
+                         bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
+        addr_t.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        refs['addr_t'] = addr_t
+        
+        # ── 卡睇2：租赁信息 ──
+        card2 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card2)
+        tk.Label(card2, text="租赁周期与租金", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['start_e'] = self._make_field(card2, "起租日期*", datetime.now().strftime("%Y-%m-%d"))
+        refs['months_e'] = self._make_field(card2, "月数*", "1")
+        refs['monthly_e'] = self._make_field(card2, "月租*", "0")
+        refs['total_e'] = self._make_field(card2, "总租金*", "0")
+        refs['end_e'] = self._make_field(card2, "到期日期*", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
+        
+        # ── 卡睇3：金额与状态 ──
+        card3 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card3)
+        tk.Label(card3, text="付款与状态", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['deposit_e'] = self._make_field(card3, "押金", "0")
+        refs['paid_e'] = self._make_field(card3, "已付金额", "0")
+        st_row = tk.Frame(card3, bg=DarkTheme.BG_PRIMARY)
+        st_row.pack(fill=tk.X, pady=3)
+        tk.Label(st_row, text="状态", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
+        refs['status_var'] = tk.StringVar(value="在租")
+        st_combo = ttk.Combobox(st_row, textvariable=refs['status_var'], state="readonly",
+                                values=["在租", "已退租", "已丢失", "已买断", "已逾期"], width=20)
+        st_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # ── 卡睇4：硬件信息 ──
+        card4 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card4)
+        tk.Label(card4, text="硬件配置", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['hardware_data'] = {}
+        hw_row = tk.Frame(card4, bg=DarkTheme.BG_PRIMARY)
+        hw_row.pack(fill=tk.X, pady=6)
+        tk.Label(hw_row, text="硬件信息", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+                 bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
+        hw_btn = tk.Button(hw_row, text="⚙️ 编辑", font=DarkTheme.FONT_SMALL, fg="white",
+                           bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                           command=lambda: self._edit_hardware_inline(refs['hardware_data']), padx=10, pady=4)
+        hw_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(hw_btn, DarkTheme.ACCENT_PURPLE)
+        tk.Label(card4, text="提示：切换卡片不会丢失已输入内容，点击\u2018创建\u2019统一提交。",
+                 font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(10, 0))
+        
+        # 自动计算（与右侧面板逻辑一样）
+        def _auto_calc(*_):
+            try:
+                m_rent = float(refs['monthly_e'].get().strip() or 0)
+                months = float(refs['months_e'].get().strip() or 0)
+                start_str = refs['start_e'].get().strip()
+                total = m_rent * months
+                refs['total_e'].delete(0, tk.END)
+                refs['total_e'].insert(0, f"{total:.2f}")
+                if start_str and months > 0:
+                    try:
+                        ds = datetime.strptime(start_str, "%Y-%m-%d")
+                        de = ds + timedelta(days=int(months * 30))
+                        refs['end_e'].delete(0, tk.END)
+                        refs['end_e'].insert(0, de.strftime("%Y-%m-%d"))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        
+        refs['monthly_e'].bind("<KeyRelease>", _auto_calc)
+        refs['months_e'].bind("<KeyRelease>", _auto_calc)
+        refs['start_e'].bind("<KeyRelease>", _auto_calc)
+        
+        # 卡片切换函数
+        def _switch_card(index):
+            current_step["index"] = index
+            for i, card in enumerate(cards):
+                card.pack_forget() if i != index else card.pack(fill=tk.BOTH, expand=True)
+            # 更新按钮様式
+            for i, btn in enumerate(step_buttons):
+                if i == index:
+                    btn.configure(bg=DarkTheme.ACCENT_BLUE, fg="white")
+                else:
+                    btn.configure(bg=DarkTheme.BG_CARD, fg=DarkTheme.TEXT_SECONDARY)
+        
+        # 创建步骤按钮
+        for i, step_text in enumerate(steps):
+            btn = tk.Button(step_bar, text=step_text, font=DarkTheme.FONT_LABEL,
+                           bg=DarkTheme.BG_CARD if i > 0 else DarkTheme.ACCENT_BLUE,
+                           fg="white" if i == 0 else DarkTheme.TEXT_SECONDARY,
+                           relief=tk.FLAT, cursor="hand2",
+                           command=lambda idx=i: _switch_card(idx), padx=12, pady=6)
+            btn.pack(side=tk.LEFT, padx=2)
+            step_buttons.append(btn)
+        
+        # 仅打一个卡片（默认第一个）
+        for i, card in enumerate(cards):
+            if i > 0:
+                card.pack_forget()
+        
+        # 右下角按钮（上一步 / 下一步 / 创建）
+        btn_frame = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
+        btn_frame.pack(fill=tk.X, padx=16, pady=(0, 12))
+        
+        def _prev_card():
+            if current_step["index"] > 0:
+                _switch_card(current_step["index"] - 1)
+        
+        def _next_card():
+            if current_step["index"] < len(cards) - 1:
+                _switch_card(current_step["index"] + 1)
+        
+        def _save_and_close():
+            self._save_new_record_from_dialog(refs, win)
+        
+        prev_btn = tk.Button(btn_frame, text="⬅️ 上一步", font=DarkTheme.FONT_BUTTON,
+                            fg="white", bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                            command=_prev_card, padx=14, pady=8)
+        prev_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(prev_btn, DarkTheme.ACCENT_BLUE)
+        
+        next_btn = tk.Button(btn_frame, text="下一步 ➡️", font=DarkTheme.FONT_BUTTON,
+                            fg="white", bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                            command=_next_card, padx=14, pady=8)
+        next_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(next_btn, DarkTheme.ACCENT_BLUE)
+        
+        tk.Frame(btn_frame, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, expand=True)
+        
+        create_btn = tk.Button(btn_frame, text="✔️ 创建", font=DarkTheme.FONT_BUTTON,
+                              fg="white", bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
+                              command=_save_and_close, padx=14, pady=8)
+        create_btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(create_btn, DarkTheme.ACCENT_GREEN)
+        
+        cancel_btn = tk.Button(btn_frame, text="✗ 取消", font=DarkTheme.FONT_BUTTON,
+                              fg="white", bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                              command=win.destroy, padx=14, pady=8)
+        cancel_btn.pack(side=tk.LEFT)
+        DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
+    
+    def _save_new_record_from_dialog(self, refs, win):
+        """介于弹窗表单保存租赁记录"""
+        try:
+            # 验证必填项
+            name = refs['name_e'].get().strip()
+            phone = refs['phone_e'].get().strip()
+            qty_str = refs['quantity_e'].get().strip()
+            if not name or not phone:
+                messagebox.showwarning("提示", "租赁人、联系电话必填")
+                return
+            
+            qty = float(qty_str or 1)
+            if qty <= 0:
+                messagebox.showwarning("提示", "数量必须大于0")
+                return
+            
+            start_str = refs['start_e'].get().strip()
+            end_str = refs['end_e'].get().strip()
+            monthly_str = refs['monthly_e'].get().strip()
+            total_str = refs['total_e'].get().strip()
+            
+            if not start_str or not end_str or not monthly_str or not total_str:
+                messagebox.showwarning("提示", "租赁信息中的待填项有空")
+                return
+            
+            # 构造记录
+            rec = {
+                "id": self.dm.generate_unique_id(),
+                "quantity": qty,
+                "renter": {
+                    "name": name,
+                    "phone": phone,
+                    "id_card": refs['id_e'].get().strip(),
+                    "address": refs['addr_t'].get("1.0", "end").strip(),
+                },
+                "lease_info": {
+                    "start_date": start_str,
+                    "end_date": end_str,
+                    "monthly_rent": float(monthly_str or 0),
+                    "total_rent": float(total_str or 0),
+                    "deposit": float(refs['deposit_e'].get().strip() or 0),
+                },
+                "paid_amount": float(refs['paid_e'].get().strip() or 0),
+                "status": refs['status_var'].get(),
+                "hardware": refs['hardware_data'],
+            }
+            
+            # 保存
+            ok = self.dm.add_record(rec)
+            if ok:
+                messagebox.showinfo("成功", f"已创建记录 {rec['id']}")
+                win.destroy()
+                self._refresh()
+            else:
+                messagebox.showerror("错误", "池存失败")
+        except ValueError as e:
+            messagebox.showerror("错误", f"数值错误: {e}")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
+    
     def _make_field(self, parent, label, default="", width=26):
-        """创建紧凑输入行，返回 Entry 控件"""
+        """创建紧技输入行，返回 Entry 控件"""
         row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
         row.pack(fill=tk.X, pady=3)
         tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
@@ -1153,53 +1407,60 @@ class RentalManagementFrame(ttk.Frame):
                   bg=DarkTheme.BG_PRIMARY, relief=tk.FLAT, cursor="hand2",
                   command=self._show_right_placeholder).pack(side=tk.RIGHT)
 
-        # 滚动表单
-        canvas = tk.Canvas(self._right_frame, bg=DarkTheme.BG_PRIMARY, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self._right_frame, orient="vertical", command=canvas.yview)
-        form = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
-        form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
-                                                             width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=form, anchor="nw", width=600)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 绑定鼠标滚轮
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        # 窗口大小变化时自适应
-        def _on_canvas_configure(event):
-            canvas.itemconfig(canvas_frame, width=event.width)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
+        # 卡片式分步容器
+        main = tk.Frame(self._right_frame, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
         refs = {}
-        refs['name_e'] = self._make_field(form, "租赁人*", "")
-        refs['phone_e'] = self._make_field(form, "联系电话*", "")
-        refs['id_e'] = self._make_field(form, "身份证", "")
-        refs['quantity_e'] = self._make_field(form, "数量*", "1")
 
-        # 地址
-        addr_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
+        # 步骤标签
+        steps = ["① 客户信息", "② 租赁信息", "③ 金额与状态", "④ 硬件信息"]
+        current_step = {"index": 0}
+        step_bar = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        step_bar.pack(fill=tk.X, pady=(0, 8))
+        step_buttons = []
+
+        card_host = tk.Frame(main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        card_host.pack(fill=tk.BOTH, expand=True)
+        cards = []
+
+        # ── 卡片1：客户信息 ──
+        card1 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        card1.pack(fill=tk.BOTH, expand=True)
+        cards.append(card1)
+        tk.Label(card1, text="客户基础信息", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['name_e'] = self._make_field(card1, "租赁人*", "")
+        refs['phone_e'] = self._make_field(card1, "联系电话*", "")
+        refs['id_e'] = self._make_field(card1, "身份证", "")
+        refs['quantity_e'] = self._make_field(card1, "数量*", "1")
+        addr_row = tk.Frame(card1, bg=DarkTheme.BG_PRIMARY)
         addr_row.pack(fill=tk.X, pady=3)
         tk.Label(addr_row, text="地址", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
                  bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.NW).pack(side=tk.LEFT, padx=(0, 4))
-        addr_t = tk.Text(addr_row, height=2, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
+        addr_t = tk.Text(addr_row, height=3, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
                          bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
         addr_t.pack(side=tk.LEFT, fill=tk.X, expand=True)
         refs['addr_t'] = addr_t
 
-        refs['start_e'] = self._make_field(form, "起租日期*", datetime.now().strftime("%Y-%m-%d"))
-        refs['months_e'] = self._make_field(form, "月数*", "1")
-        refs['monthly_e'] = self._make_field(form, "月租*", "0")
-        refs['total_e'] = self._make_field(form, "总租金*", "0")
-        refs['end_e'] = self._make_field(form, "到期日期*", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
-        refs['deposit_e'] = self._make_field(form, "押金", "0")
-        refs['paid_e'] = self._make_field(form, "已付金额", "0")
+        # ── 卡片2：租赁信息 ──
+        card2 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card2)
+        tk.Label(card2, text="租赁周期与租金", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['start_e'] = self._make_field(card2, "起租日期*", datetime.now().strftime("%Y-%m-%d"))
+        refs['months_e'] = self._make_field(card2, "月数*", "1")
+        refs['monthly_e'] = self._make_field(card2, "月租*", "0")
+        refs['total_e'] = self._make_field(card2, "总租金*", "0")
+        refs['end_e'] = self._make_field(card2, "到期日期*", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
 
-        # 状态
-        st_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
+        # ── 卡片3：金额与状态 ──
+        card3 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card3)
+        tk.Label(card3, text="付款与状态", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['deposit_e'] = self._make_field(card3, "押金", "0")
+        refs['paid_e'] = self._make_field(card3, "已付金额", "0")
+        st_row = tk.Frame(card3, bg=DarkTheme.BG_PRIMARY)
         st_row.pack(fill=tk.X, pady=3)
         tk.Label(st_row, text="状态", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
                  bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
@@ -1208,19 +1469,25 @@ class RentalManagementFrame(ttk.Frame):
                                 values=["在租", "已退租", "已丢失", "已买断", "已逾期"], width=20)
         st_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # 硬件信息
-        hw_row = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
-        hw_row.pack(fill=tk.X, pady=3)
+        # ── 卡片4：硬件信息 ──
+        card4 = tk.Frame(card_host, bg=DarkTheme.BG_PRIMARY)
+        cards.append(card4)
+        tk.Label(card4, text="硬件配置", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        refs['hardware_data'] = {}
+        hw_row = tk.Frame(card4, bg=DarkTheme.BG_PRIMARY)
+        hw_row.pack(fill=tk.X, pady=6)
         tk.Label(hw_row, text="硬件信息", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
                  bg=DarkTheme.BG_PRIMARY, width=10, anchor=tk.E).pack(side=tk.LEFT, padx=(0, 4))
-        refs['hardware_data'] = {}
         hw_btn = tk.Button(hw_row, text="⚙️ 编辑", font=DarkTheme.FONT_SMALL, fg="white",
-                          bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-                          command=lambda: self._edit_hardware_inline(refs['hardware_data']), padx=8, pady=3)
+                           bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                           command=lambda: self._edit_hardware_inline(refs['hardware_data']), padx=10, pady=4)
         hw_btn.pack(side=tk.LEFT)
         DarkTheme.bind_hover(hw_btn, DarkTheme.ACCENT_PURPLE)
+        tk.Label(card4, text="提示：切换卡片不会丢失已输入内容，点击“创建”统一提交。",
+                 font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, padx=14, pady=(10, 0))
 
-        # 自动计算
+        # 自动计算（保持原逻辑）
         def _auto_calc(*_):
             try:
                 m_rent = float(refs['monthly_e'].get().strip() or 0)
@@ -1245,19 +1512,53 @@ class RentalManagementFrame(ttk.Frame):
             w.bind("<FocusOut>", _auto_calc)
         _auto_calc()
 
-        # 按钮
-        btn = tk.Frame(form, bg=DarkTheme.BG_PRIMARY)
-        btn.pack(fill=tk.X, pady=(12, 8))
-        save_btn = tk.Button(btn, text="💾 创建", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=lambda: self._save_new_record(refs), padx=14, pady=8)
-        save_btn.pack(side=tk.LEFT, padx=(0, 8))
-        DarkTheme.bind_hover(save_btn, DarkTheme.ACCENT_BLUE)
-        cancel_btn = tk.Button(btn, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=self._show_right_placeholder, padx=14, pady=8)
-        cancel_btn.pack(side=tk.LEFT)
+        # 卡片切换控制
+        nav = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        nav.pack(fill=tk.X, pady=(8, 0))
+        prev_btn = tk.Button(nav, text="◀ 上一步", font=DarkTheme.FONT_BUTTON, fg="white",
+                             bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2", padx=12, pady=7)
+        prev_btn.pack(side=tk.LEFT)
+        next_btn = tk.Button(nav, text="下一步 ▶", font=DarkTheme.FONT_BUTTON, fg="white",
+                             bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2", padx=12, pady=7)
+        next_btn.pack(side=tk.LEFT, padx=(8, 0))
+        create_btn = tk.Button(nav, text="💾 创建", font=DarkTheme.FONT_BUTTON, fg="white",
+                               bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
+                               command=lambda: self._save_new_record(refs), padx=14, pady=8)
+        create_btn.pack(side=tk.RIGHT)
+        DarkTheme.bind_hover(create_btn, DarkTheme.ACCENT_BLUE)
+        cancel_btn = tk.Button(nav, text="取消", font=DarkTheme.FONT_BUTTON, fg="white",
+                               bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
+                               command=self._show_right_placeholder, padx=14, pady=8)
+        cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
         DarkTheme.bind_hover(cancel_btn, DarkTheme.BG_HOVER)
+
+        def _show_step(index: int):
+            index = max(0, min(index, len(cards) - 1))
+            current_step["index"] = index
+            for i, c in enumerate(cards):
+                if i == index:
+                    c.pack(fill=tk.BOTH, expand=True)
+                else:
+                    c.pack_forget()
+            for i, b in enumerate(step_buttons):
+                if i == index:
+                    b.configure(bg=DarkTheme.ACCENT_BLUE, fg="white")
+                else:
+                    b.configure(bg=DarkTheme.BG_HOVER, fg=DarkTheme.TEXT_SECONDARY)
+            prev_btn.configure(state=(tk.NORMAL if index > 0 else tk.DISABLED))
+            next_btn.configure(state=(tk.NORMAL if index < len(cards) - 1 else tk.DISABLED))
+
+        for i, title in enumerate(steps):
+            btn = tk.Button(step_bar, text=title, font=DarkTheme.FONT_SMALL, relief=tk.FLAT, cursor="hand2",
+                            command=lambda idx=i: _show_step(idx), padx=8, pady=5)
+            btn.pack(side=tk.LEFT, padx=(0, 6))
+            step_buttons.append(btn)
+
+        prev_btn.configure(command=lambda: _show_step(current_step["index"] - 1))
+        next_btn.configure(command=lambda: _show_step(current_step["index"] + 1))
+        DarkTheme.bind_hover(prev_btn, DarkTheme.BG_HOVER)
+        DarkTheme.bind_hover(next_btn, DarkTheme.ACCENT_BLUE)
+        _show_step(0)
 
         self._current_form_refs = refs
 
@@ -1327,11 +1628,13 @@ class RentalManagementFrame(ttk.Frame):
                 "renew_history": [],
                 "hardware": refs['hardware_data']
             }
-
-            self.dm.add_record(rec)
+            ok = self.dm.add_record(rec)
+            if not ok:
+                messagebox.showerror("错误", "记录保存失败，请稍后重试")
+                return
             messagebox.showinfo("成功", f"新记录已创建\nID: {rec['id']}")
-            self._show_right_placeholder()
             self._refresh()
+            self._navigate_to_record(rec["id"])
         except Exception as e:
             messagebox.showerror("错误", f"保存失败：{e}")
 
@@ -1821,6 +2124,9 @@ class RentalManagementFrame(ttk.Frame):
             self.search_var.set("")
             self.status_var.set("全部")
             self._shown = list(self._all)
+            target_idx = next((i for i, r in enumerate(self._shown) if r.get("id") == rid), -1)
+            if target_idx >= 0:
+                self._current_page = target_idx // self._page_size
             self._render_tree()
             # 选中对应记录并显示详情
             for item in self.tree.get_children():

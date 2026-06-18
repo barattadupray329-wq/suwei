@@ -136,7 +136,7 @@ class CodeLoader:
         从源代码动态加载模块
         
         Args:
-            module_name: 模块名称（如 'nutstore_sync'）
+            module_name: 模块名称（如 'rental_mgmt'）
         
         Returns:
             加载的模块

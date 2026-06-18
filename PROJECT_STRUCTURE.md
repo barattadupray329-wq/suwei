@@ -8,18 +8,18 @@
 
 ## 项目总览
 
-### 四版本架构
+### 单机架构
 
-项目采用四版本架构，核心逻辑独立，各版本共享同一套核心代码：
+项目采用单机架构，本地 SQLite 存储，无网络同步：
 
 ```
 速维电脑租赁管理系统_v2/
-├── main.py                      # 版本选择器入口
+├── main.py                      # 单机版主入口
 ├── PROJECT_RULES.md             # 开发规则文档
-├── ARCHITECTURE.md              # 架构重构计划
+├── ARCHITECTURE.md              # 架构文档
 ├── PROJECT_STRUCTURE.md         # 项目结构 (本文档)
 │
-├── core/                        # 核心逻辑层 (所有版本共享)
+├── core/                        # 核心逻辑层
 │   ├── __init__.py
 │   ├── app.py                   # 主窗口管理 - 导航、模块切换
 │   ├── auth.py                  # 认证管理 - 多用户登录、密码哈希
@@ -28,7 +28,6 @@
 │
 ├── modules/                     # 功能模块层
 │   │
-│   ├── # 核心功能模块 (所有版本共享)
 │   ├── rental_mgmt.py           # 租赁管理 - CRUD、续租、导入导出
 │   ├── ai_assistant.py          # AI助手
 │   ├── dashboard.py             # 仪表板
@@ -40,26 +39,7 @@
 │   ├── hardware_mgmt.py         # 硬件配置
 │   ├── hardware_models.py       # 型号数据
 │   ├── logger.py                # 日志记录
-│   │
-│   └── # 版本特定模块 (网络版)
-│   ├── nutstore_sync.py         # 坚果云同步
-│   ├── sync_server_manager.py   # HTTP同步服务器
-│   ├── server_discovery.py      # 服务器发现
-│   ├── splash_screen.py         # 启动屏幕
-│   ├── client_setup.py          # 客户端配置
-│   └── mode_selection.py        # 模式选择
-│
-├── versions/                    # 版本入口层
-│   ├── __init__.py              # 版本选择器
-│   ├── standalone/              # 单机版
-│   │   ├── main.py              # 单机版入口
-│   │   └── config.py            # 单机版配置
-│   ├── network/                 # 网络版
-│   │   ├── main.py              # 网络版入口
-│   │   └── config.py            # 网络版配置
-│   └── lan/                     # 局域网版 (预留)
-│       ├── main.py              # 预留入口
-│       └── config.py            # 预留配置
+│   └── code_loader.py           # 动态代码加载器
 │
 ├── theme/                       # 主题系统
 │   └── colors.py                # 深色主题配色
