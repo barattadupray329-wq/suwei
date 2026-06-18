@@ -248,10 +248,11 @@ class RentalManagementFrame(ttk.Frame):
         self.status_combo.pack(side=tk.LEFT, padx=(0, 8))
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
 
-        btn_row = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
-        btn_row.pack(fill=tk.X, pady=(0, 8))
+        # 按钮容器 - 分两行显示
+        btn_container = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
+        btn_container.pack(fill=tk.X, pady=(0, 8))
 
-        for txt, cmd, clr in [
+        action_btns = [
             ("➕ 新增", self.add_new_record, DarkTheme.ACCENT_CYAN),
             ("✏️ 编辑", self.edit_record, DarkTheme.ACCENT_YELLOW),
             ("🗑️ 删除", self.delete_record, DarkTheme.ACCENT_RED),
@@ -259,10 +260,24 @@ class RentalManagementFrame(ttk.Frame):
             ("📥 导入", self.import_rentals, DarkTheme.ACCENT_GREEN),
             ("📤 导出", self.export_rentals, DarkTheme.ACCENT_GREEN),
             ("🤖 AI", self.open_ai, DarkTheme.ACCENT_PURPLE),
-        ]:
-            b = tk.Button(btn_row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                           relief=tk.FLAT, cursor="hand2", command=cmd, padx=10, pady=4)
-            b.pack(side=tk.LEFT, padx=2)
+        ]
+        
+        # 第一行（4个按钮）
+        btn_row1 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
+        btn_row1.pack(fill=tk.X, pady=(0, 4))
+        for txt, cmd, clr in action_btns[:4]:
+            b = tk.Button(btn_row1, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
+            b.pack(side=tk.LEFT, padx=1, fill=tk.BOTH, expand=True)
+            DarkTheme.bind_hover(b, clr)
+        
+        # 第二行（3个按钮）
+        btn_row2 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
+        btn_row2.pack(fill=tk.X)
+        for txt, cmd, clr in action_btns[4:]:
+            b = tk.Button(btn_row2, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
+            b.pack(side=tk.LEFT, padx=1, fill=tk.BOTH, expand=True)
             DarkTheme.bind_hover(b, clr)
 
         # 分页容器
@@ -318,14 +333,19 @@ class RentalManagementFrame(ttk.Frame):
         canvas = tk.Canvas(self._right_frame, bg=DarkTheme.BG_PRIMARY, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self._right_frame, orient="vertical", command=canvas.yview)
         content = tk.Frame(canvas, bg=DarkTheme.BG_PRIMARY)
-        content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"),
-                                                                width=e.width, height=e.height))
-        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw", width=600)
+        
+        def _on_content_configure(event):
+            # 根据内容大小更新 scrollregion
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        content.bind("<Configure>", _on_content_configure)
+        canvas_frame = canvas.create_window((0, 0), window=content, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         def _on_canvas_configure(event):
+            # 无条件设置 canvas_frame 的宽度为 canvas 的实际宽度
             canvas.itemconfig(canvas_frame, width=event.width)
         canvas.bind("<Configure>", _on_canvas_configure)
 
