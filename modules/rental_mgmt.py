@@ -1253,44 +1253,159 @@ class RentalManagementFrame(ttk.Frame):
             refs['monthly_e'].delete(0, tk.END)
             refs['monthly_e'].insert(0, f"{total_rent:.2f}")
             refs['monthly_e'].config(state="readonly")
+            _refresh_hw_display()
             _auto_calc()
 
-        hr = tk.Frame(hw_card, bg=cbg)
-        hr.pack(fill=tk.X, pady=12, padx=14)
-        tk.Button(hr, text="⚙️ 编辑硬件", font=DarkTheme.FONT_BUTTON, fg="white",
-                 bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-                 command=lambda: (self._edit_hardware_inline(refs['hardware_data']), _update_from_hardware()), padx=12, pady=8).pack(fill=tk.X)
-
-        # 硬件清单简显
+        # 硬件清单区域（内联编辑，无弹窗）
         hw_list_frame = tk.Frame(hw_card, bg=DarkTheme.BG_INPUT)
-        hw_list_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 12))
-        tk.Label(hw_list_frame, text="清单", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
+        hw_list_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))
+        tk.Label(hw_list_frame, text="清单（点击编辑，右侧删除）", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
                  bg=DarkTheme.BG_INPUT).pack(anchor=tk.W, padx=4, pady=(4, 2))
-        hw_text = tk.Text(hw_list_frame, height=12, font=DarkTheme.FONT_NORMAL, wrap=tk.WORD,
-                         bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY, insertbackground=DarkTheme.TEXT_PRIMARY)
-        hw_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
-        hw_text.config(state=tk.DISABLED)
-        refs['hw_text'] = hw_text
+        hw_tree_frame = tk.Frame(hw_list_frame, bg=DarkTheme.BG_INPUT)
+        hw_tree_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+        
+        hw_tree = ttk.Treeview(hw_tree_frame, columns=["名称", "数量", "单价/月", "操作"], show="headings", height=6)
+        hw_tree.heading("名称", text="设备名称")
+        hw_tree.heading("数量", text="数量")
+        hw_tree.heading("单价/月", text="单价/月")
+        hw_tree.heading("操作", text="操作")
+        hw_tree.column("名称", width=100)
+        hw_tree.column("数量", width=40, anchor="center")
+        hw_tree.column("单价/月", width=70, anchor="center")
+        hw_tree.column("操作", width=50, anchor="center")
+        hw_tree.pack(fill=tk.BOTH, expand=True)
+        refs['hw_tree'] = hw_tree
 
-        # 每次更新硬件时刷新显示
+        # 删除硬件项目
+        def _delete_hw_item(idx):
+            items = refs['hardware_data'].get("items", [])
+            if 0 <= idx < len(items):
+                items.pop(idx)
+                _update_from_hardware()
+
+        # 编辑硬件项目（在同一行就地编辑）
+        def _edit_hw_item(idx):
+            items = refs['hardware_data'].get("items", [])
+            if 0 <= idx < len(items):
+                item = items[idx]
+                # 创建编辑窗口（小型，无模态，可取消）
+                edit_win = tk.Toplevel(hw_card)
+                edit_win.title(f"编辑硬件 #{idx+1}")
+                edit_win.geometry("280x180")
+                edit_win.transient(hw_card.winfo_toplevel())
+                edit_win.resizable(False, False)
+                edit_win.configure(bg=DarkTheme.BG_PRIMARY)
+                
+                # 简洁内容
+                main = tk.Frame(edit_win, bg=DarkTheme.BG_PRIMARY)
+                main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+                
+                # 设备名称
+                tk.Label(main, text="名称", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 2))
+                name_e = ttk.Entry(main, font=DarkTheme.FONT_NORMAL, width=28)
+                name_e.pack(fill=tk.X, pady=(0, 8))
+                name_e.insert(0, item.get('name', ''))
+                
+                # 数量
+                tk.Label(main, text="数量", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 2))
+                qty_e = ttk.Entry(main, font=DarkTheme.FONT_NORMAL, width=28)
+                qty_e.pack(fill=tk.X, pady=(0, 8))
+                qty_e.insert(0, str(item.get('quantity', 1)))
+                
+                # 单价
+                tk.Label(main, text="单价/月", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 2))
+                price_e = ttk.Entry(main, font=DarkTheme.FONT_NORMAL, width=28)
+                price_e.pack(fill=tk.X, pady=(0, 12))
+                price_e.insert(0, str(item.get('unit_rent', 0)))
+                
+                # 按钮
+                btn_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+                btn_frame.pack(fill=tk.X)
+                tk.Button(btn_frame, text="✔️ 保存", font=DarkTheme.FONT_SMALL, fg="white", bg=DarkTheme.ACCENT_BLUE,
+                         relief=tk.FLAT, cursor="hand2", width=8,
+                         command=lambda: (_save_hw_edit(idx, name_e.get(), qty_e.get(), price_e.get()), edit_win.destroy())).pack(side=tk.LEFT, padx=(0, 4))
+                tk.Button(btn_frame, text="✗ 取消", font=DarkTheme.FONT_SMALL, fg="white", bg=DarkTheme.BG_HOVER,
+                         relief=tk.FLAT, cursor="hand2", width=8,
+                         command=edit_win.destroy).pack(side=tk.LEFT)
+        
+        def _save_hw_edit(idx, name, qty_str, price_str):
+            try:
+                items = refs['hardware_data'].get("items", [])
+                if 0 <= idx < len(items):
+                    items[idx]['name'] = name
+                    items[idx]['quantity'] = float(qty_str or 1)
+                    items[idx]['unit_rent'] = float(price_str or 0)
+                    _update_from_hardware()
+            except ValueError:
+                messagebox.showwarning("提示", "数量和单价必须为数字")
+
+        # 刷新硬件树（添加编辑/删除按钮）
         def _refresh_hw_display():
             hw = refs.get('hardware_data', {})
             items = hw.get("items", []) if isinstance(hw, dict) else []
-            refs['hw_text'].config(state=tk.NORMAL)
-            refs['hw_text'].delete("1.0", tk.END)
-            if items:
-                content = "\n".join([f"• {item.get('name', '')} ×{int(item.get('quantity', 1))} @¥{item.get('unit_rent', 0)}/月" for item in items])
-            else:
-                content = "（未添加硬件）"
-            refs['hw_text'].insert("1.0", content)
-            refs['hw_text'].config(state=tk.DISABLED)
+            for row in hw_tree.get_children():
+                hw_tree.delete(row)
+            for idx, item in enumerate(items):
+                hw_tree.insert("", tk.END, values=[
+                    item.get('name', ''),
+                    int(item.get('quantity', 1)),
+                    f"¥{item.get('unit_rent', 0)}",
+                    "编辑|删除"
+                ], tags=(f"item_{idx}",))
+                # 绑定点击编辑删除
+                def _on_item_click(e, i=idx):
+                    # 获取点击位置
+                    col = hw_tree.identify_column(e.x)
+                    if col == "#4":  # 操作列
+                        x = e.x - hw_tree.bbox(e.widget.identify("item", e.y, e.x), col)[0]
+                        if x < 25:
+                            _edit_hw_item(i)
+                        else:
+                            _delete_hw_item(i)
+                hw_tree.tag_bind(f"item_{idx}", "<Button-1>", _on_item_click)
 
-        # 在硬件更新后刷新显示
-        original_update = _update_from_hardware
-        def _update_from_hardware_with_display():
-            original_update()
-            _refresh_hw_display()
-        _update_from_hardware = _update_from_hardware_with_display
+        # 添加硬件行
+        add_hw_frame = tk.Frame(hw_card, bg=cbg)
+        add_hw_frame.pack(fill=tk.X, padx=14, pady=(0, 12))
+        tk.Label(add_hw_frame, text="➕ 快速添加", font=DarkTheme.FONT_LABEL, fg=DarkTheme.ACCENT_PURPLE, bg=cbg).pack(anchor=tk.W, pady=(4, 4))
+        
+        # 简洁的添加行：类型 | 数量 | 单价 | 添加按钮
+        add_row = tk.Frame(add_hw_frame, bg=cbg)
+        add_row.pack(fill=tk.X, pady=2)
+        type_var = tk.StringVar(value="笔记本")
+        type_combo = ttk.Combobox(add_row, textvariable=type_var, state="readonly", values=["笔记本", "台式机", "显示器", "其他"], width=12, font=DarkTheme.FONT_SMALL)
+        type_combo.pack(side=tk.LEFT, padx=(0, 4))
+        add_qty_e = ttk.Entry(add_row, width=5, font=DarkTheme.FONT_SMALL)
+        add_qty_e.insert(0, "1")
+        add_qty_e.pack(side=tk.LEFT, padx=(0, 4))
+        add_price_e = ttk.Entry(add_row, width=8, font=DarkTheme.FONT_SMALL)
+        add_price_e.insert(0, "0")
+        add_price_e.pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        refs['add_qty_e'] = add_qty_e
+        refs['add_price_e'] = add_price_e
+
+        # 添加按钮
+        def _add_hw_item():
+            try:
+                hw = refs['hardware_data']
+                if "items" not in hw:
+                    hw["items"] = []
+                name = type_var.get()
+                qty = float(add_qty_e.get().strip() or 1)
+                price = float(add_price_e.get().strip() or 0)
+                if name and qty > 0:
+                    hw["items"].append({"name": name, "quantity": qty, "unit_rent": price})
+                    add_qty_e.delete(0, tk.END)
+                    add_qty_e.insert(0, "1")
+                    add_price_e.delete(0, tk.END)
+                    add_price_e.insert(0, "0")
+                    _update_from_hardware()
+            except ValueError:
+                messagebox.showwarning("提示", "数量和单价必须为数字")
+
+        tk.Button(add_row, text="➕ 添加", font=DarkTheme.FONT_SMALL, fg="white",
+                 bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
+                 command=_add_hw_item, padx=8, pady=3).pack(side=tk.LEFT)
 
         def _auto_calc(*_):
             try:
