@@ -218,10 +218,16 @@ class RentalManagementFrame(ttk.Frame):
 
     def _build(self):
         main = tk.Frame(self, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
-        tk.Label(main, text="📋 租赁管理", font=DarkTheme.FONT_TITLE,
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 12))
+        # 标题栏：美化的标题和统计信息
+        title_bar = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        title_bar.pack(anchor=tk.W, pady=(0, 16), fill=tk.X)
+        tk.Label(title_bar, text="📋 租赁管理", font=(DarkTheme.FONT_TITLE[0], DarkTheme.FONT_TITLE[1] + 2, "bold"),
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, anchor=tk.W)
+        self._stat_label = tk.Label(title_bar, text="", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY)
+        self._stat_label.pack(side=tk.RIGHT, anchor=tk.E)
 
         # 双栏布局：左侧列表，右侧表单/详情
         self._paned = tk.PanedWindow(main, orient=tk.HORIZONTAL, bg=DarkTheme.BG_PRIMARY, sashwidth=6)
@@ -238,26 +244,34 @@ class RentalManagementFrame(ttk.Frame):
         # 初始隐藏右侧面板，让列表占满空间
         self._paned.paneconfig(self._right_frame, state="hidden")
 
-        ctrl = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
-        ctrl.pack(fill=tk.X, pady=(0, 8))
+        # 搜索和筛选栏：美化版本
+        ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
+        ctrl.pack(fill=tk.X, pady=(0, 12), padx=0, ipady=8)
 
-        tk.Label(ctrl, text="搜索:", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                 bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
+        # 搜索
+        search_frame = tk.Frame(ctrl, bg=DarkTheme.BG_CARD)
+        search_frame.pack(fill=tk.X, padx=10, pady=(4, 4))
+        tk.Label(search_frame, text="🔍 搜索", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1], "bold"),
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
-        ttk.Entry(ctrl, textvariable=self.search_var, width=28, font=DarkTheme.FONT_NORMAL).pack(side=tk.LEFT, padx=(0, 10), ipady=2)
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=32, font=DarkTheme.FONT_NORMAL)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
 
-        tk.Label(ctrl, text="状态:", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                 bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
+        # 筛选
+        filter_frame = tk.Frame(ctrl, bg=DarkTheme.BG_CARD)
+        filter_frame.pack(fill=tk.X, padx=10, pady=(4, 4))
+        tk.Label(filter_frame, text="⚙️ 状态", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1], "bold"),
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 6))
         self.status_var = tk.StringVar(value="全部")
-        self.status_combo = ttk.Combobox(ctrl, textvariable=self.status_var, width=10,
+        self.status_combo = ttk.Combobox(filter_frame, textvariable=self.status_var, width=12,
                                          state="readonly", values=["全部", "在租", "已退租", "已丢失", "已买断", "已逾期"])
-        self.status_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.status_combo.pack(side=tk.LEFT, padx=(0, 10), ipady=3)
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
 
-        # ── 操作按钮区 ──
-        btn_frame = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
-        btn_frame.pack(fill=tk.X, pady=(0, 12))
+        # ── 操作按钮区 ──（美化版本）
+        btn_frame = tk.Frame(left, bg=DarkTheme.BG_CARD)
+        btn_frame.pack(fill=tk.X, pady=(0, 12), padx=0, ipady=6)
 
         action_btns = [
             ("➕ 新增", self.add_new_record, DarkTheme.ACCENT_CYAN),
@@ -270,13 +284,14 @@ class RentalManagementFrame(ttk.Frame):
         ]
         
         def _pack_action_row(parent, buttons):
-            row = tk.Frame(parent, bg=DarkTheme.BG_PRIMARY)
-            row.pack(fill=tk.X, pady=(0, 4))
+            row = tk.Frame(parent, bg=DarkTheme.BG_CARD)
+            row.pack(fill=tk.X, pady=3, padx=6)
             for txt, cmd, clr in buttons:
-                b = tk.Button(row, text=txt, font=DarkTheme.FONT_BUTTON, fg="white", bg=clr,
-                              relief=tk.FLAT, cursor="hand2", command=cmd,
-                              padx=6, pady=4, width=12)
-                b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
+                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 1, "bold"),
+                              fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
+                              padx=8, pady=6, width=14, activebackground=DarkTheme.darken(clr, 15),
+                              bd=1, highlightthickness=0)
+                b.pack(side=tk.LEFT, padx=3, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
 
         # 固定两行显示，避免单行按钮在窗口较窄或右侧详情展开时被挤出可见区域
@@ -403,9 +418,9 @@ class RentalManagementFrame(ttk.Frame):
         hw_text.insert("1.0", hardware_summary)
         hw_text.config(state=tk.DISABLED)
 
-        # 操作按钮
-        btn_area = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
-        btn_area.pack(fill=tk.X, padx=12, pady=(12, 8))
+        # 操作按钮（美化版本）
+        btn_area = tk.Frame(content, bg=DarkTheme.BG_CARD, relief=tk.FLAT)
+        btn_area.pack(fill=tk.X, padx=10, pady=(12, 8), ipady=6)
 
         action_buttons = [
             ("✏️ 编辑", lambda r=rec: self._show_edit_form(r), DarkTheme.ACCENT_YELLOW),
@@ -417,13 +432,14 @@ class RentalManagementFrame(ttk.Frame):
             ("📋 操作记录", lambda r=rec: self._show_operation_log(r), DarkTheme.ACCENT_PURPLE),
         ]
         
-        def _pack_detail_button_row(buttons, pady=(0, 4)):
-            row = tk.Frame(btn_area, bg=DarkTheme.BG_PRIMARY)
-            row.pack(fill=tk.X, pady=pady)
+        def _pack_detail_button_row(buttons, pady=(3, 0)):
+            row = tk.Frame(btn_area, bg=DarkTheme.BG_CARD)
+            row.pack(fill=tk.X, pady=pady, padx=4)
             for txt, cmd, clr in buttons:
-                b = tk.Button(row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                              relief=tk.FLAT, cursor="hand2", command=cmd,
-                              padx=4, pady=4, width=14)
+                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_SMALL[0], max(8, DarkTheme.FONT_SMALL[1] - 1)),
+                              fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
+                              padx=6, pady=5, width=13, activebackground=DarkTheme.darken(clr, 15),
+                              bd=1, highlightthickness=0)
                 b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
 
@@ -463,6 +479,10 @@ class RentalManagementFrame(ttk.Frame):
     def _render_tree(self):
         """分页渲染 Treeview，支持大数据量"""
         total = len(self._shown)
+        if hasattr(self, "_stat_label"):
+            active = sum(1 for r in self._all if r.get("status") == "在租")
+            overdue = sum(1 for r in self._all if r.get("status") == "已逾期")
+            self._stat_label.configure(text=f"共 {len(self._all)} 单｜在租 {active}｜逾期 {overdue}｜当前 {total}")
         if total == 0:
             for i in self.tree.get_children():
                 self.tree.delete(i)
