@@ -241,8 +241,8 @@ class RentalManagementFrame(ttk.Frame):
         self._right_frame = tk.Frame(self._paned, bg=DarkTheme.BG_PRIMARY)
         self._paned.add(self._right_frame, minsize=300)
         
-        # 初始显示右侧提示区，避免用户看到空白区域不知道如何操作
-        self._show_welcome_panel()
+        # 初始隐藏右侧面板，让列表占满空间
+        self._paned.paneconfig(self._right_frame, state="hidden")
 
         # 搜索和筛选栏：美化版本
         ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
@@ -287,9 +287,9 @@ class RentalManagementFrame(ttk.Frame):
             row = tk.Frame(parent, bg=DarkTheme.BG_CARD)
             row.pack(fill=tk.X, pady=3, padx=6)
             for txt, cmd, clr in buttons:
-                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 1, "bold"),
+                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], max(8, DarkTheme.FONT_BUTTON[1] - 2), "bold"),
                               fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
-                              padx=8, pady=6, width=14, activebackground=DarkTheme.darken(clr, 15),
+                              padx=6, pady=5, width=11, activebackground=DarkTheme.darken(clr, 15),
                               bd=1, highlightthickness=0)
                 b.pack(side=tk.LEFT, padx=3, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
@@ -307,7 +307,7 @@ class RentalManagementFrame(ttk.Frame):
 
         cols = ("ID", "数量", "租赁人", "联系电话", "到期时间", "总租金", "已付", "未付", "逾期(天)", "状态")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=14)
-        widths = {"ID": 60, "数量": 40, "租赁人": 80, "联系电话": 100, "到期时间": 100, "总租金": 70, "已付": 70, "未付": 70, "逾期(天)": 70, "状态": 60}
+        widths = {"ID": 58, "数量": 38, "租赁人": 76, "联系电话": 96, "到期时间": 92, "总租金": 66, "已付": 66, "未付": 66, "逾期(天)": 64, "状态": 58}
         for c in cols:
             self.tree.heading(c, text=c)
             self.tree.column(c, width=widths.get(c, 80), anchor="center")
@@ -320,35 +320,10 @@ class RentalManagementFrame(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", lambda *_: self._on_tree_select())
 
 
-    def _show_welcome_panel(self):
-        """右侧欢迎提示区"""
-        self._clear_right_panel()
-        main = tk.Frame(self._right_frame, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
-
-        tk.Frame(main, bg=DarkTheme.BG_PRIMARY).pack(fill=tk.BOTH, expand=True)
-
-        card = tk.Frame(main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        card.pack(fill=tk.X, padx=8)
-        tk.Label(card, text="📋 租赁管理", font=(DarkTheme.FONT_TITLE[0], 18, "bold"),
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_CARD).pack(pady=(20, 10))
-        tk.Label(card, text="点击左侧记录查看详情", font=DarkTheme.FONT_LABEL,
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(pady=3)
-        tk.Label(card, text="点击左上角“➕ 新增”创建租赁订单", font=DarkTheme.FONT_LABEL,
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(pady=(3, 16))
-
-        add_btn = tk.Button(card, text="➕ 新增租赁订单", font=DarkTheme.FONT_BUTTON,
-                            fg="white", bg=DarkTheme.ACCENT_CYAN, relief=tk.RAISED,
-                            cursor="hand2", command=self.add_new_record,
-                            padx=18, pady=8, bd=1, highlightthickness=0)
-        add_btn.pack(pady=(0, 20))
-        DarkTheme.bind_hover(add_btn, DarkTheme.darken(DarkTheme.ACCENT_CYAN, 15))
-
-        tk.Frame(main, bg=DarkTheme.BG_PRIMARY).pack(fill=tk.BOTH, expand=True)
 
     def _show_right_placeholder(self):
-        """右侧占位提示"""
-        self._show_welcome_panel()
+        """右侧占位 - 隐藏右侧面板以释放空间给列表"""
+        self._paned.paneconfig(self._right_frame, state="hidden")
 
     def _on_tree_select(self):
         """选择列表项时，右侧面板显示详情"""
