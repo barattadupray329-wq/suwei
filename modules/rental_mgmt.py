@@ -241,8 +241,7 @@ class RentalManagementFrame(ttk.Frame):
         self._right_frame = tk.Frame(self._paned, bg=DarkTheme.BG_PRIMARY)
         self._paned.add(self._right_frame, minsize=300)
         
-        # 初始隐藏右侧面板，让列表占满空间
-        self._paned.paneconfig(self._right_frame, state="hidden")
+        # 右侧面板默认保留为空白，不显示欢迎卡片
 
         # 搜索和筛选栏：美化版本
         ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
@@ -287,9 +286,9 @@ class RentalManagementFrame(ttk.Frame):
             row = tk.Frame(parent, bg=DarkTheme.BG_CARD)
             row.pack(fill=tk.X, pady=3, padx=6)
             for txt, cmd, clr in buttons:
-                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], max(8, DarkTheme.FONT_BUTTON[1] - 2), "bold"),
+                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 1, "bold"),
                               fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
-                              padx=6, pady=5, width=11, activebackground=DarkTheme.darken(clr, 15),
+                              padx=8, pady=6, width=14, activebackground=DarkTheme.darken(clr, 15),
                               bd=1, highlightthickness=0)
                 b.pack(side=tk.LEFT, padx=3, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
@@ -307,7 +306,7 @@ class RentalManagementFrame(ttk.Frame):
 
         cols = ("ID", "数量", "租赁人", "联系电话", "到期时间", "总租金", "已付", "未付", "逾期(天)", "状态")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=14)
-        widths = {"ID": 58, "数量": 38, "租赁人": 76, "联系电话": 96, "到期时间": 92, "总租金": 66, "已付": 66, "未付": 66, "逾期(天)": 64, "状态": 58}
+        widths = {"ID": 60, "数量": 40, "租赁人": 80, "联系电话": 100, "到期时间": 100, "总租金": 70, "已付": 70, "未付": 70, "逾期(天)": 70, "状态": 60}
         for c in cols:
             self.tree.heading(c, text=c)
             self.tree.column(c, width=widths.get(c, 80), anchor="center")
@@ -322,22 +321,12 @@ class RentalManagementFrame(ttk.Frame):
 
 
     def _show_right_placeholder(self):
-        """右侧占位 - 隐藏右侧面板以释放空间给列表"""
-        self._paned.paneconfig(self._right_frame, state="hidden")
+        """右侧占位 - 保持空白"""
+        self._clear_right_panel()
 
     def _on_tree_select(self):
-        """选择列表项时，右侧面板显示详情"""
-        sel = self.tree.selection()
-        if not sel:
-            self._show_right_placeholder()
-            return
-        
-        rid = self.tree.item(sel[0])["values"][0]
-        rec = self._find_record(rid)
-        if rec:
-            self._show_detail_panel(rec)
-        else:
-            self._show_right_placeholder()
+        """单击选择只选中记录，不在右侧显示详情；详情通过双击弹窗查看"""
+        return
 
     def _show_detail_panel(self, rec):
         """右侧显示详情面板"""
