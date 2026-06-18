@@ -236,34 +236,32 @@ class RentalManagementFrame(ttk.Frame):
         # 不再使用右侧面板，不流出空白区域
         self._right_frame = None
 
-        # 搜索和筛选栏：美化版本
+        # 搜索和筛选栏：紧凑版本，节省空间
         ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
-        ctrl.pack(fill=tk.X, pady=(0, 12), padx=0, ipady=8)
+        ctrl.pack(fill=tk.X, pady=(0, 8), padx=0, ipady=4)
 
-        # 搜索
+        # 搜索 + 筛选在同一行
         search_frame = tk.Frame(ctrl, bg=DarkTheme.BG_CARD)
-        search_frame.pack(fill=tk.X, padx=10, pady=(4, 4))
-        tk.Label(search_frame, text="🔍 搜索", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1], "bold"),
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 6))
+        search_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(search_frame, text="🔍", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1] - 1),
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=32, font=DarkTheme.FONT_NORMAL)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
-
-        # 筛选
-        filter_frame = tk.Frame(ctrl, bg=DarkTheme.BG_CARD)
-        filter_frame.pack(fill=tk.X, padx=10, pady=(4, 4))
-        tk.Label(filter_frame, text="⚙️ 状态", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1], "bold"),
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 6))
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=24, font=DarkTheme.FONT_NORMAL)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
+        
+        # 状态筛选
+        tk.Label(search_frame, text="⚙️", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1] - 1),
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(10, 4))
         self.status_var = tk.StringVar(value="全部")
-        self.status_combo = ttk.Combobox(filter_frame, textvariable=self.status_var, width=12,
+        self.status_combo = ttk.Combobox(search_frame, textvariable=self.status_var, width=10,
                                          state="readonly", values=["全部", "在租", "已退租", "已丢失", "已买断", "已逾期"])
-        self.status_combo.pack(side=tk.LEFT, padx=(0, 10), ipady=3)
+        self.status_combo.pack(side=tk.LEFT, ipady=2)
         self.status_combo.bind("<<ComboboxSelected>>", lambda *_: self._apply_filter())
 
-        # ── 操作按钮区 ──（美化版本）
+        # ── 操作按钮区 ──（紧凑版本，节省空间）
         btn_frame = tk.Frame(left, bg=DarkTheme.BG_CARD)
-        btn_frame.pack(fill=tk.X, pady=(0, 12), padx=0, ipady=6)
+        btn_frame.pack(fill=tk.X, pady=(0, 8), padx=0, ipady=3)
 
         action_btns = [
             ("➕ 新增", self.add_new_record, DarkTheme.ACCENT_CYAN),
@@ -277,16 +275,16 @@ class RentalManagementFrame(ttk.Frame):
         
         def _pack_action_row(parent, buttons):
             row = tk.Frame(parent, bg=DarkTheme.BG_CARD)
-            row.pack(fill=tk.X, pady=3, padx=6)
+            row.pack(fill=tk.X, pady=2, padx=4)
             for txt, cmd, clr in buttons:
-                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 1, "bold"),
+                b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 2, "bold"),
                               fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
-                              padx=8, pady=6, width=14, activebackground=DarkTheme.darken(clr, 15),
+                              padx=6, pady=3, width=11, activebackground=DarkTheme.darken(clr, 15),
                               bd=1, highlightthickness=0)
-                b.pack(side=tk.LEFT, padx=3, fill=tk.BOTH, expand=True)
+                b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
 
-        # 固定两行显示，避免单行按钮在窗口较窄或右侧详情展开时被挤出可见区域
+        # 紧凑两行显示
         _pack_action_row(btn_frame, action_btns[:4])
         _pack_action_row(btn_frame, action_btns[4:])
 
