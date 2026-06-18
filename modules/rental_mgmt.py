@@ -240,19 +240,19 @@ class RentalManagementFrame(ttk.Frame):
         ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
         ctrl.pack(fill=tk.X, pady=(0, 8), padx=0, ipady=4)
 
-        # 搜索 + 筛选在同一行
+        # 搜索 + 筛选在同一行，搜索框较窄
         search_frame = tk.Frame(ctrl, bg=DarkTheme.BG_CARD)
         search_frame.pack(fill=tk.X, padx=8, pady=2)
         tk.Label(search_frame, text="🔍", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1] - 1),
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 4))
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 3))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=24, font=DarkTheme.FONT_NORMAL)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=12, font=DarkTheme.FONT_NORMAL)
+        search_entry.pack(side=tk.LEFT, padx=(0, 12), ipady=2)
         
         # 状态筛选
         tk.Label(search_frame, text="⚙️", font=(DarkTheme.FONT_LABEL[0], DarkTheme.FONT_LABEL[1] - 1),
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(10, 4))
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT, padx=(0, 3))
         self.status_var = tk.StringVar(value="全部")
         self.status_combo = ttk.Combobox(search_frame, textvariable=self.status_var, width=10,
                                          state="readonly", values=["全部", "在租", "已退租", "已丢失", "已买断", "已逾期"])
@@ -279,14 +279,13 @@ class RentalManagementFrame(ttk.Frame):
             for txt, cmd, clr in buttons:
                 b = tk.Button(row, text=txt, font=(DarkTheme.FONT_BUTTON[0], DarkTheme.FONT_BUTTON[1] - 2, "bold"),
                               fg="white", bg=clr, relief=tk.RAISED, cursor="hand2", command=cmd,
-                              padx=6, pady=3, width=11, activebackground=DarkTheme.darken(clr, 15),
+                              padx=4, pady=3, width=9, activebackground=DarkTheme.darken(clr, 15),
                               bd=1, highlightthickness=0)
-                b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
+                b.pack(side=tk.LEFT, padx=1, fill=tk.BOTH, expand=True)
                 DarkTheme.bind_hover(b, DarkTheme.darken(clr, 15))
 
-        # 紧凑两行显示
-        _pack_action_row(btn_frame, action_btns[:4])
-        _pack_action_row(btn_frame, action_btns[4:])
+        # 紧凑一行显示所有按钮
+        _pack_action_row(btn_frame, action_btns)
 
         # 分页容器
         self._page_frame = tk.Frame(left, bg=DarkTheme.BG_PRIMARY)
