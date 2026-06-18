@@ -304,7 +304,9 @@ class MainWindow:
         elif module_key == "settings":
             self.current_module = SystemSettingsFrame(target_frame, self.data_manager, self.root)
 
-        self.current_module.pack(fill=tk.BOTH, expand=True)
+        if self.current_module:
+            self.current_module.pack(fill=tk.BOTH, expand=True)
+            target_frame.update_idletasks()
     
     def _get_user_role(self):
         """获取当前用户角色"""
