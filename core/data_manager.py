@@ -920,6 +920,10 @@ class DataManager:
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")[:17]
         return f"R{timestamp}"
 
+    def generate_unique_id(self) -> str:
+        """公开方法：生成唯一 ID（供外部模块调用）。"""
+        return self._generate_id()
+
     def get_stats(self) -> Dict:
         """获取统计信息。"""
         records = self.get_records()

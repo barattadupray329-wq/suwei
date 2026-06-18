@@ -55,6 +55,14 @@ def main():
     root.update_idletasks()
     root.deiconify()
 
+    # 主窗口居中显示
+    root.update_idletasks()
+    w = root.winfo_width()
+    h = root.winfo_height()
+    ws = root.winfo_screenwidth()
+    hs = root.winfo_screenheight()
+    root.geometry(f"{w}x{h}+{(ws - w) // 2}+{(hs - h) // 2}")
+
     # 等待登录完成
     root.wait_variable(login_frame.login_result)
     result = login_frame.login_result.get()
