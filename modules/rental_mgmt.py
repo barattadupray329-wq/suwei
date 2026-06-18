@@ -293,8 +293,18 @@ class RentalManagementFrame(ttk.Frame):
         self._paned.paneconfig(self._right_frame, state="hidden")
 
     def _on_tree_select(self):
-        """选择列表项时，右侧面板显示占位提示"""
-        self._show_right_placeholder()
+        """选择列表项时，右侧面板显示详情"""
+        sel = self.tree.selection()
+        if not sel:
+            self._show_right_placeholder()
+            return
+        
+        rid = self.tree.item(sel[0])["values"][0]
+        rec = self._find_record(rid)
+        if rec:
+            self._show_detail_panel(rec)
+        else:
+            self._show_right_placeholder()
 
     def _show_detail_panel(self, rec):
         """右侧显示详情面板"""
