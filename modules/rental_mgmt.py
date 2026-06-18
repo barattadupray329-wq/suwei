@@ -385,11 +385,11 @@ class RentalManagementFrame(ttk.Frame):
         hw_text.insert("1.0", hardware_summary)
         hw_text.config(state=tk.DISABLED)
 
-        # 操作按钮
-        btn_row = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
-        btn_row.pack(fill=tk.X, padx=12, pady=(12, 8))
+        # 操作按钮 - 分两行显示
+        btn_container = tk.Frame(content, bg=DarkTheme.BG_PRIMARY)
+        btn_container.pack(fill=tk.X, padx=12, pady=(12, 8))
 
-        for txt, cmd, clr in [
+        action_buttons = [
             ("✏️ 编辑", lambda r=rec: self._show_edit_form(r), DarkTheme.ACCENT_YELLOW),
             ("🔄 续租", lambda r=rec: self._show_renew_form(r), DarkTheme.ACCENT_BLUE),
             ("📜 续租历史", lambda r=rec: self._show_renew_history(r), DarkTheme.ACCENT_PURPLE),
@@ -397,10 +397,24 @@ class RentalManagementFrame(ttk.Frame):
             ("⚙️ 硬件", lambda r=rec: self._edit_hardware_in_record(r), DarkTheme.ACCENT_CYAN),
             ("📄 合同", lambda r=rec: self._export_contract(r), DarkTheme.ACCENT_PRIMARY),
             ("📋 操作记录", lambda r=rec: self._show_operation_log(r), DarkTheme.ACCENT_PURPLE),
-        ]:
-            b = tk.Button(btn_row, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
-                           relief=tk.FLAT, cursor="hand2", command=cmd, padx=8, pady=4)
-            b.pack(side=tk.LEFT, padx=3)
+        ]
+        
+        # 第一行按钮（3个）
+        btn_row1 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
+        btn_row1.pack(fill=tk.X, pady=(0, 4))
+        for txt, cmd, clr in action_buttons[:4]:
+            b = tk.Button(btn_row1, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=6, pady=4)
+            b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
+            DarkTheme.bind_hover(b, clr)
+        
+        # 第二行按钮（剩余的）
+        btn_row2 = tk.Frame(btn_container, bg=DarkTheme.BG_PRIMARY)
+        btn_row2.pack(fill=tk.X)
+        for txt, cmd, clr in action_buttons[4:]:
+            b = tk.Button(btn_row2, text=txt, font=DarkTheme.FONT_SMALL, fg="white", bg=clr,
+                          relief=tk.FLAT, cursor="hand2", command=cmd, padx=6, pady=4)
+            b.pack(side=tk.LEFT, padx=2, fill=tk.BOTH, expand=True)
             DarkTheme.bind_hover(b, clr)
 
     def _refresh(self):
