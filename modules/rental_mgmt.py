@@ -265,7 +265,6 @@ class RentalManagementFrame(ttk.Frame):
 
         action_btns = [
             ("➕ 新增", self.add_new_record, DarkTheme.ACCENT_CYAN),
-            ("✏️ 编辑", self.edit_record, DarkTheme.ACCENT_YELLOW),
             ("🗑️ 删除", self.delete_record, DarkTheme.ACCENT_RED),
             ("🔄 续租", self.renew_lease, DarkTheme.ACCENT_BLUE),
             ("📥 导入", self.import_rentals, DarkTheme.ACCENT_GREEN),
