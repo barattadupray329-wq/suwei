@@ -241,8 +241,8 @@ class RentalManagementFrame(ttk.Frame):
         self._right_frame = tk.Frame(self._paned, bg=DarkTheme.BG_PRIMARY)
         self._paned.add(self._right_frame, minsize=300)
         
-        # 初始隐藏右侧面板，让列表占满空间
-        self._paned.paneconfig(self._right_frame, state="hidden")
+        # 初始显示右侧提示区，避免用户看到空白区域不知道如何操作
+        self._show_welcome_panel()
 
         # 搜索和筛选栏：美化版本
         ctrl = tk.Frame(left, bg=DarkTheme.BG_CARD, relief=tk.FLAT, highlightthickness=0)
@@ -320,10 +320,35 @@ class RentalManagementFrame(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", lambda *_: self._on_tree_select())
 
 
+    def _show_welcome_panel(self):
+        """右侧欢迎提示区"""
+        self._clear_right_panel()
+        main = tk.Frame(self._right_frame, bg=DarkTheme.BG_PRIMARY)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
+
+        tk.Frame(main, bg=DarkTheme.BG_PRIMARY).pack(fill=tk.BOTH, expand=True)
+
+        card = tk.Frame(main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        card.pack(fill=tk.X, padx=8)
+        tk.Label(card, text="📋 租赁管理", font=(DarkTheme.FONT_TITLE[0], 18, "bold"),
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_CARD).pack(pady=(20, 10))
+        tk.Label(card, text="点击左侧记录查看详情", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(pady=3)
+        tk.Label(card, text="点击左上角“➕ 新增”创建租赁订单", font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(pady=(3, 16))
+
+        add_btn = tk.Button(card, text="➕ 新增租赁订单", font=DarkTheme.FONT_BUTTON,
+                            fg="white", bg=DarkTheme.ACCENT_CYAN, relief=tk.RAISED,
+                            cursor="hand2", command=self.add_new_record,
+                            padx=18, pady=8, bd=1, highlightthickness=0)
+        add_btn.pack(pady=(0, 20))
+        DarkTheme.bind_hover(add_btn, DarkTheme.darken(DarkTheme.ACCENT_CYAN, 15))
+
+        tk.Frame(main, bg=DarkTheme.BG_PRIMARY).pack(fill=tk.BOTH, expand=True)
+
     def _show_right_placeholder(self):
-        """右侧占位 - 隐藏右侧面板以释放空间给列表"""
-        # 隐藏右侧面板，让左侧列表自动扩展
-        self._paned.paneconfig(self._right_frame, state="hidden")
+        """右侧占位提示"""
+        self._show_welcome_panel()
 
     def _on_tree_select(self):
         """选择列表项时，右侧面板显示详情"""
