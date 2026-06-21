@@ -37,14 +37,24 @@ class AIAssistantDialog:
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build(self):
-        header = tk.Frame(self.win, bg=DarkTheme.BG_SECONDARY, height=50)
+        header = tk.Frame(self.win, bg=DarkTheme.BG_SECONDARY, height=64)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
-        tk.Label(header, text="🤖 AI 租赁信息助手", font=("微软雅黑", 15, "bold"),
-                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY).pack(side=tk.LEFT, padx=16, pady=8)
+
+        title_box = tk.Frame(header, bg=DarkTheme.BG_SECONDARY)
+        title_box.pack(side=tk.LEFT, padx=16, pady=10)
+        tk.Label(title_box, text="🤖 AI 租赁信息助手", font=("微软雅黑", 16, "bold"),
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W)
+        tk.Label(title_box, text="智能提取 · 查询 · 成本计算 · 数据洞察", font=DarkTheme.FONT_SMALL,
+                 fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_SECONDARY).pack(anchor=tk.W, pady=(2, 0))
+
+        pill = tk.Frame(header, bg=DarkTheme.ACCENT_CYAN)
+        pill.pack(side=tk.RIGHT, padx=16, pady=18)
+        tk.Label(pill, text="4 合 1", font=DarkTheme.FONT_SMALL,
+                 fg="white", bg=DarkTheme.ACCENT_CYAN).pack(padx=10, pady=3)
 
         nb = ttk.Notebook(self.win)
-        nb.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
         self._tab_smart_fill(nb)
         self._tab_nl_query(nb)
         self._tab_cost_calc(nb)
@@ -216,7 +226,7 @@ class AIAssistantDialog:
             messagebox.showwarning("提示", "请先提取租赁信息")
             return
         try:
-            rec = {
+            rec = self.dm.create_rental_record({
                 "renter": {
                     "name": self.extracted.get("租赁人", ""),
                     "phone": self.extracted.get("联系电话", ""),
@@ -233,9 +243,8 @@ class AIAssistantDialog:
                     "lease_months": 12.0,
                 },
                 "status": "在租", "paid_amount": 0,
-                "renew_history": [],
                 "hardware": self.extracted.get("硬件信息", {}),
-            }
+            })
             self.dm.add_record(rec)
             messagebox.showinfo("成功", f"已创建新记录\nID: {rec['id']}")
         except Exception as e:
@@ -332,7 +341,6 @@ class AIAssistantDialog:
         """解析自然语言为结构化查询意图。返回 dict，包含 filters 列表。"""
         intents = {}
         ql = q.lower().strip()
-        words = ql.split()
 
         # ── 状态意图 ──
         status_map = {

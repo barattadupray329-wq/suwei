@@ -94,8 +94,14 @@ class AddLineItemDialog(tk.Toplevel):
     def _center_window(self):
         self.update_idletasks()
         w, h = 600, 700
-        x = (self.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.winfo_screenheight() // 2) - (h // 2)
+        parent = self.master if isinstance(self.master, tk.Misc) else None
+        if parent is not None:
+            parent.update_idletasks()
+            x = parent.winfo_rootx() + max((parent.winfo_width() - w) // 2, 0)
+            y = parent.winfo_rooty() + max((parent.winfo_height() - h) // 2, 0)
+        else:
+            x = (self.winfo_screenwidth() // 2) - (w // 2)
+            y = (self.winfo_screenheight() // 2) - (h // 2)
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build(self):
@@ -191,7 +197,11 @@ class AddLineItemDialog(tk.Toplevel):
                 "end_date": self.refs['end_date'].get().strip(),
             }
             if self.on_save:
-                self.on_save(item_data)
+                try:
+                    self.on_save(item_data)
+                except Exception as e:
+                    messagebox.showerror("错误", f"保存失败：{e}")
+                    return
             messagebox.showinfo("成功", "项目已保存")
             self.destroy()
         except ValueError as e:
@@ -216,8 +226,14 @@ class PaymentDialog(tk.Toplevel):
     def _center_window(self):
         self.update_idletasks()
         w, h = 500, 400
-        x = (self.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.winfo_screenheight() // 2) - (h // 2)
+        parent = self.master if isinstance(self.master, tk.Misc) else None
+        if parent is not None:
+            parent.update_idletasks()
+            x = parent.winfo_rootx() + max((parent.winfo_width() - w) // 2, 0)
+            y = parent.winfo_rooty() + max((parent.winfo_height() - h) // 2, 0)
+        else:
+            x = (self.winfo_screenwidth() // 2) - (w // 2)
+            y = (self.winfo_screenheight() // 2) - (h // 2)
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build(self):
@@ -275,7 +291,11 @@ class PaymentDialog(tk.Toplevel):
                 "notes": self.refs['notes'].get().strip(),
             }
             if self.on_save:
-                self.on_save(payment_data)
+                try:
+                    self.on_save(payment_data)
+                except Exception as e:
+                    messagebox.showerror("错误", f"保存失败：{e}")
+                    return
             messagebox.showinfo("成功", "收款已记录")
             self.destroy()
         except ValueError as e:

@@ -6,8 +6,6 @@
 """
 
 import tkinter as tk
-import ctypes
-import ctypes.wintypes
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
 from theme.colors import DarkTheme
@@ -107,9 +105,7 @@ class LoginFrame(tk.Frame):
         super().__init__(parent, bg=DarkTheme.BG_PRIMARY)
         self.auth_manager = auth_manager
         self.password_visible = False
-        # 使用 StringVar 传递登录结果，main() 通过 wait_variable 等待
-        self.login_result = tk.StringVar(value="")  # ""=未登录, JSON=成功, "cancel"=关闭
-
+        self.login_result = tk.StringVar(value="")
         self.dark_theme = DarkTheme
         self._configure_login_styles()
         self._create_widgets()
@@ -126,26 +122,29 @@ class LoginFrame(tk.Frame):
             padding=(10, 8)
         )
 
+    def _badge(self, parent, text):
+        badge = tk.Label(parent, text=text, font=self.dark_theme.FONT_SMALL,
+                         fg=self.dark_theme.ACCENT_CYAN, bg=self.dark_theme.BG_TERTIARY,
+                         padx=10, pady=4)
+        badge.pack(side=tk.RIGHT)
+        return badge
+
     def _create_widgets(self):
         dt = self.dark_theme
         bg_color = dt.BG_PRIMARY
         card_bg = dt.BG_CARD
 
-        # ── 顶部品牌区 ──
         top = tk.Frame(self, bg=bg_color)
-        top.pack(fill=tk.X, pady=(40, 0))
-        tk.Label(top, text="速 维", font=("微软雅黑", 36, "bold"),
+        top.pack(fill=tk.X, pady=(36, 0))
+        tk.Label(top, text="豆 宇", font=("微软雅黑", 38, "bold"),
                  fg=dt.ACCENT_PRIMARY, bg=bg_color).pack()
-        tk.Label(top, text="电脑租赁管理系统", font=("微软雅黑", 16),
+        tk.Label(top, text="豆宇租赁管理系统", font=("微软雅黑", 16),
                  fg=dt.TEXT_SECONDARY, bg=bg_color).pack(pady=(2, 0))
 
-        # ── 分隔线 ──
-        sep = tk.Frame(self, bg=dt.ACCENT_PRIMARY, height=2, width=80)
-        sep.pack(pady=(14, 20))
+        sep = tk.Frame(self, bg=dt.ACCENT_PRIMARY, height=2, width=92)
+        sep.pack(pady=(14, 22))
         sep.pack_propagate(False)
-        sep.config(width=80)
 
-        # ── 居中卡片 ──
         card_wrapper = tk.Frame(self, bg=bg_color)
         card_wrapper.pack(fill=tk.BOTH, expand=True, padx=60, pady=(0, 40))
         card_wrapper.grid_rowconfigure(0, weight=1)
@@ -156,11 +155,15 @@ class LoginFrame(tk.Frame):
         card.grid(row=0, column=0, sticky="")
 
         inner = tk.Frame(card, bg=card_bg)
-        inner.pack(padx=48, pady=36)
+        inner.pack(padx=50, pady=36)
 
-        tk.Label(inner, text="管理员登录", font=("微软雅黑", 20, "bold"),
-                 fg=dt.TEXT_PRIMARY, bg=card_bg).pack(pady=(0, 6))
-        tk.Label(inner, text="请使用管理员账号登录系统",
+        header = tk.Frame(inner, bg=card_bg)
+        header.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(header, text="管理员登录", font=("微软雅黑", 20, "bold"),
+                 fg=dt.TEXT_PRIMARY, bg=card_bg).pack(side=tk.LEFT)
+        self._badge(header, "安全登录")
+
+        tk.Label(inner, text="请使用管理员账号登录豆宇租赁管理系统",
                  font=dt.FONT_LABEL, fg=dt.TEXT_SECONDARY,
                  bg=card_bg).pack(pady=(0, 24))
 

@@ -25,7 +25,9 @@ class AutocompleteEntry(ttk.Entry):
         super().__init__(parent, textvariable=self._var, width=width or 30, **kwargs)
         
         self._trace_id = self._var.trace_add("write", self._on_entry_change)
+        self.bind("<FocusIn>", self._on_focus_in)
         self.bind("<FocusOut>", self._on_focus_out)
+        self.bind("<Double-1>", self._on_double_click)
         self.bind("<Down>", self._on_key_down)
         self.bind("<Up>", self._on_key_up)
         self.bind("<Return>", self._on_key_select)
@@ -39,20 +41,11 @@ class AutocompleteEntry(ttk.Entry):
 
     def _on_entry_change(self, *args):
         """输入变化时查询并显示候选项"""
-        # 如果是通过程序设置的值（如自动选中后填充），不触发查询
-        if not self._user_typed:
-            # 检查是否是程序设置的值
-            query = self._var.get().strip()
-            if query and not self._is_user_input(query):
-                self._user_typed = False
-                return
-        
-        self._user_typed = True
-        
         # 取消之前的计时器
         if self._typing_timer:
             self.after_cancel(self._typing_timer)
         
+        self._user_typed = True
         # 设置延迟查询（300ms），给用户留出打字时间
         self._typing_timer = self.after(300, self._delayed_query)
     
@@ -69,7 +62,7 @@ class AutocompleteEntry(ttk.Entry):
         """延迟查询，避免每次击键都触发数据库查询"""
         self._typing_timer = None
         query = self._var.get().strip()
-        if len(query) < 2:  # 至少输入2个字符才开始查询
+        if len(query) < 1:  # 允许单字符就开始查询，便于快速选现有型号
             self._hide_popup()
             return
         
@@ -100,20 +93,44 @@ class AutocompleteEntry(ttk.Entry):
         if self._on_select_callback:
             self._on_select_callback(item)
 
+    def _on_focus_in(self, event=None):
+        """获得焦点时直接展开候选列表"""
+        query = self._var.get().strip()
+        self._current_results = self._data_manager.search_models(query, self._category, limit=20)
+        if self._current_results:
+            self._user_typed = True
+            self._show_popup()
+            self._selected_index = -1
+        return None
+
+    def _on_double_click(self, event=None):
+        """双击直接展开候选列表"""
+        query = self._var.get().strip()
+        self._current_results = self._data_manager.search_models(query, self._category, limit=20)
+        if self._current_results:
+            self._user_typed = True
+            self._show_popup()
+            self._selected_index = -1
+        return "break"
+
     def _show_popup(self):
         """显示候选列表"""
         if self._popup and self._popup.winfo_exists():
             self._update_popup_content()
             return
         
-        # 创建弹出窗口
+        # 创建弹出窗口，默认贴在输入框下方；若空间不足则向上弹出
         x = self.winfo_rootx()
-        y = self.winfo_rooty() + self.winfo_height()
-        w = self.winfo_width() or 300
+        y = self.winfo_rooty() + self.winfo_height() + 2
+        w = max(self.winfo_width(), 320)
+        screen_h = self.winfo_screenheight()
+        h = min(220, max(140, len(self._current_results) * 24 + 12))
+        if y + h > screen_h:
+            y = max(4, self.winfo_rooty() - h - 2)
         
         self._popup = tk.Toplevel(self)
         self._popup.wm_overrideredirect(True)
-        self._popup.geometry(f"{w}x180+{x}+{y}")
+        self._popup.geometry(f"{w}x{h}+{x}+{y}")
         self._popup.configure(bg=DarkTheme.BG_PRIMARY)
         self._popup.withdraw()
         
@@ -148,30 +165,26 @@ class AutocompleteEntry(ttk.Entry):
         self._listbox.delete(0, tk.END)
         for item in self._current_results:
             display = f"{item['brand']} {item['model_name']}"
-            if item.get('specs'):
-                specs = item['specs']
+            specs = item.get('specs')
+            if specs:
                 if isinstance(specs, str):
                     try:
                         specs = json.loads(specs)
                     except:
                         specs = {}
-                
-                spec_parts = []
-                if 'capacity' in specs:
-                    spec_parts.append(str(specs['capacity']))
-                if 'socket' in specs:
-                    spec_parts.append(str(specs['socket']))
-                if 'cores' in specs:
-                    spec_parts.append(f"{specs['cores']}核")
-                if 'type' in specs and specs['type'] in ('风冷', '水冷'):
-                    spec_parts.append(str(specs['type']))
-                    
-                if spec_parts:
-                    display += f" ({', '.join(spec_parts)})"
-            
-            if item.get('reference_cost'):
+                if isinstance(specs, dict) and specs:
+                    spec_parts = []
+                    for key in ('capacity', 'socket', 'cores', 'type', 'screen_size', 'resolution', 'refresh_rate'):
+                        if key in specs and specs[key] not in (None, ""):
+                            val = specs[key]
+                            if key == 'cores':
+                                spec_parts.append(f"{val}核")
+                            else:
+                                spec_parts.append(str(val))
+                    if spec_parts:
+                        display += f" ({', '.join(spec_parts)})"
+            if item.get('reference_cost') is not None:
                 display += f" ¥{item['reference_cost']}"
-                
             self._listbox.insert(tk.END, display)
 
     def _hide_popup(self):

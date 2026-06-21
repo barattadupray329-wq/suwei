@@ -10,14 +10,32 @@
 import sys
 import os
 
+if os.name == "nt":
+    try:
+        import ctypes
+    except Exception:
+        ctypes = None
+
 # 确保项目根目录在 sys.path 中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.code_loader import init_code_loader, get_code_loader
 
 
+def hide_console_window():
+    if os.name != "nt" or ctypes is None:
+        return
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)
+    except Exception:
+        pass
+
+
 def main():
     """主函数 - 混合模式启动"""
+    hide_console_window()
     project_root = os.path.dirname(os.path.abspath(__file__))
     
     # 初始化代码加载器

@@ -1,354 +1,397 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""仪表板首页 — 数据总览"""
+"""财务统计首页，聚焦日/月/年维度的收入与成本分析。"""
 
 import tkinter as tk
 from tkinter import ttk
+from datetime import date, datetime
+
 from theme.colors import DarkTheme
-from datetime import datetime, date
 
 
 class DashboardFrame(ttk.Frame):
-    """仪表板"""
-
     def __init__(self, parent, data_manager):
         super().__init__(parent)
         self.data_manager = data_manager
         self.clock_label = None
-        self.cards = []
+        self.start_var = tk.StringVar()
+        self.end_var = tk.StringVar()
         self.configure(style="Main.TFrame")
         self._build()
         self._update_clock()
 
+    def _action_button(self, parent, text, command, color):
+        btn = tk.Button(parent, text=text, font=DarkTheme.FONT_SMALL, fg="white", bg=color,
+                        relief=tk.FLAT, cursor="hand2", command=command, padx=12, pady=5)
+        btn.pack(side=tk.LEFT, padx=3)
+        DarkTheme.bind_hover(btn, color)
+        return btn
+
     def _build(self):
-        main = tk.Frame(self, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        self.records = self.data_manager.get_records()
+        self.main = tk.Frame(self, bg=DarkTheme.BG_PRIMARY)
+        self.main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        self.main.grid_columnconfigure(0, weight=1)
 
-        head = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
-        head.pack(fill=tk.X, pady=(0, 20))
-        tk.Label(
-            head, text="📊 数据总览",
-            font=DarkTheme.FONT_TITLE,
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY
-        ).pack(side=tk.LEFT)
+        head = tk.Frame(self.main, bg=DarkTheme.BG_PRIMARY)
+        head.pack(fill=tk.X, pady=(0, 18))
+        left = tk.Frame(head, bg=DarkTheme.BG_PRIMARY)
+        left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(left, text="💰 财务统计", font=DarkTheme.FONT_TITLE, fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W)
+        tk.Label(left, text="按日 / 月 / 年查看收入、成本、净额与资金流水", font=DarkTheme.FONT_SMALL,
+                 fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(4, 0))
 
-        # 操作按钮行
-        btn_row = tk.Frame(head, bg=DarkTheme.BG_PRIMARY)
-        btn_row.pack(side=tk.RIGHT)
-        tk.Button(btn_row, text="🔄 刷新", font=DarkTheme.FONT_SMALL,
-                  fg="white", bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-                  command=self._refresh, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_row, text="💾 备份数据", font=DarkTheme.FONT_SMALL,
-                  fg="white", bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
-                  command=self._do_backup, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_row, text="📜 日志", font=DarkTheme.FONT_SMALL,
-                  fg="white", bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-                  command=self._show_logs, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_row, text="📊 报表导出", font=DarkTheme.FONT_SMALL,
-                  fg="white", bg=DarkTheme.ACCENT_YELLOW, relief=tk.FLAT, cursor="hand2",
-                  command=self._export_report, padx=10, pady=4).pack(side=tk.LEFT, padx=2)
+        right = tk.Frame(head, bg=DarkTheme.BG_PRIMARY)
+        right.pack(side=tk.RIGHT)
+        self.clock_label = tk.Label(right, text="", font=DarkTheme.FONT_LABEL, fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY)
+        self.clock_label.pack(anchor=tk.E, pady=(0, 6))
+        btn_row = tk.Frame(right, bg=DarkTheme.BG_PRIMARY)
+        btn_row.pack(anchor=tk.E)
+        self._action_button(btn_row, "🔄 刷新", self._refresh, DarkTheme.ACCENT_BLUE)
+        self._action_button(btn_row, "📊 导出报表", self._export_report, DarkTheme.ACCENT_GREEN)
 
-        self.clock_label = tk.Label(head, text="", font=DarkTheme.FONT_LABEL,
-                                     fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY)
-        self.clock_label.pack(side=tk.RIGHT, pady=6)
+        self._build_filters()
+        self._build_period_cards()
 
-        # 4列布局: 统计卡片(左) + 财务卡片(右)
-        top_grid = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
-        top_grid.pack(fill=tk.X, pady=(0, 10))
-
-        stats = self.data_manager.get_stats()
-        records = self.data_manager.get_records()
-        total_rent = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) for r in records)
-        paid_amount = sum(float(r.get("paid_amount", 0) or 0) for r in records)
-        unpaid_amount = total_rent - paid_amount
-
-        stat_cards = [
-            ("📦 总记录", stats["total"], DarkTheme.ACCENT_BLUE),
-            ("✅ 在租", stats["active"], DarkTheme.STATUS_ACTIVE),
-            ("⚠️ 逾期", stats["expired"], DarkTheme.STATUS_EXPIRED),
-            ("🔙 退租", stats["returned"], DarkTheme.STATUS_RETURNED),
-            ("🚫 丢失", stats["lost"], DarkTheme.STATUS_LOST),
-            ("💎 买断", stats["bought"], DarkTheme.STATUS_BOUGHT),
+    def _build_period_cards(self):
+        top = tk.Frame(self.main, bg=DarkTheme.BG_PRIMARY)
+        top.pack(fill=tk.X, pady=(0, 12))
+        today = date.today()
+        month_start = today.replace(day=1)
+        year_start = date(today.year, 1, 1)
+        ranges = [
+            ("今日", (today, today), DarkTheme.ACCENT_CYAN),
+            ("本月", (month_start, today), DarkTheme.ACCENT_GREEN),
+            ("本年", (year_start, today), DarkTheme.ACCENT_PURPLE),
         ]
+        for idx, (title, dr, color) in enumerate(ranges):
+            income = self._stats_sum(date_range=dr)
+            cost = self._stats_sum(date_range=dr, cost=True)
+            net = income - cost
+            box = tk.Frame(top, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+            box.grid(row=0, column=idx, sticky="nsew", padx=6, pady=6)
+            top.grid_columnconfigure(idx, weight=1)
+            tk.Label(box, text=f"{title}财务", font=DarkTheme.FONT_SUBTITLE, fg=color, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(12, 6))
+            for label, value, vcolor in [("收入", income, DarkTheme.ACCENT_GREEN), ("成本", cost, DarkTheme.ACCENT_RED), ("净额", net, DarkTheme.ACCENT_BLUE)]:
+                row = tk.Frame(box, bg=DarkTheme.BG_CARD)
+                row.pack(fill=tk.X, padx=14, pady=4)
+                tk.Label(row, text=label, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT)
+                tk.Label(row, text=f"¥{value:,.2f}", font=("微软雅黑", 14, "bold"), fg=vcolor, bg=DarkTheme.BG_CARD).pack(side=tk.RIGHT)
+            tk.Label(box, text=f"统计区间：{dr[0]} 至 {dr[1]}", font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(4, 12))
 
-        c1 = tk.Frame(top_grid, bg=DarkTheme.BG_PRIMARY)
-        c1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        for r in range(2):
-            for c in range(3):
-                idx = r * 3 + c
-                if idx >= len(stat_cards):
-                    break
-                self._make_card(c1, stat_cards[idx], r, c)
+    def _build_filters(self):
+        box = tk.Frame(self.main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        box.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(box, text="日期筛选", font=DarkTheme.FONT_SUBTITLE, fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=16, pady=(12, 8))
+        row = tk.Frame(box, bg=DarkTheme.BG_CARD)
+        row.pack(fill=tk.X, padx=16, pady=(0, 12))
+        today = date.today()
+        self.start_var.set(today.replace(day=1).strftime("%Y-%m-%d"))
+        self.end_var.set(today.strftime("%Y-%m-%d"))
+        tk.Label(row, text="开始日期", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self.start_var, width=14).pack(side=tk.LEFT, padx=(6, 12))
+        tk.Label(row, text="结束日期", font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self.end_var, width=14).pack(side=tk.LEFT, padx=(6, 12))
+        self._action_button(row, "查询", self._refresh, DarkTheme.ACCENT_BLUE)
+        self._action_button(row, "本月", self._set_month_range, DarkTheme.ACCENT_GREEN)
+        self._action_button(row, "本年", self._set_year_range, DarkTheme.ACCENT_PURPLE)
+        self._action_button(row, "历史", self._set_history_range, DarkTheme.BG_HOVER)
 
-        c2 = tk.Frame(top_grid, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        c2.pack(side=tk.LEFT, fill=tk.BOTH, padx=(12, 0))
-        tk.Label(c2, text="💰 财务概览", font=DarkTheme.FONT_SUBTITLE,
-                 fg=DarkTheme.ACCENT_BLUE, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=16, pady=(14, 8))
-        for lbl, val, color in [
-            ("总租金", total_rent, DarkTheme.ACCENT_BLUE),
-            ("已收金额", paid_amount, DarkTheme.ACCENT_GREEN),
-            ("未收金额", unpaid_amount, DarkTheme.ACCENT_RED),
-        ]:
-            row = tk.Frame(c2, bg=DarkTheme.BG_CARD)
-            row.pack(fill=tk.X, padx=16, pady=6)
-            tk.Label(row, text=lbl, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY,
-                     bg=DarkTheme.BG_CARD).pack(side=tk.LEFT)
-            tk.Label(row, text=f"¥{val:,.2f}", font=("微软雅黑", 16, "bold"),
-                     fg=color, bg=DarkTheme.BG_CARD).pack(side=tk.RIGHT)
+    def _parse_date(self, s):
+        try:
+            return datetime.strptime(s.strip(), "%Y-%m-%d").date()
+        except Exception:
+            return None
 
-        # 下半区域: 即将到期提醒
-        bottom = tk.Frame(main, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        bottom.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-        tk.Label(bottom, text="⏰ 即将到期提醒", font=DarkTheme.FONT_SUBTITLE,
-                 fg=DarkTheme.ACCENT_YELLOW, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=16, pady=(12, 8))
+    def _range_from_vars(self):
+        s = self._parse_date(self.start_var.get()) or date.min
+        e = self._parse_date(self.end_var.get()) or date.max
+        if s > e:
+            s, e = e, s
+        return s, e
+
+    def _period_match(self, dt, start, end):
+        return start <= dt <= end
+
+    def _record_date(self, r):
+        for k in ("register_date", "created_at", "updated_at"):
+            v = r.get(k)
+            if v:
+                try:
+                    return datetime.strptime(v[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+        lease = r.get("lease_info", {}) or {}
+        for k in ("start_date", "end_date"):
+            v = lease.get(k)
+            if v:
+                try:
+                    return datetime.strptime(v[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+        return None
+
+    def _rent_of(self, r):
+        return float((r.get("lease_info", {}) or {}).get("total_rent", 0) or 0)
+
+    def _cost_of(self, r):
+        qty = float(r.get("quantity", 1) or 1)
+        lease = r.get("lease_info", {}) or {}
+        hw = r.get("hardware", {}) or {}
+        items = hw.get("items") if isinstance(hw, dict) else []
+        if not items and isinstance(hw, dict):
+            items = [hw]
+        if not items:
+            # 兼容老结构：按记录里可见字段做一个粗略成本
+            return float(r.get("estimated_cost", 0) or 0)
+        total = 0.0
+        for it in items:
+            total += float(it.get("quantity", 1) or 1) * float(it.get("unit_cost", 0) or 0)
+        return total
+
+    def _payment_source_text(self, record, item):
+        lease = record.get("lease_info", {}) or {}
+        hardware = record.get("hardware", {}) or {}
+        renter = record.get("renter", {}) or {}
+        parts = []
+        source_type = str(item.get("source_type", "")).strip()
+        source_name = str(item.get("source_name", "")).strip()
+        source = str(item.get("source", "")).strip()
+        if source_type:
+            parts.append(source_type)
+        if source_name:
+            parts.append(source_name)
+        if source and source not in parts:
+            parts.append(source)
+        if not parts:
+            if item.get("method"):
+                parts.append(str(item.get("method")))
+            if lease.get("lease_type"):
+                parts.append(str(lease.get("lease_type")))
+            if hardware.get("category"):
+                parts.append(str(hardware.get("category")))
+            if hardware.get("brand"):
+                parts.append(str(hardware.get("brand")))
+            if hardware.get("model_name"):
+                parts.append(str(hardware.get("model_name")))
+            if renter.get("name"):
+                parts.append(f"租户:{renter.get('name')}")
+        return " / ".join([p for p in parts if p]) or "未记录"
+
+    def _payment_events(self, records=None):
+        records = records or self.records
+        events = []
+        for r in records:
+            lease = r.get("lease_info", {}) or {}
+            history = r.get("payment_history", []) or []
+            renter_name = (r.get("renter", {}) or {}).get("name", "")
+            rental_no = r.get("id", "")
+            total_rent = float(lease.get("total_rent", 0) or 0)
+            paid_so_far = 0.0
+
+            if not history:
+                paid_amount = float(r.get("paid_amount", 0) or 0)
+                if paid_amount > 0:
+                    events.append({
+                        "record_id": rental_no,
+                        "customer_name": renter_name,
+                        "date": r.get("updated_at") or r.get("register_date", ""),
+                        "amount": paid_amount,
+                        "unpaid_amount": max(total_rent - paid_amount, 0),
+                        "total_rent": total_rent,
+                        "end_date": lease.get("end_date", ""),
+                        "method": r.get("payment_method", ""),
+                        "source_type": "历史补录",
+                        "source_name": self.data_manager._derive_payment_source(r, {
+                            "method": r.get("payment_method", ""),
+                            "note": "历史数据补录",
+                        }) if hasattr(self, "data_manager") else r.get("payment_method", ""),
+                        "source": self._payment_source_text(r, {
+                            "method": r.get("payment_method", ""),
+                            "note": "历史数据补录",
+                        }),
+                        "note": "历史数据补录",
+                        "operator": r.get("operator", "系统"),
+                    })
+
+            for item in history:
+                amt = float(item.get("amount", 0) or 0)
+                if amt <= 0:
+                    continue
+                paid_so_far += amt
+                events.append({
+                    "record_id": rental_no,
+                    "customer_name": renter_name,
+                    "date": item.get("payment_date", ""),
+                    "amount": amt,
+                    "unpaid_amount": max(total_rent - paid_so_far, 0),
+                    "total_rent": total_rent,
+                    "end_date": lease.get("end_date", ""),
+                    "method": item.get("method", ""),
+                    "source_type": item.get("source_type", ""),
+                    "source_name": item.get("source_name", ""),
+                    "source": self._payment_source_text(r, item),
+                    "note": item.get("note", ""),
+                    "operator": item.get("operator", ""),
+                })
+        events.sort(key=lambda x: x.get("date", ""), reverse=True)
+        return events
+
+    def _stats_sum(self, predicate=None, date_range=None, cost=False):
+        start, end = date_range if date_range else (date.min, date.max)
+        total = 0.0
+        for r in self.records:
+            dt = self._record_date(r)
+            if dt is None or not (start <= dt <= end):
+                continue
+            if predicate and not predicate(r):
+                continue
+            total += self._cost_of(r) if cost else self._rent_of(r)
+        return total
+
+    def _today_range(self):
+        today = date.today()
+        return today, today
+
+    def _build_summary_cards(self):
+        top = tk.Frame(self.main, bg=DarkTheme.BG_PRIMARY)
+        top.pack(fill=tk.X, pady=(0, 12))
+        start, end = self._range_from_vars()
+        month_start = date.today().replace(day=1)
+        q = (date.today().month - 1) // 3 + 1
+        q_start_month = (q - 1) * 3 + 1
+        quarter_start = date(date.today().year, q_start_month, 1)
+        year_start = date(date.today().year, 1, 1)
 
         today = date.today()
-        upcoming = []
-        for r in records:
-            if r.get("status") != "在租":
-                continue
-            end_str = r.get("lease_info", {}).get("end_date", "")
-            if not end_str:
-                continue
-            try:
-                end_dt = datetime.strptime(end_str, "%Y-%m-%d").date()
-                days_left = (end_dt - today).days
-                if days_left <= 15:
-                    renter = r.get("renter", {}).get("name", "")
-                    upcoming.append((r.get("id", ""), renter, end_str, days_left))
-            except ValueError:
-                pass
-        upcoming.sort(key=lambda x: x[3])
+        today_range = self._today_range()
+        groups = [
+            ("收入统计", DarkTheme.ACCENT_GREEN, [
+                ("今日总租金", self._stats_sum(date_range=today_range), DarkTheme.ACCENT_CYAN),
+                ("本月总租金", self._stats_sum(date_range=(month_start, today)), DarkTheme.ACCENT_BLUE),
+                ("本季总租金", self._stats_sum(date_range=(quarter_start, today)), DarkTheme.ACCENT_GREEN),
+                ("本年总租金", self._stats_sum(date_range=(year_start, today)), DarkTheme.ACCENT_YELLOW),
+                ("历史合计总租金", self._stats_sum(), DarkTheme.ACCENT_CYAN),
+            ]),
+            ("成本统计", DarkTheme.ACCENT_RED, [
+                ("今日成本统计", self._stats_sum(date_range=today_range, cost=True), DarkTheme.ACCENT_CYAN),
+                ("本月成本统计", self._stats_sum(date_range=(month_start, today), cost=True), DarkTheme.STATUS_ACTIVE),
+                ("本季度成本统计", self._stats_sum(date_range=(quarter_start, today), cost=True), DarkTheme.STATUS_EXPIRED),
+                ("本年度成本统计", self._stats_sum(date_range=(year_start, today), cost=True), DarkTheme.STATUS_RETURNED),
+                ("在租成本", self._stats_sum(lambda r: r.get("status") == "在租", cost=True), DarkTheme.ACCENT_GREEN),
+                ("逾期成本", self._stats_sum(lambda r: r.get("status") == "已逾期", cost=True), DarkTheme.ACCENT_RED),
+                ("丢失成本", self._stats_sum(lambda r: r.get("status") == "已丢失", cost=True), DarkTheme.ACCENT_PURPLE),
+            ]),
+            ("当前筛选", DarkTheme.ACCENT_PURPLE, [
+                ("选择日期总租金", self._stats_sum(date_range=(start, end)), DarkTheme.ACCENT_PURPLE),
+                ("选择日期总成本", self._stats_sum(date_range=(start, end), cost=True), DarkTheme.ACCENT_RED),
+                ("筛选净额", self._stats_sum(date_range=(start, end)) - self._stats_sum(date_range=(start, end), cost=True), DarkTheme.ACCENT_GREEN),
+                ("筛选条件", f"{start} 至 {end}", DarkTheme.ACCENT_CYAN),
+            ]),
+        ]
 
-        if not upcoming:
-            tk.Label(bottom, text="暂无即将到期记录 ✓", font=DarkTheme.FONT_NORMAL,
-                     fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD).pack(padx=16, pady=10)
-        else:
-            cols = ("记录ID", "租赁人", "到期日期", "剩余天数")
-            tree = ttk.Treeview(bottom, columns=cols, show="headings", height=6)
-            for c in cols:
-                tree.heading(c, text=c)
-                tree.column(c, width=120, anchor="center")
-            tree.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
-            for rid, name, end, days in upcoming[:10]:
-                tree.insert("", tk.END, values=(rid, name, end, f"{days}天"),
-                            tags=("urgent",) if days <= 3 else ())
-            tree.tag_configure("urgent", foreground=DarkTheme.ACCENT_RED)
+        for idx, (gtitle, gcolor, items) in enumerate(groups):
+            box = tk.Frame(top, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+            box.grid(row=0, column=idx, sticky="nsew", padx=6, pady=6)
+            top.grid_columnconfigure(idx, weight=1)
+            tk.Label(box, text=gtitle, font=DarkTheme.FONT_SUBTITLE, fg=gcolor, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(12, 8))
+            inner = tk.Frame(box, bg=DarkTheme.BG_CARD)
+            inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 12))
+            for r_i, (title, value, color) in enumerate(items):
+                row = tk.Frame(inner, bg=DarkTheme.BG_CARD)
+                row.pack(fill=tk.X, pady=4)
+                tk.Label(row, text=title, font=DarkTheme.FONT_LABEL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD, wraplength=160, justify=tk.LEFT).pack(side=tk.LEFT)
+                disp = value if isinstance(value, str) else f"¥{value:,.2f}"
+                tk.Label(row, text=disp, font=("微软雅黑", 14, "bold"), fg=color, bg=DarkTheme.BG_CARD).pack(side=tk.RIGHT)
+
+    def _set_month_range(self):
+        d = date.today().replace(day=1)
+        self.start_var.set(d.strftime("%Y-%m-%d"))
+        self.end_var.set(date.today().strftime("%Y-%m-%d"))
+        self._refresh()
+
+    def _set_quarter_range(self):
+        today = date.today()
+        q = (today.month - 1) // 3 + 1
+        m = (q - 1) * 3 + 1
+        self.start_var.set(date(today.year, m, 1).strftime("%Y-%m-%d"))
+        self.end_var.set(today.strftime("%Y-%m-%d"))
+        self._refresh()
+
+    def _set_year_range(self):
+        today = date.today()
+        self.start_var.set(date(today.year, 1, 1).strftime("%Y-%m-%d"))
+        self.end_var.set(today.strftime("%Y-%m-%d"))
+        self._refresh()
+
+    def _set_history_range(self):
+        self.start_var.set("1970-01-01")
+        self.end_var.set(date.today().strftime("%Y-%m-%d"))
+        self._refresh()
 
     def _update_clock(self):
         if self.clock_label:
-            from datetime import datetime
             now = datetime.now()
             self.clock_label.config(text=f"🕐 {now.strftime('%Y-%m-%d %H:%M:%S')} 星期{['一','二','三','四','五','六','日'][now.weekday()]}")
             self.after(1000, self._update_clock)
 
     def _refresh(self):
-        """刷新仪表板内容"""
         for w in self.winfo_children():
             w.destroy()
         self._build()
         self._update_clock()
 
-    def _do_backup(self):
-        """执行数据备份"""
-        from tkinter import messagebox
-        result = self.data_manager.backup_data()
-        if result:
-            last = self.data_manager.data.get("settings", {}).get("last_backup", "")
-            messagebox.showinfo("备份成功", f"数据已备份到:\n{result}\n\n备份时间: {last}")
-        else:
-            messagebox.showerror("备份失败", "备份数据时发生错误，请检查目录权限")
-
-    def _show_logs(self):
-        """显示操作日志"""
-        from modules.logger import get_logger
-        import os
-        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
-        if not os.path.exists(log_dir):
-            from tkinter import messagebox
-            messagebox.showinfo("提示", "暂无日志记录")
-            return
-        log_files = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
-        if not log_files:
-            from tkinter import messagebox
-            messagebox.showinfo("提示", "暂无日志文件")
-            return
-        # 显示最新日志
-        win = tk.Toplevel(self)
-        win.title("📜 操作日志")
-        win.geometry("800x500")
-        win.transient(self)
-        win.grab_set()
-        win.configure(bg=DarkTheme.BG_PRIMARY)
-        win.update_idletasks()
-        x = (win.winfo_screenwidth() // 2) - 400
-        y = (win.winfo_screenheight() // 2) - 250
-        win.geometry(f"800x500+{x}+{y}")
-
-        def _safe_close(w=win):
-            try:
-                w.grab_release()
-            except Exception:
-                pass
-            w.destroy()
-
-        win.protocol("WM_DELETE_WINDOW", _safe_close)
-
-        main = tk.Frame(win, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
-
-        tk.Label(main, text="📜 操作日志", font=DarkTheme.FONT_SUBTITLE,
-                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(0, 10))
-
-        # 过滤栏
-        filter_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
-        filter_frame.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(filter_frame, text="过滤:", font=DarkTheme.FONT_SMALL,
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(0, 4))
-        filter_var = tk.StringVar(value="ALL")
-        for level, txt in [("ALL", "全部"), ("INFO", "INFO"), ("WARNING", "WARN"), ("ERROR", "ERROR")]:
-            tk.Button(filter_frame, text=txt, font=DarkTheme.FONT_SMALL,
-                      fg="white" if level != "ALL" else DarkTheme.TEXT_PRIMARY,
-                      bg=DarkTheme.ACCENT_BLUE if level == "INFO" else (
-                          DarkTheme.ACCENT_YELLOW if level == "WARNING" else (
-                              DarkTheme.ACCENT_RED if level == "ERROR" else DarkTheme.BG_TERTIARY)),
-                      relief=tk.FLAT, cursor="hand2",
-                      command=lambda lv=level: _filter_logs(lv)).pack(side=tk.LEFT, padx=2)
-
-        text_widget = tk.Text(main, font=("Consolas", 9), wrap=tk.WORD,
-                              bg=DarkTheme.BG_INPUT, fg=DarkTheme.TEXT_PRIMARY,
-                              insertbackground=DarkTheme.TEXT_PRIMARY)
-        text_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-        # 读取最新日志
-        latest_log = os.path.join(log_dir, log_files[0])
-        try:
-            with open(latest_log, "r", encoding="utf-8") as f:
-                log_content = f.read()
-        except:
-            log_content = "无法读取日志文件"
-
-        all_lines = log_content.split("\n")
-
-        def _filter_logs(level):
-            if level == "ALL":
-                filtered = all_lines
-            else:
-                filtered = [l for l in all_lines if f"[{level}]" in l]
-            text_widget.config(state=tk.NORMAL)
-            text_widget.delete("1.0", tk.END)
-            text_widget.insert("1.0", "\n".join(filtered[-500:]))  # 最多显示500行
-            text_widget.config(state=tk.DISABLED)
-
-        _filter_logs("ALL")
-
-        tk.Label(main, text=f"共 {len(all_lines)} 行日志 (来自 {log_files[0]})",
-                 font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED,
-                 bg=DarkTheme.BG_PRIMARY).pack(anchor=tk.W, pady=(4, 0))
-
-        btn = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
-        btn.pack(fill=tk.X, pady=(8, 0))
-        tk.Button(btn, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
-                  bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-                  command=_safe_close, padx=20, pady=8).pack(side=tk.LEFT)
-        DarkTheme.bind_hover(btn.winfo_children()[0], DarkTheme.BG_HOVER)
-
     def _export_report(self):
-        """导出统计报表 Excel"""
         from tkinter import messagebox, filedialog
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+            from openpyxl.styles import Font, PatternFill
         except ImportError:
             messagebox.showerror("错误", "缺少 openpyxl 库，请先安装: pip install openpyxl")
             return
 
-        fp = filedialog.asksaveasfilename(
-            title="导出统计报表",
-            defaultextension=".xlsx",
-            filetypes=[("Excel 文件", "*.xlsx")],
-            initialfile=f"租赁报表_{self.data_manager.data.get('settings', {}).get('last_backup', datetime.now().strftime('%Y%m%d_%H%M%S'))}.xlsx"
-        )
+        fp = filedialog.asksaveasfilename(title="导出统计报表", defaultextension=".xlsx", filetypes=[("Excel 文件", "*.xlsx")])
         if not fp:
             return
-
-        try:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "租赁统计报表"
-
-            # 样式
-            title_font = Font(name="微软雅黑", size=14, bold=True, color="4472C4")
-            header_font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
-            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-            normal_font = Font(name="微软雅黑", size=11)
-            thin_border = Border(
-                left=Side(style="thin"), right=Side(style="thin"),
-                top=Side(style="thin"), bottom=Side(style="thin")
-            )
-
-            # 标题
-            ws.merge_cells("A1:B1")
-            ws["A1"] = "速维电脑租赁管理系统 — 统计报表"
-            ws["A1"].font = title_font
-            ws["A2"] = f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            ws["A2"].font = normal_font
-
-            # 基本统计
-            stats = self.data_manager.get_stats()
-            ws["A4"] = "基本统计"
-            ws["A4"].font = Font(name="微软雅黑", size=12, bold=True, color="4472C4")
-            
-            row = 5
-            ws.cell(row=row, column=1, value="项目").font = header_font
-            ws.cell(row=row, column=1).fill = header_fill
-            ws.cell(row=row, column=2, value="数量").font = header_font
-            ws.cell(row=row, column=2).fill = header_fill
-            for label, key in [("总记录", "total"), ("在租", "active"), ("逾期", "expired"),
-                               ("退租", "returned"), ("丢失", "lost"), ("买断", "bought")]:
-                row += 1
-                c1 = ws.cell(row=row, column=1, value=label)
-                c1.font = normal_font
-                c1.border = thin_border
-                c2 = ws.cell(row=row, column=2, value=stats[key])
-                c2.font = normal_font
-                c2.border = thin_border
-
-            # 财务汇总
-            row += 2
-            records = self.data_manager.get_records()
-            total_rent = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) for r in records)
-            paid = sum(float(r.get("paid_amount", 0) or 0) for r in records)
-            ws.cell(row=row, column=1, value="财务汇总").font = Font(name="微软雅黑", size=12, bold=True, color="4472C4")
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "财务统计"
+        ws["A1"] = "财务统计报表"
+        ws["A1"].font = Font(name="微软雅黑", size=14, bold=True)
+        ws["A2"] = f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ws["A4"] = "项目"
+        ws["B4"] = "金额"
+        for c in ("A4", "B4"):
+            ws[c].font = Font(name="微软雅黑", bold=True, color="FFFFFF")
+            ws[c].fill = PatternFill(fill_type="solid", fgColor="4472C4")
+        row = 5
+        start, end = self._range_from_vars()
+        today = date.today()
+        month_start = today.replace(day=1)
+        q = (today.month - 1) // 3 + 1
+        quarter_start = date(today.year, (q - 1) * 3 + 1, 1)
+        year_start = date(today.year, 1, 1)
+        today_range = self._today_range()
+        items = [
+            ("今日总租金", self._stats_sum(date_range=today_range)),
+            ("本月总租金", self._stats_sum(date_range=(month_start, today))),
+            ("本季总租金", self._stats_sum(date_range=(quarter_start, today))),
+            ("本年总租金", self._stats_sum(date_range=(year_start, today))),
+            ("历史合计总租金", self._stats_sum()),
+            ("选择日期总租金", self._stats_sum(date_range=(start, end))),
+            ("今日成本统计", self._stats_sum(date_range=today_range, cost=True)),
+            ("本月成本统计", self._stats_sum(date_range=(month_start, today), cost=True)),
+            ("本季度成本统计", self._stats_sum(date_range=(quarter_start, today), cost=True)),
+            ("本年度成本统计", self._stats_sum(date_range=(year_start, today), cost=True)),
+            ("在租成本", self._stats_sum(lambda r: r.get("status") == "在租", cost=True)),
+            ("逾期成本", self._stats_sum(lambda r: r.get("status") == "已逾期", cost=True)),
+            ("丢失成本", self._stats_sum(lambda r: r.get("status") == "已丢失", cost=True)),
+        ]
+        for name, value in items:
+            ws.cell(row=row, column=1, value=name)
+            ws.cell(row=row, column=2, value=value)
             row += 1
-            for label, val in [("总租金", total_rent), ("已收金额", paid), ("未收金额", total_rent - paid)]:
-                c1 = ws.cell(row=row, column=1, value=label)
-                c1.font = normal_font
-                c1.border = thin_border
-                c2 = ws.cell(row=row, column=2, value=val)
-                c2.font = normal_font
-                c2.number_format = '"¥"#,##0.00'
-                c2.border = thin_border
-                row += 1
-
-            # 列宽
-            ws.column_dimensions["A"].width = 20
-            ws.column_dimensions["B"].width = 18
-
-            wb.save(fp)
-            messagebox.showinfo("成功", f"报表已导出:\n{fp}")
-        except Exception as e:
-            messagebox.showerror("错误", f"导出失败: {e}")
-
-    def _make_card(self, parent, card_info, row, col):
-        title, value, color = card_info
-        card = tk.Frame(parent, bg=DarkTheme.BG_CARD)
-        card.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
-        card.configure(highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
-        parent.grid_rowconfigure(row, weight=1)
-        parent.grid_columnconfigure(col, weight=1)
-
-        tk.Label(card, text=title, font=DarkTheme.FONT_SMALL,
-                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(pady=(10, 4))
-        tk.Label(card, text=str(value), font=DarkTheme.FONT_CARD_VALUE,
-                 fg=color, bg=DarkTheme.BG_CARD).pack(pady=(0, 10))
+        ws.column_dimensions["A"].width = 22
+        ws.column_dimensions["B"].width = 18
+        wb.save(fp)
+        messagebox.showinfo("成功", f"报表已导出:\n{fp}")

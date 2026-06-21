@@ -21,7 +21,7 @@ logger = logging.getLogger("suwei_app")
 class DataManager:
     """数据管理器：对外保持原有 JSON 字典 API，内部使用 SQLite。"""
 
-    DB_VERSION = 7
+    DB_VERSION = 9
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
@@ -35,6 +35,7 @@ class DataManager:
         self._migrate()
         self._import_json_if_needed()
         self.data = self._load_data()
+        self._backfill_payment_sources()
         self._init_brand_defaults()
 
     # ── Migration ──────────────────────────────────────────────────────
@@ -46,23 +47,23 @@ class DataManager:
             self._migration_001_initial_schema()
             self._set_schema_version(1)
         if current < 2:
-            self._migration_002_brand_library()
+            self._migration_002_hardware_models()
             self._set_schema_version(2)
         if current < 3:
-            self._migration_003_hardware_models()
+            self._migration_003_sync_models()
             self._set_schema_version(3)
-        if current < 4:
-            self._migration_004_brand_library_refactor()
-            self._set_schema_version(4)
-        if current < 5:
-            self._migration_005_sync_models()
-            self._set_schema_version(5)
         if current < 6:
             self._migration_006_legacy_reserved()
             self._set_schema_version(6)
         if current < 7:
             self._migration_007_remove_rental_v2_schema()
             self._set_schema_version(7)
+        if current < 8:
+            self._migration_008_add_model_inventory()
+            self._set_schema_version(8)
+        if current < 9:
+            self._migration_009_add_rental_config_history()
+            self._set_schema_version(9)
         if self._get_schema_version() > self.DB_VERSION:
             raise RuntimeError("数据库版本高于当前程序支持版本，请升级程序后再运行")
 
@@ -117,22 +118,8 @@ class DataManager:
         )
         self.conn.commit()
 
-    def _migration_002_brand_library(self):
-        """Migration 002：硬件品牌库表。"""
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS hardware_brands (
-                category TEXT NOT NULL,
-                name TEXT NOT NULL,
-                sort_order INTEGER DEFAULT 0,
-                PRIMARY KEY (category, name)
-            )
-            """
-        )
-        self.conn.commit()
-
-    def _migration_003_hardware_models(self):
-        """Migration 003：硬件型号库表。"""
+    def _migration_002_hardware_models(self):
+        """Migration 002：硬件型号库表。"""
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS hardware_models (
@@ -157,53 +144,8 @@ class DataManager:
         # 初始化硬件型号数据
         self._init_hardware_model_defaults()
 
-    def _migration_004_brand_library_refactor(self):
-        """Migration 004：重构品牌库，分离品牌和型号"""
-        # 备份旧数据
-        old_brands = self.conn.execute(
-            "SELECT category, name FROM hardware_brands"
-        ).fetchall()
-        
-        # 清空旧表
-        self.conn.execute("DELETE FROM hardware_brands")
-        
-        # 导入新品牌数据
-        from modules.hardware_brands import BRAND_MAP
-        inserted = set()
-        for category, brands in BRAND_MAP.items():
-            for idx, brand in enumerate(brands):
-                key = (category, brand)
-                if key not in inserted:
-                    try:
-                        self.conn.execute(
-                            "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
-                            (category, brand, idx)
-                        )
-                        inserted.add(key)
-                    except sqlite3.IntegrityError:
-                        pass
-        
-        self.conn.commit()
-        
-        # 从旧数据中提取可能遗漏的品牌
-        for row in old_brands:
-            category, full_name = row["category"], row["name"]
-            # 简单处理：如果旧名称包含型号，提取品牌部分
-            brand_name = self._extract_brand_from_full_name(full_name)
-            if brand_name:
-                try:
-                    self.conn.execute(
-                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
-                        (category, brand_name, 999)
-                    )
-                    inserted.add((category, brand_name))
-                except sqlite3.IntegrityError:
-                    pass
-        
-        self.conn.commit()
-
-    def _migration_005_sync_models(self):
-        """Migration 005：同步硬件型号库，补充常用二手/老平台型号"""
+    def _migration_003_sync_models(self):
+        """Migration 003：同步硬件型号库，补充常用二手/老平台型号"""
         from modules.hardware_models import HARDWARE_MODELS
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -285,6 +227,61 @@ class DataManager:
         self.conn.commit()
         logger.info("[Migration 007] 已移除 v2 合同相关表结构")
 
+    def _migration_008_add_model_inventory(self):
+        """Migration 008：给硬件型号增加库存字段。"""
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(hardware_models)").fetchall()}
+        if "stock_total" not in cols:
+            self.conn.execute("ALTER TABLE hardware_models ADD COLUMN stock_total INTEGER DEFAULT 0")
+        if "stock_rented" not in cols:
+            self.conn.execute("ALTER TABLE hardware_models ADD COLUMN stock_rented INTEGER DEFAULT 0")
+        self.conn.commit()
+
+    def _migration_009_add_rental_config_history(self):
+        """Migration 009：增加租赁原始/当前配置快照与变更历史表。"""
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(rental_records)").fetchall()}
+        for col in ["original_config_snapshot", "current_config_snapshot", "config_updated_at"]:
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE rental_records ADD COLUMN {col} TEXT")
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rental_config_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rental_id TEXT NOT NULL,
+                change_time TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                old_part_name TEXT,
+                old_part_model TEXT,
+                old_part_sn TEXT,
+                new_part_name TEXT,
+                new_part_model TEXT,
+                new_part_sn TEXT,
+                quantity REAL DEFAULT 1,
+                operator TEXT,
+                reason TEXT,
+                fee REAL DEFAULT 0,
+                remark TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_rental_config_changes_rental_id ON rental_config_changes(rental_id)")
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS inventory_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_id INTEGER,
+                trans_type TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                related_rental_id TEXT,
+                operator TEXT,
+                note TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_inventory_transactions_model_id ON inventory_transactions(model_id)")
+        self.conn.commit()
+
     def _extract_brand_from_full_name(self, full_name: str) -> str:
         """从完整名称中提取品牌"""
         # 常见品牌关键词
@@ -308,103 +305,17 @@ class DataManager:
             return parts[0]
         
         return full_name
-    # ── 硬件品牌库 ───────────────────────────────────────────────────
-
-    def _init_brand_defaults(self, force=False):
-        """首次初始化品牌库默认数据。"""
-        row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_brands").fetchone()
-        if row and row["total"] > 0 and not force:
-            return
-        from modules.hardware_brands import BRAND_MAP
-        for category, items in BRAND_MAP.items():
-            for idx, name in enumerate(items):
-                try:
-                    self.conn.execute(
-                        "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
-                        (category, name, idx),
-                    )
-                except sqlite3.IntegrityError:
-                    pass
-        self.conn.commit()
-
-    def get_brands(self, category: str) -> List[str]:
-        """获取指定分类的品牌列表。"""
-        rows = self.conn.execute(
-            "SELECT name FROM hardware_brands WHERE category = ? ORDER BY sort_order, name",
-            (category,),
-        ).fetchall()
-        return [r["name"] for r in rows]
-
-    def get_all_brands(self) -> Dict[str, List[str]]:
-        """获取所有分类品牌。"""
-        rows = self.conn.execute(
-            "SELECT category, name FROM hardware_brands ORDER BY category, sort_order, name"
-        ).fetchall()
-        result: Dict[str, List[str]] = {}
-        for r in rows:
-            result.setdefault(r["category"], []).append(r["name"])
-        return result
-
-    def add_brand(self, category: str, name: str) -> bool:
-        """添加品牌条目。"""
-        try:
-            row = self.conn.execute(
-                "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
-                (category,),
-            ).fetchone()
-            next_order = (row["mx"] or 0) + 1 if row else 0
-            self.conn.execute(
-                "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
-                (category, name, next_order),
-            )
-            self.conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-
-    def delete_brand(self, category: str, name: str) -> bool:
-        """删除品牌条目。"""
-        self.conn.execute(
-            "DELETE FROM hardware_brands WHERE category = ? AND name = ?",
-            (category, name),
-        )
-        self.conn.commit()
-        return self.conn.total_changes > 0
-
-    def import_brands(self, category: str, names: List[str]) -> int:
-        """批量导入品牌，返回新增数量。"""
-        existing = set(self.get_brands(category))
-        added = 0
-        row = self.conn.execute(
-            "SELECT MAX(sort_order) AS mx FROM hardware_brands WHERE category = ?",
-            (category,),
-        ).fetchone()
-        next_order = (row["mx"] or 0) + 1 if row else 0
-        for name in names:
-            name = name.strip()
-            if not name or name in existing:
-                continue
-            try:
-                self.conn.execute(
-                    "INSERT INTO hardware_brands(category, name, sort_order) VALUES(?, ?, ?)",
-                    (category, name, next_order),
-                )
-                next_order += 1
-                existing.add(name)
-                added += 1
-            except sqlite3.IntegrityError:
-                pass
-        self.conn.commit()
-        return added
-
     # ── 硬件型号库 ───────────────────────────────────────────────────
+
+    def _init_brand_defaults(self):
+        """初始化品牌/型号相关默认数据。"""
+        self._init_hardware_model_defaults()
 
     def _init_hardware_model_defaults(self):
         """初始化硬件型号默认数据。"""
         row = self.conn.execute("SELECT COUNT(*) AS total FROM hardware_models").fetchone()
         if row and row["total"] > 0:
             return
-        # 从硬件品牌模块导入默认数据
         from modules.hardware_models import HARDWARE_MODELS
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for model in HARDWARE_MODELS:
@@ -431,7 +342,8 @@ class DataManager:
         self.conn.commit()
 
     def search_models(self, query: str, category: str = None, limit: int = 20) -> List[Dict]:
-        """搜索硬件型号，支持模糊匹配。"""
+        """搜索硬件型号，支持品牌、型号名和规格模糊匹配。"""
+        q = f"%{(query or '').strip()}%"
         if category:
             rows = self.conn.execute(
                 """SELECT id, category, brand, model_name, specs, reference_cost,
@@ -439,10 +351,14 @@ class DataManager:
                    FROM hardware_models
                    WHERE is_active = 1
                      AND category = ?
-                     AND (brand LIKE ? OR model_name LIKE ?)
-                   ORDER BY release_year DESC, brand
+                     AND (
+                         brand LIKE ?
+                         OR model_name LIKE ?
+                         OR COALESCE(specs, '') LIKE ?
+                     )
+                   ORDER BY release_year DESC, brand, model_name
                    LIMIT ?""",
-                (category, f"%{query}%", f"%{query}%", limit),
+                (category, q, q, q, limit),
             ).fetchall()
         else:
             rows = self.conn.execute(
@@ -450,10 +366,14 @@ class DataManager:
                           reference_rent, release_year
                    FROM hardware_models
                    WHERE is_active = 1
-                     AND (brand LIKE ? OR model_name LIKE ?)
-                   ORDER BY release_year DESC, brand
+                     AND (
+                         brand LIKE ?
+                         OR model_name LIKE ?
+                         OR COALESCE(specs, '') LIKE ?
+                     )
+                   ORDER BY release_year DESC, brand, model_name
                    LIMIT ?""",
-                (f"%{query}%", f"%{query}%", limit),
+                (q, q, q, limit),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -469,11 +389,23 @@ class DataManager:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_models_by_brand(self, category: str, brand: str) -> List[Dict]:
+        """获取指定分类下某品牌的所有型号。"""
+        rows = self.conn.execute(
+            """SELECT id, category, brand, model_name, specs, reference_cost,
+                      reference_rent, release_year
+               FROM hardware_models
+               WHERE category = ? AND brand = ? AND is_active = 1
+               ORDER BY model_name""",
+            (category, brand),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_model_by_id(self, model_id: int) -> Optional[Dict]:
         """根据 ID 获取硬件型号。"""
         row = self.conn.execute(
             """SELECT id, category, brand, model_name, specs, reference_cost,
-                      reference_rent, release_year
+                      reference_rent, release_year, stock_total, stock_rented
                FROM hardware_models
                WHERE id = ?""",
             (model_id,),
@@ -487,6 +419,86 @@ class DataManager:
                     pass
             return result
         return None
+
+    def add_model(self, category: str, brand: str, model_name: str, specs=None,
+                  reference_cost=None, reference_rent=None, release_year=None) -> bool:
+        """新增硬件型号。"""
+        model_name = (model_name or "").strip()
+        brand = (brand or "").strip()
+        if not category or not brand or not model_name:
+            return False
+        try:
+            self.conn.execute(
+                """INSERT INTO hardware_models(
+                    category, brand, model_name, specs, reference_cost,
+                    reference_rent, release_year, is_active, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+                (
+                    category,
+                    brand,
+                    model_name,
+                    json.dumps(specs or {}, ensure_ascii=False),
+                    reference_cost,
+                    reference_rent,
+                    release_year,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def update_model(self, model_id: int, *, brand=None, model_name=None, specs=None,
+                     reference_cost=None, reference_rent=None, release_year=None,
+                     stock_total=None, stock_rented=None, is_active=None) -> bool:
+        """更新硬件型号。"""
+        fields = []
+        values = []
+        if brand is not None:
+            fields.append("brand = ?")
+            values.append(brand)
+        if model_name is not None:
+            fields.append("model_name = ?")
+            values.append(model_name)
+        if specs is not None:
+            fields.append("specs = ?")
+            values.append(json.dumps(specs, ensure_ascii=False))
+        if reference_cost is not None:
+            fields.append("reference_cost = ?")
+            values.append(reference_cost)
+        if reference_rent is not None:
+            fields.append("reference_rent = ?")
+            values.append(reference_rent)
+        if release_year is not None:
+            fields.append("release_year = ?")
+            values.append(release_year)
+        if stock_total is not None:
+            fields.append("stock_total = ?")
+            values.append(stock_total)
+        if stock_rented is not None:
+            fields.append("stock_rented = ?")
+            values.append(stock_rented)
+        if is_active is not None:
+            fields.append("is_active = ?")
+            values.append(1 if is_active else 0)
+        if not fields:
+            return False
+        fields.append("updated_at = ?")
+        values.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        values.append(model_id)
+        self.conn.execute(f"UPDATE hardware_models SET {', '.join(fields)} WHERE id = ?", values)
+        self.conn.commit()
+        return True
+
+    def delete_model(self, model_id: int) -> bool:
+        """删除硬件型号（软删）。"""
+        self.conn.execute(
+            "UPDATE hardware_models SET is_active = 0, updated_at = ? WHERE id = ?",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), model_id),
+        )
+        self.conn.commit()
+        return self.conn.total_changes > 0
 
     # ── 兼容数据结构 ─────────────────────────────────────────────────
 
@@ -513,6 +525,121 @@ class DataManager:
             except (TypeError, json.JSONDecodeError):
                 pass
         return {"rental_records": records, "settings": settings}
+
+    def _derive_payment_source(self, record: Dict, item: Dict) -> str:
+        lease = record.get("lease_info", {}) or {}
+        hardware = record.get("hardware", {}) or {}
+        renter = record.get("renter", {}) or {}
+
+        source_type = str(item.get("source_type", "")).strip()
+        source_name = str(item.get("source_name", "")).strip()
+        source = str(item.get("source", "")).strip()
+        method = str(item.get("method", "")).strip()
+        note = str(item.get("note", "")).strip()
+
+        if source:
+            return source
+
+        parts = []
+        if source_type:
+            parts.append(source_type)
+        if source_name:
+            parts.append(source_name)
+        if not parts and method:
+            parts.append(method)
+
+        if not parts:
+            if note:
+                lowered = note.lower()
+                if any(k in note for k in ("押金", "保证金")):
+                    parts.append("押金")
+                elif any(k in note for k in ("续租", "续约")):
+                    parts.append("续租费")
+                elif any(k in note for k in ("买断",)):
+                    parts.append("买断费")
+                elif any(k in note for k in ("租金", "房租", "月租")):
+                    parts.append("租金收入")
+                elif "补录" in note:
+                    parts.append("历史补录")
+                elif lowered:
+                    parts.append(note)
+
+        if not parts:
+            lease_type = str(lease.get("lease_type", "")).strip()
+            if lease_type:
+                lease_map = {
+                    "租金": "租金收入",
+                    "押金": "押金",
+                    "续租": "续租费",
+                    "买断": "买断费",
+                }
+                parts.append(lease_map.get(lease_type, lease_type))
+
+        if hardware.get("category") or hardware.get("brand") or hardware.get("model_name"):
+            hw = " / ".join([str(hardware.get(k)) for k in ("category", "brand", "model_name") if hardware.get(k)])
+            if hw:
+                parts.append(hw)
+        if renter.get("name"):
+            parts.append(f"租户:{renter.get('name')}")
+
+        return " / ".join([p for p in parts if p]) or "未记录"
+
+    def _backfill_payment_sources(self) -> None:
+        changed = False
+        for record in self.data.get("rental_records", []):
+            history = record.setdefault("payment_history", []) or []
+            if not history:
+                try:
+                    paid_amount = float(record.get("paid_amount", 0) or 0)
+                except (TypeError, ValueError):
+                    paid_amount = 0.0
+                if paid_amount > 0:
+                    history.append({
+                        "payment_date": record.get("updated_at") or record.get("register_date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "amount": paid_amount,
+                        "method": record.get("payment_method", ""),
+                        "operator": record.get("operator", "系统"),
+                        "note": "历史数据补录",
+                        "source_type": "历史补录",
+                        "source_name": self._derive_payment_source(record, {
+                            "method": record.get("payment_method", ""),
+                            "note": "历史数据补录",
+                        }),
+                        "source": self._derive_payment_source(record, {
+                            "method": record.get("payment_method", ""),
+                            "note": "历史数据补录",
+                        }),
+                    })
+                    changed = True
+            for item in history:
+                if not item.get("source_type"):
+                    note = str(item.get("note", "")).strip()
+                    if "历史" in note or "补录" in note:
+                        item["source_type"] = "历史补录"
+                    elif any(k in note for k in ("押金", "保证金")):
+                        item["source_type"] = "押金"
+                    elif any(k in note for k in ("续租", "续约")):
+                        item["source_type"] = "续租费"
+                    elif any(k in note for k in ("买断",)):
+                        item["source_type"] = "买断费"
+                    else:
+                        item["source_type"] = "租金收入"
+                    changed = True
+                if not item.get("source_name"):
+                    item["source_name"] = self._derive_payment_source(record, item)
+                    changed = True
+                if not item.get("source"):
+                    item["source"] = self._derive_payment_source(record, item)
+                    changed = True
+            for item in history:
+                if not item.get("source"):
+                    item["source"] = self._derive_payment_source(record, item)
+                    changed = True
+        if changed:
+            try:
+                self.save()
+            except Exception:
+                pass
 
     def _load_json_data(self) -> Optional[Dict]:
         """读取旧 JSON 数据。"""
@@ -648,14 +775,16 @@ class DataManager:
     def _upsert_record(self, record: Dict, action: str = "update", note: str = ""):
         if not record.get("id"):
             record["id"] = self._generate_id()
+        self._ensure_config_snapshots(record)
         cols = self._record_columns(record)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.conn.execute(
             """
             INSERT INTO rental_records(
                 id, data, status, renter_name, renter_phone,
-                start_date, end_date, register_date, updated_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                start_date, end_date, register_date, updated_at,
+                original_config_snapshot, current_config_snapshot, config_updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 data = excluded.data,
                 status = excluded.status,
@@ -664,7 +793,10 @@ class DataManager:
                 start_date = excluded.start_date,
                 end_date = excluded.end_date,
                 register_date = excluded.register_date,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                original_config_snapshot = excluded.original_config_snapshot,
+                current_config_snapshot = excluded.current_config_snapshot,
+                config_updated_at = excluded.config_updated_at
             """,
             (
                 record["id"],
@@ -676,6 +808,9 @@ class DataManager:
                 cols["end_date"],
                 cols["register_date"],
                 now,
+                json.dumps(record.get("original_config_snapshot", {}), ensure_ascii=False),
+                json.dumps(record.get("current_config_snapshot", {}), ensure_ascii=False),
+                record.get("config_updated_at", now),
             ),
         )
         self._snapshot_version(record["id"], action, record, note)
@@ -694,17 +829,28 @@ class DataManager:
             logger.error(f"保存数据失败: {e}")
             return False
 
+    def create_rental_record(self, record: Dict) -> Dict:
+        """规范化租赁记录结构。"""
+        rec = dict(record or {})
+        rec.setdefault("id", self._generate_id())
+        rec.setdefault("register_date", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        rec.setdefault("status", "在租")
+        rec.setdefault("paid_amount", 0)
+        rec.setdefault("renew_history", [])
+        rec.setdefault("payment_history", [])
+        rec.setdefault("hardware_history", [])
+        rec.setdefault("hardware", {})
+        rec.setdefault("lease_info", {})
+        rec.setdefault("renter", {})
+        self._ensure_config_snapshots(rec)
+        return self.refresh_record_business_fields(rec)
+
     def add_record(self, record: Dict) -> bool:
         """添加租赁记录。"""
-        if not record.get("id"):
-            record["id"] = self._generate_id()
-        record["register_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        record.setdefault("status", "在租")
-        record.setdefault("paid_amount", 0)
-        record.setdefault("renew_history", [])
-        record.setdefault("hardware", {})
+        record = self.create_rental_record(record)
         self.data["rental_records"].append(record)
         try:
+            self._ensure_config_snapshots(record)
             self._upsert_record(record, action="create", note="Created record")
             self.conn.commit()
             self._export_json_snapshot()
@@ -885,12 +1031,17 @@ class DataManager:
         """追加付款流水。amount 为本次新增付款金额。"""
         if amount <= 0:
             return
+        source = self._derive_payment_source(record, {
+            "method": method,
+            "note": note,
+        })
         record.setdefault("payment_history", []).append({
             "payment_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "amount": float(amount),
             "method": method,
             "operator": operator or "系统",
             "note": note,
+            "source": source,
         })
 
     def append_hardware_history(
@@ -913,7 +1064,81 @@ class DataManager:
             "new_hardware": new_hardware,
             "note": note,
         })
+        self._sync_config_snapshot_from_hardware(record, old_hardware, new_hardware, operator=operator, note=note)
         return True
+
+    def _normalize_hardware_snapshot(self, hardware: Any) -> Dict:
+        if not hardware:
+            return {}
+        if isinstance(hardware, dict):
+            return json.loads(json.dumps(hardware, ensure_ascii=False))
+        return {"value": hardware}
+
+    def _ensure_config_snapshots(self, record: Dict) -> None:
+        hardware = self._normalize_hardware_snapshot(record.get("hardware", {}))
+        record.setdefault("original_config_snapshot", self._normalize_hardware_snapshot(record.get("original_config_snapshot") or hardware))
+        record.setdefault("current_config_snapshot", self._normalize_hardware_snapshot(record.get("current_config_snapshot") or hardware))
+        record.setdefault("config_updated_at", record.get("register_date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    def _sync_config_snapshot_from_hardware(self, record: Dict, old_hardware: Dict, new_hardware: Dict, operator: str = "系统", note: str = "") -> None:
+        record["current_config_snapshot"] = self._normalize_hardware_snapshot(new_hardware)
+        if not record.get("original_config_snapshot"):
+            record["original_config_snapshot"] = self._normalize_hardware_snapshot(old_hardware)
+        record["config_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.append_config_change(
+            record.get("id", ""),
+            change_type="硬件变更",
+            old_part_name="硬件配置",
+            new_part_name="硬件配置",
+            operator=operator,
+            reason=note,
+            remark=note,
+        )
+
+    def append_config_change(self, rental_id: str, change_type: str, old_part_name: str = "", new_part_name: str = "", old_part_model: str = "", new_part_model: str = "", old_part_sn: str = "", new_part_sn: str = "", quantity: float = 1, operator: str = "系统", reason: str = "", fee: float = 0, remark: str = "") -> bool:
+        if not rental_id or not change_type:
+            return False
+        self.conn.execute(
+            """
+            INSERT INTO rental_config_changes(
+                rental_id, change_time, change_type, old_part_name, old_part_model, old_part_sn,
+                new_part_name, new_part_model, new_part_sn, quantity, operator, reason, fee, remark, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (rental_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), change_type, old_part_name, old_part_model, old_part_sn, new_part_name, new_part_model, new_part_sn, quantity, operator, reason, fee, remark, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        self.conn.commit()
+        return True
+
+    def add_inventory_transaction(self, model_id: int, trans_type: str, quantity: float, related_rental_id: str = "", operator: str = "系统", note: str = "") -> bool:
+        if not model_id or not trans_type or quantity == 0:
+            return False
+        self.conn.execute(
+            """
+            INSERT INTO inventory_transactions(model_id, trans_type, quantity, related_rental_id, operator, note, created_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
+            """,
+            (model_id, trans_type, quantity, related_rental_id, operator, note, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        self.conn.commit()
+        return True
+
+    def get_inventory_transactions(self, model_id: int = None, related_rental_id: str = "") -> List[Dict]:
+        sql = "SELECT * FROM inventory_transactions WHERE 1=1"
+        params = []
+        if model_id is not None:
+            sql += " AND model_id = ?"
+            params.append(model_id)
+        if related_rental_id:
+            sql += " AND related_rental_id = ?"
+            params.append(related_rental_id)
+        sql += " ORDER BY id DESC"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_config_changes(self, rental_id: str) -> List[Dict]:
+        rows = self.conn.execute("SELECT * FROM rental_config_changes WHERE rental_id = ? ORDER BY id DESC", (rental_id,)).fetchall()
+        return [dict(r) for r in rows]
 
     def _generate_id(self) -> str:
         """生成唯一 ID。"""

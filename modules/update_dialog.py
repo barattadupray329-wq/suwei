@@ -37,15 +37,23 @@ class UpdateDialog:
         self.window = tk.Toplevel(self.parent)
         self.window.title("发现新版本")
         self.window.geometry("500x400")
+        self.window.minsize(460, 360)
         self.window.resizable(False, False)
+        self.window.transient(self.parent)
+        self.window.grab_set()
         
         # 禁用关闭按钮，必须选择一个选项
         self.window.protocol("WM_DELETE_WINDOW", lambda: None)
         
-        # 居中显示
+        # 居中显示到父窗口
         self.window.update_idletasks()
-        x = self.window.winfo_screenwidth() // 2 - 250
-        y = self.window.winfo_screenheight() // 2 - 200
+        self.parent.update_idletasks()
+        px = self.parent.winfo_rootx()
+        py = self.parent.winfo_rooty()
+        pw = self.parent.winfo_width()
+        ph = self.parent.winfo_height()
+        x = px + max((pw - 500) // 2, 0)
+        y = py + max((ph - 400) // 2, 0)
         self.window.geometry(f"500x400+{x}+{y}")
         
         # 设置背景颜色
@@ -180,6 +188,7 @@ class UpdateDialog:
         # 将对话框置于前面
         self.window.lift()
         self.window.attributes("-topmost", True)
+        self.window.after(100, lambda: self.window.attributes("-topmost", False))
         self.window.update()
     
     def _on_update(self):

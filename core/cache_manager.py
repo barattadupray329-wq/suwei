@@ -5,7 +5,6 @@
 为仪表板KPI、报表数据和数据库查询结果提供高效缓存
 """
 
-import time
 from typing import Any, Dict, List, Optional, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field

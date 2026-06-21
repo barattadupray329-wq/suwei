@@ -11,7 +11,7 @@ import pstats
 import io
 import psutil
 import os
-from typing import Dict, List, Callable, Any, Optional
+from typing import Dict, List, Callable, Any
 from datetime import datetime
 from dataclasses import dataclass, field
 import json

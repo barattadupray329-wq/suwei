@@ -27,6 +27,18 @@ class RenewHistoryDialog:
         self._center()
         self._build()
 
+    def _header(self, parent, text, color):
+        return tk.Label(parent, text=text, font=DarkTheme.FONT_SUBTITLE,
+                        fg=color, bg=DarkTheme.BG_PRIMARY)
+
+    def _action_button(self, parent, text, command, color):
+        btn = tk.Button(parent, text=text, font=DarkTheme.FONT_BUTTON, fg="white",
+                        bg=color, relief=tk.FLAT, cursor="hand2",
+                        command=command, padx=14, pady=8)
+        btn.pack(side=tk.LEFT, padx=(0, 6))
+        DarkTheme.bind_hover(btn, color)
+        return btn
+
     def _on_close(self):
         """安全关闭窗口，释放 grab"""
         try:
@@ -46,13 +58,7 @@ class RenewHistoryDialog:
         main = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
-        tk.Label(
-            main,
-            text="🔄 续租历史",
-            font=DarkTheme.FONT_SUBTITLE,
-            fg=DarkTheme.ACCENT_CYAN,
-            bg=DarkTheme.BG_PRIMARY,
-        ).pack(anchor=tk.W, pady=(0, 10))
+        self._header(main, "🔄 续租历史", DarkTheme.ACCENT_CYAN).pack(anchor=tk.W, pady=(0, 10))
 
         self.renew_history = self.record.get("renew_history", []) or []
         if not self.renew_history:
@@ -104,21 +110,9 @@ class RenewHistoryDialog:
 
         btns = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btns.pack(fill=tk.X)
-        exp_csv_btn = tk.Button(btns, text="📤 导出 CSV", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
-            command=self._export_csv, padx=14, pady=8)
-        exp_csv_btn.pack(side=tk.LEFT, padx=(0, 4))
-        DarkTheme.bind_hover(exp_csv_btn, DarkTheme.ACCENT_GREEN)
-        exp_xlsx_btn = tk.Button(btns, text="📊 导出 Excel", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-            command=self._export_xlsx, padx=14, pady=8)
-        exp_xlsx_btn.pack(side=tk.LEFT, padx=(0, 4))
-        DarkTheme.bind_hover(exp_xlsx_btn, DarkTheme.ACCENT_BLUE)
-        cls_btn = tk.Button(btns, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-            command=self.win.destroy, padx=14, pady=8)
-        cls_btn.pack(side=tk.LEFT)
-        DarkTheme.bind_hover(cls_btn, DarkTheme.BG_HOVER)
+        self._action_button(btns, "📤 导出 CSV", self._export_csv, DarkTheme.ACCENT_GREEN)
+        self._action_button(btns, "📊 导出 Excel", self._export_xlsx, DarkTheme.ACCENT_BLUE)
+        self._action_button(btns, "关闭", self.win.destroy, DarkTheme.BG_HOVER)
 
     def _export_csv(self):
         if not self.renew_history:
@@ -348,6 +342,15 @@ class ReportDialog:
         y = (self.win.winfo_screenheight() // 2) - (h // 2)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
+    def _get_summary(self):
+        """获取报表汇总数据。"""
+        stats = self.dm.get_stats()
+        records = self.dm.get_records()
+        total_rent = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) for r in records)
+        paid_amount = sum(float(r.get("paid_amount", 0) or 0) for r in records)
+        unpaid_amount = total_rent - paid_amount
+        return stats, records, total_rent, paid_amount, unpaid_amount
+
     def _build(self):
         main = tk.Frame(self.win, bg=DarkTheme.BG_PRIMARY)
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
@@ -360,11 +363,7 @@ class ReportDialog:
             bg=DarkTheme.BG_PRIMARY,
         ).pack(anchor=tk.W, pady=(0, 10))
 
-        stats = self.dm.get_stats()
-        records = self.dm.get_records()
-        total_rent = sum(float(r.get("lease_info", {}).get("total_rent", 0) or 0) for r in records)
-        paid_amount = sum(float(r.get("paid_amount", 0) or 0) for r in records)
-        unpaid_amount = total_rent - paid_amount
+        stats, records, total_rent, paid_amount, unpaid_amount = self._get_summary()
 
         cards = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         cards.pack(fill=tk.X, pady=(0, 12))
@@ -416,26 +415,10 @@ class ReportDialog:
 
         btns = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
         btns.pack(fill=tk.X, pady=(12, 0))
-        chart_btn = tk.Button(btns, text="📊 查看图表", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.ACCENT_PURPLE, relief=tk.FLAT, cursor="hand2",
-            command=lambda: self._show_charts(stats, total_rent, paid_amount, unpaid_amount), padx=14, pady=8)
-        chart_btn.pack(side=tk.LEFT, padx=(0, 8))
-        DarkTheme.bind_hover(chart_btn, DarkTheme.ACCENT_PURPLE)
-        exp_excel_btn = tk.Button(btns, text="📈 导出 Excel", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-            command=lambda: self._export_excel(stats, total_rent, paid_amount, unpaid_amount), padx=14, pady=8)
-        exp_excel_btn.pack(side=tk.LEFT, padx=(0, 8))
-        DarkTheme.bind_hover(exp_excel_btn, DarkTheme.ACCENT_BLUE)
-        exp_btn = tk.Button(btns, text="📤 导出报表 CSV", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.ACCENT_GREEN, relief=tk.FLAT, cursor="hand2",
-            command=lambda: self._export(stats, total_rent, paid_amount, unpaid_amount), padx=14, pady=8)
-        exp_btn.pack(side=tk.LEFT, padx=(0, 8))
-        DarkTheme.bind_hover(exp_btn, DarkTheme.ACCENT_GREEN)
-        cls_btn = tk.Button(btns, text="关闭", font=DarkTheme.FONT_BUTTON, fg="white",
-            bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-            command=self._on_close, padx=14, pady=8)
-        cls_btn.pack(side=tk.LEFT)
-        DarkTheme.bind_hover(cls_btn, DarkTheme.BG_HOVER)
+        self._action_button(btns, "📊 查看图表", lambda: self._show_charts(stats, total_rent, paid_amount, unpaid_amount), DarkTheme.ACCENT_PURPLE)
+        self._action_button(btns, "📈 导出 Excel", lambda: self._export_excel(stats, total_rent, paid_amount, unpaid_amount), DarkTheme.ACCENT_BLUE)
+        self._action_button(btns, "📤 导出报表 CSV", lambda: self._export(stats, total_rent, paid_amount, unpaid_amount), DarkTheme.ACCENT_GREEN)
+        self._action_button(btns, "关闭", self._on_close, DarkTheme.BG_HOVER)
 
     def _show_charts(self, stats, total_rent, paid_amount, unpaid_amount):
         """显示 matplotlib 统计图表"""
@@ -554,8 +537,10 @@ class ReportDialog:
         except Exception as e:
             messagebox.showerror("错误", f"保存失败：{e}")
 
-    def _export_excel(self, stats, total_rent, paid_amount, unpaid_amount):
+    def _export_excel(self, stats=None, total_rent=None, paid_amount=None, unpaid_amount=None):
         """导出统计报表为 Excel 格式"""
+        if stats is None:
+            stats, _, total_rent, paid_amount, unpaid_amount = self._get_summary()
         fp = filedialog.asksaveasfilename(
             title="导出租赁报表 Excel",
             defaultextension=".xlsx",
@@ -632,8 +617,10 @@ class ReportDialog:
         except Exception as e:
             messagebox.showerror("错误", f"导出失败：{e}")
 
-    def _export(self, stats, total_rent, paid_amount, unpaid_amount):
+    def _export(self, stats=None, total_rent=None, paid_amount=None, unpaid_amount=None):
         """导出报表（CSV）"""
+        if stats is None:
+            stats, _, total_rent, paid_amount, unpaid_amount = self._get_summary()
         fp = filedialog.asksaveasfilename(
             title="导出租赁报表",
             defaultextension=".csv",

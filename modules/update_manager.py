@@ -175,7 +175,7 @@ class UpdateManager:
             self._notify_callback("downloading", 0, "正在下载更新...")
             
             # 下载文件
-            exe_name = "速维租赁管理系统.exe"
+            exe_name = Path(sys.executable).name if getattr(sys, "frozen", False) else "豆宇科技电脑租赁管理系统.exe"
             temp_exe_path = os.path.join(self.cache_dir, exe_name)
             
             logger.info(f"Downloading update from: {download_url}")
@@ -223,7 +223,7 @@ class UpdateManager:
             self.update_status = "installing"
             self._notify_callback("installing", 0, "正在安装更新...")
             
-            exe_name = "速维租赁管理系统.exe"
+            exe_name = Path(sys.executable).name if getattr(sys, "frozen", False) else "app_update.exe"
             temp_exe_path = os.path.join(self.cache_dir, exe_name)
             current_exe_path = os.path.join(self.app_root, exe_name)
             backup_exe_path = os.path.join(self.backup_dir, f"{exe_name}.bak")
@@ -286,7 +286,7 @@ class UpdateManager:
         """回滚到备份版本"""
         try:
             logger.warning("Rolling back to previous version...")
-            exe_name = "速维租赁管理系统.exe"
+            exe_name = "豆宇科技电脑租赁管理系统.exe"
             current_exe_path = os.path.join(self.app_root, exe_name)
             backup_exe_path = os.path.join(self.backup_dir, f"{exe_name}.bak")
             

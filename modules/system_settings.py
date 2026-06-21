@@ -1,161 +1,201 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-系统设置模块 - 允许用户配置数据保存位置
-"""
+"""系统设置模块。"""
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+import os
 import shutil
+import tkinter as tk
+from datetime import datetime
 from pathlib import Path
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+
+from core.runtime_settings import clear_data_dir_override, get_data_dir_override, set_data_dir_override
 from theme.colors import DarkTheme
-from core.runtime_settings import get_data_dir_override, set_data_dir_override, clear_data_dir_override
 
 
 class SystemSettingsFrame(tk.Frame):
-    """系统设置框架"""
+    """系统设置页面。"""
 
     def __init__(self, parent, data_manager, root=None):
         super().__init__(parent, bg=DarkTheme.BG_PRIMARY)
         self.data_manager = data_manager
         self.root = root
+        self.current_dir_var = tk.StringVar()
+        self.backup_status_var = tk.StringVar(value="暂无备份记录")
+        self.note_var = tk.StringVar(value="建议先备份，再更改数据位置。")
+        self.backup_dir_var = tk.StringVar(value="默认备份到当前数据目录")
         self._build_ui()
+        self._refresh_state()
+
+    def _default_dir(self):
+        return str((Path(__file__).parent.parent / "租赁数据").resolve())
+
+    def _current_dir(self):
+        return get_data_dir_override() or self._default_dir()
+
+    def _data_file_name(self):
+        db_path = getattr(self.data_manager, "db_file", None)
+        if db_path:
+            return Path(db_path).name
+        return "rental_data.db"
 
     def _build_ui(self):
-        """构建UI"""
-        # 标题
-        title = tk.Label(
-            self, text="⚙️  系统设置", font=DarkTheme.FONT_TITLE,
-            fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY
-        )
-        title.pack(anchor=tk.W, padx=20, pady=(16, 12))
-
-        # 主容器
         main = tk.Frame(self, bg=DarkTheme.BG_PRIMARY)
-        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
+        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=18)
 
-        # ─────── 数据保存位置 ───────
-        section = tk.Label(
-            main, text="📁 数据保存位置", font=DarkTheme.FONT_SUBTITLE,
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY
-        )
-        section.pack(anchor=tk.W, pady=(0, 10))
+        header = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        header.pack(fill=tk.X, pady=(0, 14))
+        tk.Label(header, text="⚙️ 系统设置", font=DarkTheme.FONT_TITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT)
+        tk.Label(header, text="数据位置、备份与恢复", font=DarkTheme.FONT_SMALL,
+                 fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY).pack(side=tk.LEFT, padx=(10, 0), pady=(10, 0))
 
-        # 当前位置显示
-        location_frame = tk.Frame(main, bg=DarkTheme.BG_CARD, relief=tk.FLAT)
-        location_frame.pack(fill=tk.X, pady=(0, 12))
-        location_frame.configure(height=60)
+        info_row = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        info_row.pack(fill=tk.X, pady=(0, 12))
+        self._stat_card(info_row, "当前数据目录", self.current_dir_var, DarkTheme.ACCENT_CYAN)
+        self._stat_card(info_row, "最近备份", self.backup_status_var, DarkTheme.ACCENT_GREEN)
+        self._stat_card(info_row, "备份目录", self.backup_dir_var, DarkTheme.ACCENT_YELLOW)
 
-        tk.Label(
-            location_frame, text="当前数据目录：", font=DarkTheme.FONT_LABEL,
-            fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=12, pady=(8, 2))
+        body = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
+        body.pack(fill=tk.BOTH, expand=True)
 
-        current_dir = get_data_dir_override()
-        if not current_dir:
-            # 获取默认数据目录
-            default_db_path = Path(__file__).parent.parent / "rental_data.json"
-            current_dir = str(default_db_path.parent)
+        left = tk.Frame(body, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        right = tk.Frame(body, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(8, 0))
 
-        self.dir_label = tk.Label(
-            location_frame, text=current_dir, font=("Consolas", 9),
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_INPUT,
-            wraplength=600, justify=tk.LEFT
-        )
-        self.dir_label.pack(fill=tk.X, padx=12, pady=4)
-        tk.Label(
-            location_frame, text="", font=DarkTheme.FONT_SMALL,
-            fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_CARD
-        ).pack(anchor=tk.W, padx=12, pady=(0, 8))
+        tk.Label(left, text="数据与备份", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_CYAN, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(12, 8))
 
-        # 按钮行
-        btn_frame = tk.Frame(main, bg=DarkTheme.BG_PRIMARY)
-        btn_frame.pack(fill=tk.X, pady=(0, 16))
+        self.dir_label = tk.Label(left, text="", font=("Consolas", 9), fg=DarkTheme.TEXT_PRIMARY,
+                                  bg=DarkTheme.BG_INPUT, justify=tk.LEFT, wraplength=700,
+                                  padx=10, pady=8)
+        self.dir_label.pack(fill=tk.X, padx=14, pady=(0, 10))
 
-        browse_btn = tk.Button(
-            btn_frame, text="📂 浏览并更改位置", font=DarkTheme.FONT_BUTTON,
-            fg="white", bg=DarkTheme.ACCENT_BLUE, relief=tk.FLAT, cursor="hand2",
-            command=self._change_data_dir, padx=14, pady=8
-        )
-        browse_btn.pack(side=tk.LEFT, padx=(0, 8))
-        DarkTheme.bind_hover(browse_btn, DarkTheme.ACCENT_BLUE)
+        btn_row = tk.Frame(left, bg=DarkTheme.BG_CARD)
+        btn_row.pack(fill=tk.X, padx=14, pady=(0, 14))
+        self._button(btn_row, "📂 更改数据位置", self._change_data_dir, DarkTheme.ACCENT_BLUE)
+        self._button(btn_row, "💾 立即备份", self._backup_now, DarkTheme.ACCENT_GREEN)
+        self._button(btn_row, "🗂️ 打开数据目录", self._open_data_dir, DarkTheme.ACCENT_YELLOW)
+        self._button(btn_row, "↻ 恢复默认", self._reset_data_dir, DarkTheme.BG_HOVER)
 
-        reset_btn = tk.Button(
-            btn_frame, text="↻ 恢复默认", font=DarkTheme.FONT_BUTTON,
-            fg="white", bg=DarkTheme.BG_HOVER, relief=tk.FLAT, cursor="hand2",
-            command=self._reset_data_dir, padx=14, pady=8
-        )
-        reset_btn.pack(side=tk.LEFT)
-        DarkTheme.bind_hover(reset_btn, DarkTheme.BG_HOVER)
+        status_box = tk.Frame(left, bg=DarkTheme.BG_CARD)
+        status_box.pack(fill=tk.X, padx=14, pady=(0, 14))
+        tk.Label(status_box, text="状态提示", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, pady=(0, 8))
+        tk.Label(status_box, textvariable=self.note_var, font=DarkTheme.FONT_NORMAL,
+                 fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD, justify=tk.LEFT,
+                 wraplength=680).pack(anchor=tk.W)
 
-        # 信息提示
-        info = tk.Label(
-            main, text="💡 更改位置后，现有数据库文件将自动复制到新位置，需要重启应用。",
-            font=DarkTheme.FONT_SMALL, fg=DarkTheme.TEXT_MUTED, bg=DarkTheme.BG_PRIMARY,
-            wraplength=600, justify=tk.LEFT
-        )
-        info.pack(anchor=tk.W, pady=(0, 16))
+        backup_tip = tk.Frame(left, bg=DarkTheme.BG_CARD)
+        backup_tip.pack(fill=tk.X, padx=14, pady=(0, 14))
+        tk.Label(backup_tip, text="备份说明", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, pady=(0, 8))
+        tk.Label(backup_tip, text="备份会使用当前数据目录；如果更换过目录，请先确认已切换到正确位置。",
+                 font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD,
+                 justify=tk.LEFT, wraplength=620).pack(anchor=tk.W)
 
-        # 分隔线
-        sep = tk.Frame(main, bg=DarkTheme.BORDER_COLOR, height=1)
-        sep.pack(fill=tk.X, pady=(0, 16))
+        tk.Label(left, text="说明", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_PURPLE, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(0, 8))
+        for text in [
+            "更改位置会复制现有数据文件到新目录。",
+            "建议在迁移前先执行一次立即备份。",
+            "恢复默认会回到程序默认的数据目录。",
+        ]:
+            tk.Label(left, text="• " + text, font=DarkTheme.FONT_NORMAL,
+                     fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD,
+                     justify=tk.LEFT, wraplength=620).pack(anchor=tk.W, padx=14, pady=4)
 
-        # 关于部分
-        about = tk.Label(
-            main, text="ℹ️  关于本软件", font=DarkTheme.FONT_SUBTITLE,
-            fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_PRIMARY
-        )
-        about.pack(anchor=tk.W, pady=(0, 10))
+        tk.Label(right, text="设置建议", font=DarkTheme.FONT_SUBTITLE,
+                 fg=DarkTheme.ACCENT_GREEN, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(12, 8))
+        suggestions = [
+            ("1", "把数据目录固定到一个长期存在的磁盘路径。"),
+            ("2", "切换目录后建议重启软件确保生效。"),
+            ("3", "如果你准备迁移电脑，先做一次完整备份。"),
+            ("4", "不要把数据放到容易被清理的临时目录。"),
+        ]
+        for idx, text in suggestions:
+            row = tk.Frame(right, bg=DarkTheme.BG_CARD)
+            row.pack(fill=tk.X, padx=14, pady=6)
+            tk.Label(row, text=idx, width=3, font=DarkTheme.FONT_BUTTON,
+                     fg="white", bg=DarkTheme.ACCENT_BLUE).pack(side=tk.LEFT)
+            tk.Label(row, text=text, font=DarkTheme.FONT_NORMAL,
+                     fg=DarkTheme.TEXT_PRIMARY, bg=DarkTheme.BG_CARD,
+                     justify=tk.LEFT, wraplength=680).pack(side=tk.LEFT, padx=10)
 
-        about_text = tk.Label(
-            main, text="速维电脑租赁管理系统 v2.0\n单机版 - 本地数据存储\n© 2024 All Rights Reserved",
-            font=DarkTheme.FONT_NORMAL, fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_PRIMARY,
-            justify=tk.LEFT
-        )
-        about_text.pack(anchor=tk.W)
+    def _stat_card(self, parent, title, var, color):
+        card = tk.Frame(parent, bg=DarkTheme.BG_CARD, highlightbackground=DarkTheme.BORDER_COLOR, highlightthickness=1)
+        card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
+        tk.Label(card, text=title, font=DarkTheme.FONT_LABEL,
+                 fg=DarkTheme.TEXT_SECONDARY, bg=DarkTheme.BG_CARD).pack(anchor=tk.W, padx=14, pady=(12, 4))
+        tk.Label(card, textvariable=var, font=DarkTheme.FONT_NORMAL,
+                 fg=color, bg=DarkTheme.BG_CARD, justify=tk.LEFT, wraplength=260).pack(anchor=tk.W, padx=14, pady=(0, 12))
+
+    def _button(self, parent, text, command, color):
+        btn = tk.Button(parent, text=text, font=DarkTheme.FONT_BUTTON, fg="white", bg=color,
+                        relief=tk.FLAT, cursor="hand2", command=command, padx=12, pady=7)
+        btn.pack(side=tk.LEFT, padx=(0, 8))
+        DarkTheme.bind_hover(btn, color)
+        return btn
+
+    def _refresh_state(self):
+        current = self._current_dir()
+        self.current_dir_var.set(current)
+        self.dir_label.config(text=current)
+        last_backup = self.data_manager.data.get("settings", {}).get("last_backup", "")
+        if last_backup:
+            self.backup_status_var.set(last_backup)
+        else:
+            self.backup_status_var.set("暂无备份记录")
+        self.backup_dir_var.set(self._current_dir())
+        self.note_var.set("建议先备份，再更改数据位置；切换后请重启应用。")
+
+    def _backup_now(self):
+        try:
+            result = self.data_manager.backup_data()
+            if result:
+                last = self.data_manager.data.get("settings", {}).get("last_backup", "")
+                self.backup_status_var.set(last or datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                messagebox.showinfo("成功", f"备份完成\n\n{result}")
+            else:
+                messagebox.showerror("失败", "备份未成功，请检查权限或路径。")
+        except Exception as exc:
+            messagebox.showerror("错误", f"备份失败：{exc}")
+
+    def _open_data_dir(self):
+        path = self._current_dir()
+        try:
+            Path(path).mkdir(parents=True, exist_ok=True)
+            if hasattr(os, "startfile"):
+                os.startfile(path)
+            else:
+                messagebox.showinfo("提示", path)
+        except Exception as exc:
+            messagebox.showerror("错误", f"打开目录失败：{exc}")
 
     def _change_data_dir(self):
-        """更改数据保存位置"""
-        new_dir = filedialog.askdirectory(
-            title="选择数据保存位置",
-            parent=self.root
-        )
+        new_dir = filedialog.askdirectory(title="选择数据保存位置", parent=self.root or self)
         if not new_dir:
             return
 
         new_path = Path(new_dir)
-        if not new_path.exists():
-            new_path.mkdir(parents=True, exist_ok=True)
-
-        # 复制现有数据库文件
+        new_path.mkdir(parents=True, exist_ok=True)
         old_db_path = Path(self.data_manager.db_file)
-        new_db_path = new_path / old_db_path.name
+        new_db_path = new_path / self._data_file_name()
 
         try:
             if old_db_path.exists():
                 shutil.copy2(old_db_path, new_db_path)
-                messagebox.showinfo(
-                    "成功",
-                    f"数据已复制到：\n{new_db_path}\n\n请重启应用以生效。"
-                )
-            else:
-                messagebox.showinfo(
-                    "成功",
-                    f"位置已设置为：\n{new_dir}\n\n请重启应用以生效。"
-                )
-
-            # 保存设置
             set_data_dir_override(str(new_path))
-            self.dir_label.config(text=str(new_path))
-
-        except Exception as e:
-            messagebox.showerror("错误", f"设置失败：{e}")
+            self._refresh_state()
+            messagebox.showinfo("成功", f"数据目录已更新\n\n{new_path}\n\n请重启应用以生效。")
+        except Exception as exc:
+            messagebox.showerror("错误", f"设置失败：{exc}")
 
     def _reset_data_dir(self):
-        """恢复默认位置"""
-        if messagebox.askyesno("确认", "确定要恢复默认数据位置吗？"):
-            clear_data_dir_override()
-            default_db_path = Path(__file__).parent.parent / "rental_data.json"
-            default_dir = str(default_db_path.parent)
-            self.dir_label.config(text=default_dir)
-            messagebox.showinfo("成功", "已恢复默认位置，请重启应用以生效。")
+        if not messagebox.askyesno("确认", "恢复默认数据目录会放弃当前自定义路径，确定继续吗？"):
+            return
+        clear_data_dir_override()
+        self._refresh_state()
+        messagebox.showinfo("成功", "已恢复默认数据目录，请重启应用以生效。")
