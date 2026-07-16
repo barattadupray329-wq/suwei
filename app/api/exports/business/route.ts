@@ -10,6 +10,7 @@ import {
   lossRecords,
   organizationMembers,
   paymentRecords,
+  rentalEvents,
   rentalItems,
   rentals,
   renewalRecords,
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
       return filters
     }
 
-    const [rentalRows, allContracts, itemRows, paymentRows, renewalRows, buyoutRows, returnRows, lossRows, memberRows, [settings]] = await Promise.all([
+    const [rentalRows, allContracts, itemRows, paymentRows, renewalRows, buyoutRows, returnRows, lossRows, eventRows, memberRows, [settings]] = await Promise.all([
       db.select().from(rentals).where(and(...dateFilters(rentals.startDate))).orderBy(asc(rentals.id)),
       db.select({ id: rentals.id, contractNo: rentals.contractNo }).from(rentals).where(eq(rentals.userId, userId)),
       db.select().from(rentalItems).where(eq(rentalItems.userId, userId)).orderBy(asc(rentalItems.rentalId), asc(rentalItems.id)),
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
       db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), ...(from ? [gte(buyoutRecords.buyoutDate, from)] : []), ...(to ? [lte(buyoutRecords.buyoutDate, to)] : []))).orderBy(asc(buyoutRecords.buyoutDate)),
       db.select().from(returnRecords).where(and(eq(returnRecords.userId, userId), ...(from ? [gte(returnRecords.returnDate, from)] : []), ...(to ? [lte(returnRecords.returnDate, to)] : []))).orderBy(asc(returnRecords.returnDate)),
       db.select().from(lossRecords).where(and(eq(lossRecords.userId, userId), ...(from ? [gte(lossRecords.lossDate, from)] : []), ...(to ? [lte(lossRecords.lossDate, to)] : []))).orderBy(asc(lossRecords.lossDate)),
+      db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), ...(from ? [gte(rentalEvents.eventDate, from)] : []), ...(to ? [lte(rentalEvents.eventDate, to)] : []))).orderBy(asc(rentalEvents.eventDate)),
       db.select({ name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(eq(organizationMembers.ownerId, userId)),
       db.select({ storeName: businessSettings.storeName }).from(businessSettings).where(eq(businessSettings.userId, userId)).limit(1),
     ])
@@ -87,6 +89,7 @@ export async function GET(request: NextRequest) {
     addSheet(workbook, '买断记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '买断日期', key: 'buyoutDate', width: 14 }, { header: '数量', key: 'quantity', width: 10 }, { header: '单价', key: 'unitPrice', width: 14 }, { header: '金额', key: 'amount', width: 14 }, { header: '备注', key: 'notes', width: 30 }], buyoutRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '退租记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '退租日期', key: 'returnDate', width: 14 }, { header: '数量', key: 'quantity', width: 10 }, { header: '设备状况', key: 'condition', width: 16 }, { header: '扣款', key: 'deductionAmount', width: 14 }, { header: '退还押金', key: 'depositRefund', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 30 }], returnRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '丢失记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '丢失日期', key: 'lossDate', width: 14 }, { header: '数量', key: 'quantity', width: 10 }, { header: '赔偿单价', key: 'unitCompensation', width: 14 }, { header: '赔偿金额', key: 'amount', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 30 }], lossRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
+    addSheet(workbook, '变更维修记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '类型', key: 'eventType', width: 14 }, { header: '状态', key: 'status', width: 12 }, { header: '发生日期', key: 'eventDate', width: 14 }, { header: '变更原因', key: 'reason', width: 28 }, { header: '应收调整', key: 'feeAdjustment', width: 14 }, { header: '维修成本', key: 'repairCost', width: 14 }, { header: '客户承担', key: 'customerCharge', width: 14 }, { header: '故障描述', key: 'faultDescription', width: 32 }, { header: '处理方式', key: 'resolution', width: 32 }, { header: '完成日期', key: 'completedDate', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 30 }], eventRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '员工账号', [{ header: '姓名', key: 'name', width: 20 }, { header: '邮箱', key: 'email', width: 28 }, { header: '角色', key: 'role', width: 12 }, { header: '状态', key: 'status', width: 12 }, { header: '权限', key: 'permissions', width: 42 }, { header: '更新时间', key: 'updatedAt', width: 22 }], memberRows.map((row) => ({ ...row, status: row.active ? '正常' : '停用' })))
 
     const buffer = await workbook.xlsx.writeBuffer()

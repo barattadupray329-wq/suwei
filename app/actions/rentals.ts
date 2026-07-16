@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { buyoutRecords, paymentRecords, renewalRecords, rentalItems, rentals } from '@/lib/db/schema'
+import { buyoutRecords, paymentRecords, renewalRecords, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -32,11 +32,12 @@ export async function getRentals(query = '', status = '全部') {
   const rows = await db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, payments] = await Promise.all([
+  const [items, buyouts, renewals, payments, events] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
+    db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), inArray(rentalEvents.rentalId, ids))).orderBy(desc(rentalEvents.eventDate), desc(rentalEvents.createdAt)),
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
     const grouped = new Map<number, T[]>()
@@ -47,7 +48,8 @@ export async function getRentals(query = '', status = '全部') {
   const buyoutMap = groupByRental(buyouts)
   const renewalMap = groupByRental(renewals)
   const paymentMap = groupByRental(payments)
-  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [] }))
+  const eventMap = groupByRental(events)
+  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [] }))
 }
 
 export async function getDashboard() {
@@ -99,7 +101,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[])
       if (!item) throw new Error('设备明细不存在')
       const oldEndDate = item.endDate ?? rental.endDate
       const startDate = item.startDate ?? rental.startDate
-      if (new Date(`${value.newEndDate}T00:00:00`) <= new Date(`${oldEndDate}T00:00:00`)) throw new Error(`${item.deviceName} 的新到期日必须晚于原到期日`)
+      if (new Date(`${value.newEndDate}T00:00:00`) <= new Date(`${oldEndDate}T00:00:00`)) throw new Error(`${item.deviceName} 的新到��日必须晚于原到期日`)
       const available = item.quantity - item.boughtOutQuantity
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
       const newEndDate = value.billingUnit === 'month' ? addCalendarMonths(oldEndDate, value.duration) : addCalendarDays(oldEndDate, value.duration)
