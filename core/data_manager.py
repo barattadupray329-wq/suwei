@@ -25,7 +25,12 @@ class DataManager:
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
-            data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+            project_data_dir = Path(__file__).resolve().parent.parent / "data"
+            if project_data_dir.is_symlink() and not project_data_dir.exists():
+                data_dir = Path.home() / ".suwei" / "data"
+                logger.warning("项目数据目录链接已失效，改用用户数据目录：%s", data_dir)
+            else:
+                data_dir = project_data_dir
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.data_file = self.data_dir / "rental_data.json"
