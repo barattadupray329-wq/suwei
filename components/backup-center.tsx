@@ -6,12 +6,13 @@ import { ArrowLeft, CalendarRange, CheckCircle2, Database, Download, FileSpreads
 import { toast } from 'sonner'
 
 type BackupCenterProps = {
+  storeName: string
   version: string
   counts: { contracts: number; devices: number; payments: number; members: number }
   lastUpdated: string | null
 }
 
-export function BackupCenter({ version, counts, lastUpdated }: BackupCenterProps) {
+export function BackupCenter({ storeName, version, counts, lastUpdated }: BackupCenterProps) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [downloading, setDownloading] = useState(false)
@@ -32,7 +33,7 @@ export function BackupCenter({ version, counts, lastUpdated }: BackupCenterProps
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `速维租赁数据-${new Date().toISOString().slice(0, 10)}.xlsx`
+      anchor.download = `${storeName.replace(/[\\/:*?"<>|]/g, '-')}租赁数据-${new Date().toISOString().slice(0, 10)}.xlsx`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()

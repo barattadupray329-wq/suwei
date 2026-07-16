@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import {
+  businessSettings,
   buyoutRecords,
   lossRecords,
   organizationMembers,
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       return filters
     }
 
-    const [rentalRows, allContracts, itemRows, paymentRows, renewalRows, buyoutRows, returnRows, lossRows, memberRows] = await Promise.all([
+    const [rentalRows, allContracts, itemRows, paymentRows, renewalRows, buyoutRows, returnRows, lossRows, memberRows, [settings]] = await Promise.all([
       db.select().from(rentals).where(and(...dateFilters(rentals.startDate))).orderBy(asc(rentals.id)),
       db.select({ id: rentals.id, contractNo: rentals.contractNo }).from(rentals).where(eq(rentals.userId, userId)),
       db.select().from(rentalItems).where(eq(rentalItems.userId, userId)).orderBy(asc(rentalItems.rentalId), asc(rentalItems.id)),
@@ -67,11 +68,12 @@ export async function GET(request: NextRequest) {
       db.select().from(returnRecords).where(and(eq(returnRecords.userId, userId), ...(from ? [gte(returnRecords.returnDate, from)] : []), ...(to ? [lte(returnRecords.returnDate, to)] : []))).orderBy(asc(returnRecords.returnDate)),
       db.select().from(lossRecords).where(and(eq(lossRecords.userId, userId), ...(from ? [gte(lossRecords.lossDate, from)] : []), ...(to ? [lte(lossRecords.lossDate, to)] : []))).orderBy(asc(lossRecords.lossDate)),
       db.select({ name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(eq(organizationMembers.ownerId, userId)),
+      db.select({ storeName: businessSettings.storeName }).from(businessSettings).where(eq(businessSettings.userId, userId)).limit(1),
     ])
 
     const contractMap = new Map(allContracts.map((row) => [row.id, row.contractNo]))
     const workbook = new ExcelJS.Workbook()
-    workbook.creator = '速维租赁管理'
+    workbook.creator = settings?.storeName?.trim() || '速维租赁管理'
     workbook.created = new Date()
 
     addSheet(workbook, '租赁合同', [
