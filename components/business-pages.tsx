@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
-import { ArrowLeft, Banknote, CalendarDays, Monitor, Palette, Printer, Save, Settings, Users } from 'lucide-react'
+import { ArrowLeft, Banknote, CalendarDays, ChevronLeft, ChevronRight, Monitor, Palette, Printer, Save, Search, Settings, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { addMember, saveSettings, updateMember } from '@/app/actions/business'
 
