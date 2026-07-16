@@ -10,7 +10,7 @@ export const rentals = pgTable('rentals', { id: serial('id').primaryKey(), userI
 export const rentalItems = pgTable('rental_items', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(),
   deviceName: text('deviceName').notNull(), deviceType: text('deviceType').notNull().default('台式机'), deviceCode: text('deviceCode'), deviceConfig: text('deviceConfig'),
-  quantity: integer('quantity').notNull().default(1), monthlyRent: numeric('monthlyRent', { precision: 12, scale: 2 }).notNull().default('0'), totalRent: numeric('totalRent', { precision: 12, scale: 2 }).notNull().default('0'), boughtOutQuantity: integer('boughtOutQuantity').notNull().default(0), buyoutAmount: numeric('buyoutAmount', { precision: 12, scale: 2 }).notNull().default('0'),
+  quantity: integer('quantity').notNull().default(1), startDate: date('startDate'), endDate: date('endDate'), monthlyRent: numeric('monthlyRent', { precision: 12, scale: 2 }).notNull().default('0'), totalRent: numeric('totalRent', { precision: 12, scale: 2 }).notNull().default('0'), boughtOutQuantity: integer('boughtOutQuantity').notNull().default(0), buyoutAmount: numeric('buyoutAmount', { precision: 12, scale: 2 }).notNull().default('0'),
   cpu: text('cpu'), motherboard: text('motherboard'), memory: text('memory'), storage: text('storage'), graphicsCard: text('graphicsCard'), powerSupply: text('powerSupply'), caseModel: text('caseModel'), monitorInfo: text('monitorInfo'), screenSize: text('screenSize'), screenResolution: text('screenResolution'), refreshRate: text('refreshRate'), panelType: text('panelType'), ports: text('ports'), batteryInfo: text('batteryInfo'), adapterInfo: text('adapterInfo'), accessories: text('accessories'), colorGamut: text('colorGamut'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
@@ -19,6 +19,11 @@ export const buyoutRecords = pgTable('buyout_records', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), rentalItemId: integer('rentalItemId').notNull(), quantity: integer('quantity').notNull(), unitPrice: numeric('unitPrice', { precision: 12, scale: 2 }).notNull(), amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), buyoutDate: date('buyoutDate').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 
+export const renewalRecords = pgTable('renewal_records', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), sourceRentalItemId: integer('sourceRentalItemId').notNull(), renewedRentalItemId: integer('renewedRentalItemId').notNull(), quantity: integer('quantity').notNull(), oldMonthlyRent: numeric('oldMonthlyRent', { precision: 12, scale: 2 }).notNull(), newMonthlyRent: numeric('newMonthlyRent', { precision: 12, scale: 2 }).notNull(), oldEndDate: date('oldEndDate').notNull(), newEndDate: date('newEndDate').notNull(), renewalAmount: numeric('renewalAmount', { precision: 12, scale: 2 }).notNull().default('0'), renewalDate: date('renewalDate').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
+})
+
 export type Rental = typeof rentals.$inferSelect
 export type RentalItem = typeof rentalItems.$inferSelect
 export type BuyoutRecord = typeof buyoutRecords.$inferSelect
+export type RenewalRecord = typeof renewalRecords.$inferSelect
