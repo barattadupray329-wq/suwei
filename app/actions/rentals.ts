@@ -62,13 +62,15 @@ export async function createRental(input: RentalInput) {
   revalidatePath('/')
 }
 
-const renewalSchema = z.object({ rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), newMonthlyRent: z.number().nonnegative(), newEndDate: z.string().min(1), notes: z.string().optional() })
+const renewalSchema = z.object({ rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), renewalMonths: z.number().int().min(1).max(120), newMonthlyRent: z.number().nonnegative(), newEndDate: z.string().min(1), notes: z.string().optional() })
 export type RenewalInput = z.infer<typeof renewalSchema>
 
-function renewalMonths(from: string, to: string) {
-  const start = new Date(`${from}T00:00:00`)
-  const end = new Date(`${to}T00:00:00`)
-  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30)))
+function addCalendarMonths(date: string, months: number) {
+  const [year, month, day] = date.split('-').map(Number)
+  const target = new Date(Date.UTC(year, month - 1 + months, 1))
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
+  target.setUTCDate(Math.min(day, lastDay))
+  return target.toISOString().slice(0, 10)
 }
 
 export async function renewRentalItems(rentalId: number, inputs: RenewalInput[]) {
@@ -85,17 +87,19 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[])
       if (new Date(`${value.newEndDate}T00:00:00`) <= new Date(`${oldEndDate}T00:00:00`)) throw new Error(`${item.deviceName} 的新到期日必须晚于原到期日`)
       const available = item.quantity - item.boughtOutQuantity
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
-      const amount = value.quantity * value.newMonthlyRent * renewalMonths(oldEndDate, value.newEndDate)
+      const newEndDate = addCalendarMonths(oldEndDate, value.renewalMonths)
+      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租月数与到期日不一致`)
+      const amount = value.quantity * value.newMonthlyRent * value.renewalMonths
       let renewedItemId = item.id
       if (value.quantity === available && item.boughtOutQuantity === 0) {
-        await tx.update(rentalItems).set({ endDate: value.newEndDate, monthlyRent: String(value.newMonthlyRent), totalRent: String(value.newMonthlyRent * item.quantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
+        await tx.update(rentalItems).set({ endDate: newEndDate, monthlyRent: String(value.newMonthlyRent), totalRent: String(value.newMonthlyRent * item.quantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
       } else {
         const remainingQuantity = item.quantity - value.quantity
         await tx.update(rentalItems).set({ quantity: remainingQuantity, totalRent: String(Number(item.monthlyRent) * remainingQuantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
-        const [split] = await tx.insert(rentalItems).values({ userId, rentalId, deviceName: item.deviceName, deviceType: item.deviceType, deviceCode: item.deviceCode, deviceConfig: item.deviceConfig, quantity: value.quantity, startDate, endDate: value.newEndDate, monthlyRent: String(value.newMonthlyRent), totalRent: String(value.newMonthlyRent * value.quantity), boughtOutQuantity: 0, buyoutAmount: '0', cpu: item.cpu, motherboard: item.motherboard, memory: item.memory, storage: item.storage, graphicsCard: item.graphicsCard, powerSupply: item.powerSupply, caseModel: item.caseModel, monitorInfo: item.monitorInfo, screenSize: item.screenSize, screenResolution: item.screenResolution, refreshRate: item.refreshRate, panelType: item.panelType, ports: item.ports, batteryInfo: item.batteryInfo, adapterInfo: item.adapterInfo, accessories: item.accessories, colorGamut: item.colorGamut }).returning({ id: rentalItems.id })
+        const [split] = await tx.insert(rentalItems).values({ userId, rentalId, deviceName: item.deviceName, deviceType: item.deviceType, deviceCode: item.deviceCode, deviceConfig: item.deviceConfig, quantity: value.quantity, startDate, endDate: newEndDate, monthlyRent: String(value.newMonthlyRent), totalRent: String(value.newMonthlyRent * value.quantity), boughtOutQuantity: 0, buyoutAmount: '0', cpu: item.cpu, motherboard: item.motherboard, memory: item.memory, storage: item.storage, graphicsCard: item.graphicsCard, powerSupply: item.powerSupply, caseModel: item.caseModel, monitorInfo: item.monitorInfo, screenSize: item.screenSize, screenResolution: item.screenResolution, refreshRate: item.refreshRate, panelType: item.panelType, ports: item.ports, batteryInfo: item.batteryInfo, adapterInfo: item.adapterInfo, accessories: item.accessories, colorGamut: item.colorGamut }).returning({ id: rentalItems.id })
         renewedItemId = split.id
       }
-      await tx.insert(renewalRecords).values({ userId, rentalId, sourceRentalItemId: item.id, renewedRentalItemId: renewedItemId, quantity: value.quantity, oldMonthlyRent: item.monthlyRent, newMonthlyRent: String(value.newMonthlyRent), oldEndDate, newEndDate: value.newEndDate, renewalAmount: String(amount), renewalDate: new Date().toISOString().slice(0, 10), notes: value.notes })
+      await tx.insert(renewalRecords).values({ userId, rentalId, sourceRentalItemId: item.id, renewedRentalItemId: renewedItemId, quantity: value.quantity, renewalMonths: value.renewalMonths, oldMonthlyRent: item.monthlyRent, newMonthlyRent: String(value.newMonthlyRent), oldEndDate, newEndDate, renewalAmount: String(amount), renewalDate: new Date().toISOString().slice(0, 10), notes: value.notes })
     }
     const allItems = await tx.select().from(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
     const active = allItems.filter((item) => item.quantity > item.boughtOutQuantity)

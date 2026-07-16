@@ -20,7 +20,7 @@ export const buyoutRecords = pgTable('buyout_records', {
 })
 
 export const renewalRecords = pgTable('renewal_records', {
-  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), sourceRentalItemId: integer('sourceRentalItemId').notNull(), renewedRentalItemId: integer('renewedRentalItemId').notNull(), quantity: integer('quantity').notNull(), oldMonthlyRent: numeric('oldMonthlyRent', { precision: 12, scale: 2 }).notNull(), newMonthlyRent: numeric('newMonthlyRent', { precision: 12, scale: 2 }).notNull(), oldEndDate: date('oldEndDate').notNull(), newEndDate: date('newEndDate').notNull(), renewalAmount: numeric('renewalAmount', { precision: 12, scale: 2 }).notNull().default('0'), renewalDate: date('renewalDate').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), sourceRentalItemId: integer('sourceRentalItemId').notNull(), renewedRentalItemId: integer('renewedRentalItemId').notNull(), quantity: integer('quantity').notNull(), renewalMonths: integer('renewalMonths'), oldMonthlyRent: numeric('oldMonthlyRent', { precision: 12, scale: 2 }).notNull(), newMonthlyRent: numeric('newMonthlyRent', { precision: 12, scale: 2 }).notNull(), oldEndDate: date('oldEndDate').notNull(), newEndDate: date('newEndDate').notNull(), renewalAmount: numeric('renewalAmount', { precision: 12, scale: 2 }).notNull().default('0'), renewalDate: date('renewalDate').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 
 export type Rental = typeof rentals.$inferSelect
