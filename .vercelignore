@@ -1,0 +1,11 @@
+# 旧版 Python/Tkinter 桌面程序不参与 Web 部署
+**/*.py
+**/__pycache__/**
+requirements.txt
+setup.py
+core/**
+modules/**
+theme/**
+utils/**
+widgets/**
+tests/**
