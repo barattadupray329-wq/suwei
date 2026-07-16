@@ -5,3 +5,8 @@
 body { margin: 0; background: var(--color-background); color: var(--color-foreground); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
+html[data-color='blue'] { --color-primary: #245b9e; --color-accent: #c48724; }
+html[data-color='orange'] { --color-primary: #a85d12; --color-accent: #246b60; }
+html[data-theme='dark'] { --color-background: #141a18; --color-foreground: #edf2ef; --color-card: #1d2522; --color-muted: #29332f; --color-muted-foreground: #a7b3ae; --color-border: #35413c; }
+@media (prefers-color-scheme: dark) { html[data-theme='system'] { --color-background: #141a18; --color-foreground: #edf2ef; --color-card: #1d2522; --color-muted: #29332f; --color-muted-foreground: #a7b3ae; --color-border: #35413c; } }
+@media print { @page { size: A4; margin: 0; } body { background: #fff; color: #111; } }
