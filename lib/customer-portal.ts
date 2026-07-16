@@ -11,7 +11,11 @@ export const maskPhone = (phone: string) => phone.length >= 7 ? `${phone.slice(0
 export function hashPortalPassword(password: string) { const salt = randomBytes(16).toString('hex'); return `${salt}:${scryptSync(password, salt, 64).toString('hex')}` }
 function verifyPortalPassword(password: string, stored: string) { const [salt, hash] = stored.split(':'); if (!salt || !hash) return false; const expected = Buffer.from(hash, 'hex'); const actual = scryptSync(password, salt, 64); return expected.length === actual.length && timingSafeEqual(expected, actual) }
 export function createPortalToken() { return randomBytes(24).toString('base64url') }
-export function createInitialPassword() { return `${randomBytes(4).toString('hex').toUpperCase()}a9` }
+export function createInitialPassword(phone: string) {
+  const normalized = normalizePhone(phone)
+  if (normalized.length < 6) throw new Error('客户手机号格式不正确')
+  return normalized.slice(-6)
+}
 
 export async function setPortalSession(portalId: number, version: number) {
   const expiresAt = Date.now() + 7 * 86400000
