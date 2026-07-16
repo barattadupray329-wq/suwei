@@ -38,7 +38,16 @@ export async function getRentals(query = '', status = '全部') {
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
   ])
-  return rows.map((row) => ({ ...row, items: items.filter((item) => item.rentalId === row.id), buyoutRecords: buyouts.filter((record) => record.rentalId === row.id), renewalRecords: renewals.filter((record) => record.rentalId === row.id), paymentRecords: payments.filter((record) => record.rentalId === row.id) }))
+  const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
+    const grouped = new Map<number, T[]>()
+    for (const record of records) grouped.set(record.rentalId, [...(grouped.get(record.rentalId) ?? []), record])
+    return grouped
+  }
+  const itemMap = groupByRental(items)
+  const buyoutMap = groupByRental(buyouts)
+  const renewalMap = groupByRental(renewals)
+  const paymentMap = groupByRental(payments)
+  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [] }))
 }
 
 export async function getDashboard() {
