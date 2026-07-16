@@ -5,13 +5,12 @@ import { headers } from 'next/headers'
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
+import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { buyoutRecords, paymentRecords, renewalRecords, rentalItems, rentals } from '@/lib/db/schema'
 
 async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error('请先登录')
-  return session.user.id
+  return (await getAccessContext('租赁操作')).userId
 }
 
 const itemSchema = z.object({

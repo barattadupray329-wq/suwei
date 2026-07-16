@@ -4,14 +4,13 @@ import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
+import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { lossRecords, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
 async function actor() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error('请先登录')
-  return { userId: session.user.id, name: session.user.name }
+  const context = await getAccessContext('租赁操作')
+  return { userId: context.userId, name: context.actorName }
 }
 
 const operationSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), date: z.string().min(1), notes: z.string().optional() })
