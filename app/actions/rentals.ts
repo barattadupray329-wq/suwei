@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { buyoutRecords, paymentRecords, renewalRecords, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
+import { accountLedger, buyoutRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -32,12 +32,14 @@ export async function getRentals(query = '', status = '全部') {
   const rows = await db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, payments, events] = await Promise.all([
+  const [items, buyouts, renewals, payments, events, bills, ledger] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
     db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), inArray(rentalEvents.rentalId, ids))).orderBy(desc(rentalEvents.eventDate), desc(rentalEvents.createdAt)),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids))).orderBy(receivableBills.dueDate),
+    db.select().from(accountLedger).where(and(eq(accountLedger.userId, userId), inArray(accountLedger.rentalId, ids))).orderBy(desc(accountLedger.entryDate), desc(accountLedger.createdAt)),
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
     const grouped = new Map<number, T[]>()
@@ -49,13 +51,32 @@ export async function getRentals(query = '', status = '全部') {
   const renewalMap = groupByRental(renewals)
   const paymentMap = groupByRental(payments)
   const eventMap = groupByRental(events)
-  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [] }))
+  const billMap = groupByRental(bills)
+  const ledgerMap = groupByRental(ledger)
+  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: billMap.get(row.id) ?? [], ledger: ledgerMap.get(row.id) ?? [] }))
 }
 
 export async function getDashboard() {
   const userId = await getUserId()
   const [summary] = await db.select({ total: sql<number>`count(*)::int`, active: sql<number>`count(*) filter (where ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失'))::int`, overdue: sql<number>`count(*) filter (where ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')))::int`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(greatest(${rentals.totalRent} - ${rentals.paidAmount}, 0)), 0)` }).from(rentals).where(eq(rentals.userId, userId))
   return summary
+}
+
+function buildMonthlyBills(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, monthlyRent: number) {
+  const result: Array<{ rentalId: number; billNo: string; periodStart: string; periodEnd: string; dueDate: string; amount: string; billType: string; status: string }> = []
+  let periodStart = startDate
+  let index = 1
+  let remaining = Math.round(totalRent * 100)
+  while (periodStart <= endDate && remaining > 0) {
+    const nextMonth = addCalendarMonths(periodStart, 1)
+    const periodEnd = addCalendarDays(nextMonth, -1) < endDate ? addCalendarDays(nextMonth, -1) : endDate
+    const amount = Math.min(remaining, Math.round(monthlyRent * 100))
+    result.push({ rentalId, billNo: `${contractNo}-${String(index).padStart(3, '0')}`, periodStart, periodEnd, dueDate: periodStart, amount: (amount / 100).toFixed(2), billType: '租金', status: '待收' })
+    remaining -= amount
+    periodStart = addCalendarDays(periodEnd, 1)
+    index += 1
+  }
+  return result
 }
 
 export async function createRental(input: RentalInput) {
@@ -69,6 +90,8 @@ export async function createRental(input: RentalInput) {
     const first = value.items[0]
     const [rental] = await tx.insert(rentals).values({ userId, contractNo: value.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: value.notes, deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
     await tx.insert(rentalItems).values(value.items.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
+    const bills = buildMonthlyBills(rental.id, value.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
+    if (bills.length) await tx.insert(receivableBills).values(bills.map((bill) => ({ ...bill, userId })))
   })
   revalidatePath('/')
 }
@@ -144,9 +167,69 @@ export async function collectPayment(id: number, input: PaymentInput) {
       const [renewal] = await tx.select().from(renewalRecords).where(and(eq(renewalRecords.id, value.renewalRecordId), eq(renewalRecords.rentalId, id), eq(renewalRecords.userId, userId)))
       if (!renewal) throw new Error('续租记录不存在')
     }
-    await tx.insert(paymentRecords).values({ userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: String(value.amount), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, notes: value.notes })
+    const [payment] = await tx.insert(paymentRecords).values({ userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: String(value.amount), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, notes: value.notes }).returning({ id: paymentRecords.id })
+    if (value.feeType === '押金') {
+      await tx.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: String(value.amount), entryDate: value.paymentDate, paymentRecordId: payment.id, operatorName: '当前用户', notes: value.notes })
+    } else {
+      let remaining = Math.round(value.amount * 100)
+      const bills = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId))).orderBy(receivableBills.dueDate)
+      for (const bill of bills) {
+        const outstanding = Math.max(0, Math.round((Number(bill.amount) - Number(bill.paidAmount)) * 100))
+        const allocated = Math.min(remaining, outstanding)
+        if (allocated <= 0) continue
+        const nextPaid = Math.round(Number(bill.paidAmount) * 100) + allocated
+        await tx.insert(paymentAllocations).values({ userId, rentalId: id, paymentRecordId: payment.id, billId: bill.id, amount: (allocated / 100).toFixed(2) })
+        await tx.update(receivableBills).set({ paidAmount: (nextPaid / 100).toFixed(2), status: nextPaid >= Math.round(Number(bill.amount) * 100) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId)))
+        remaining -= allocated
+        if (remaining <= 0) break
+      }
+    }
     const paid = Number(row.paidAmount) + value.amount
     await tx.update(rentals).set({ paidAmount: String(paid), paymentStatus: paid >= Number(row.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId)))
+  })
+  revalidatePath('/')
+}
+
+export async function reversePayment(paymentId: number, reason: string) {
+  const userId = await getUserId()
+  if (reason.trim().length < 2) throw new Error('请填写冲正原因')
+  await db.transaction(async (tx) => {
+    const [payment] = await tx.select().from(paymentRecords).where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.userId, userId)))
+    if (!payment || Number(payment.amount) <= 0) throw new Error('原收款不存在或不可冲正')
+    const existing = await tx.select().from(accountLedger).where(and(eq(accountLedger.paymentRecordId, paymentId), eq(accountLedger.entryType, '收款冲正'), eq(accountLedger.userId, userId)))
+    if (existing.length) throw new Error('该收款已冲正')
+    const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId)))
+    if (!rental) throw new Error('合同不存在')
+    const allocations = await tx.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId)))
+    for (const allocation of allocations) {
+      const [bill] = await tx.select().from(receivableBills).where(and(eq(receivableBills.id, allocation.billId), eq(receivableBills.userId, userId)))
+      if (!bill) continue
+      const nextPaid = Math.max(0, Number(bill.paidAmount) - Number(allocation.amount))
+      await tx.update(receivableBills).set({ paidAmount: String(nextPaid), status: nextPaid <= 0 ? '待收' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId)))
+    }
+    const date = new Date().toISOString().slice(0, 10)
+    await tx.insert(paymentRecords).values({ userId, rentalId: payment.rentalId, amount: String(-Number(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reason}` })
+    await tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '收款冲正', amount: String(-Number(payment.amount)), entryDate: date, paymentRecordId: payment.id, operatorName: '当前用户', notes: reason })
+    const paid = Math.max(0, Number(rental.paidAmount) - Number(payment.amount))
+    await tx.update(rentals).set({ paidAmount: String(paid), paymentStatus: paid <= 0 ? '待收款' : paid >= Number(rental.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId)))
+  })
+  revalidatePath('/')
+}
+
+export async function recordDepositAction(rentalId: number, entryType: '押金退还' | '押金抵扣欠租' | '押金抵扣赔偿', amount: number, entryDate: string, notes = '') {
+  const userId = await getUserId()
+  if (amount <= 0 || !entryDate) throw new Error('请填写有效金额和日期')
+  await db.transaction(async (tx) => {
+    const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
+    if (!rental) throw new Error('合同不存在')
+    const entries = await tx.select().from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId)))
+    const balance = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? Number(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(Number(entry.amount)) : 0), 0)
+    if (amount > balance) throw new Error(`可用押金余额不足，当前为 ${balance.toFixed(2)} 元`)
+    await tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: String(-amount), entryDate, operatorName: '当前用户', notes })
+    if (entryType !== '押金退还') {
+      const paid = Number(rental.paidAmount) + amount
+      await tx.update(rentals).set({ paidAmount: String(paid), paymentStatus: paid >= Number(rental.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
+    }
   })
   revalidatePath('/')
 }

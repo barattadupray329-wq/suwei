@@ -28,6 +28,18 @@ export const paymentRecords = pgTable('payment_records', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), renewalRecordId: integer('renewalRecordId'), buyoutRecordId: integer('buyoutRecordId'), returnRecordId: integer('returnRecordId'), lossRecordId: integer('lossRecordId'), operatorName: text('operatorName'), amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), paymentDate: date('paymentDate').notNull(), paymentMethod: text('paymentMethod').notNull(), feeType: text('feeType').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 
+export const receivableBills = pgTable('receivable_bills', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), billNo: text('billNo').notNull(), periodStart: date('periodStart').notNull(), periodEnd: date('periodEnd').notNull(), dueDate: date('dueDate').notNull(), billType: text('billType').notNull().default('租金'), amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), paidAmount: numeric('paidAmount', { precision: 12, scale: 2 }).notNull().default('0'), status: text('status').notNull().default('待收'), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+}, (table) => [unique().on(table.userId, table.billNo)])
+
+export const paymentAllocations = pgTable('payment_allocations', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), paymentRecordId: integer('paymentRecordId').notNull(), billId: integer('billId').notNull(), amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), createdAt: timestamp('createdAt').notNull().defaultNow(),
+})
+
+export const accountLedger = pgTable('account_ledger', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), entryType: text('entryType').notNull(), amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), entryDate: date('entryDate').notNull(), paymentRecordId: integer('paymentRecordId'), relatedEntryId: integer('relatedEntryId'), operatorName: text('operatorName').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
+})
+
 export const rentalEvents = pgTable('rental_events', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), eventType: text('eventType').notNull(), status: text('status').notNull().default('已完成'), eventDate: date('eventDate').notNull(), itemId: integer('itemId'), beforeSnapshot: jsonb('beforeSnapshot'), afterSnapshot: jsonb('afterSnapshot'), reason: text('reason'), feeAdjustment: numeric('feeAdjustment', { precision: 12, scale: 2 }).notNull().default('0'), repairCost: numeric('repairCost', { precision: 12, scale: 2 }).notNull().default('0'), customerCharge: numeric('customerCharge', { precision: 12, scale: 2 }).notNull().default('0'), faultDescription: text('faultDescription'), resolution: text('resolution'), completedDate: date('completedDate'), operatorName: text('operatorName').notNull(), notes: text('notes'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
@@ -44,3 +56,6 @@ export type BuyoutRecord = typeof buyoutRecords.$inferSelect
 export type RenewalRecord = typeof renewalRecords.$inferSelect
 export type PaymentRecord = typeof paymentRecords.$inferSelect
 export type RentalEvent = typeof rentalEvents.$inferSelect
+export type ReceivableBill = typeof receivableBills.$inferSelect
+export type PaymentAllocation = typeof paymentAllocations.$inferSelect
+export type AccountLedgerEntry = typeof accountLedger.$inferSelect
