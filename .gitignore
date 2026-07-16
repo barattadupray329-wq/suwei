@@ -49,3 +49,4 @@ htmlcov/
 # Backup files
 *.bak
 *.backup
+.vercel
