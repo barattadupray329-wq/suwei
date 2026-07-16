@@ -63,3 +63,4 @@ export type RentalEvent = typeof rentalEvents.$inferSelect
 export type ReceivableBill = typeof receivableBills.$inferSelect
 export type PaymentAllocation = typeof paymentAllocations.$inferSelect
 export type AccountLedgerEntry = typeof accountLedger.$inferSelect
+export type CustomerPortal = typeof customerPortals.$inferSelect
