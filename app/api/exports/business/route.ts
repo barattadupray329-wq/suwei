@@ -3,6 +3,7 @@ import { and, asc, eq, gte, lte } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
+import { formatDeviceConfig } from '@/lib/device-config'
 import { db } from '@/lib/db'
 import {
   accountLedger,
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
     ], rentalRows)
     addSheet(workbook, '设备明细', [
       { header: '合同编号', key: 'contractNo', width: 20 }, { header: '设备名称', key: 'deviceName', width: 24 }, { header: '类型', key: 'deviceType', width: 12 }, { header: '设备编号', key: 'deviceCode', width: 18 }, { header: '数量', key: 'quantity', width: 10 }, { header: '已买断', key: 'boughtOutQuantity', width: 10 }, { header: '已退租', key: 'returnedQuantity', width: 10 }, { header: '已丢失', key: 'lostQuantity', width: 10 }, { header: '开始日期', key: 'startDate', width: 14 }, { header: '结束日期', key: 'endDate', width: 14 }, { header: '月租', key: 'monthlyRent', width: 14 }, { header: '配置', key: 'configuration', width: 45 },
-    ], itemRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId, configuration: [row.cpu, row.memory, row.storage, row.graphicsCard, row.screenSize, row.deviceConfig].filter(Boolean).join(' / ') })))
+    ], itemRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId, configuration: formatDeviceConfig(row, true) })))
     addSheet(workbook, '收款记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '收款日期', key: 'paymentDate', width: 14 }, { header: '金额', key: 'amount', width: 14 }, { header: '费用类型', key: 'feeType', width: 14 }, { header: '支付方式', key: 'paymentMethod', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 30 }], paymentRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '月度应收账单', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '账单编号', key: 'billNo', width: 22 }, { header: '账期开始', key: 'periodStart', width: 14 }, { header: '账期结束', key: 'periodEnd', width: 14 }, { header: '到期日', key: 'dueDate', width: 14 }, { header: '账单类型', key: 'billType', width: 16 }, { header: '应收金额', key: 'amount', width: 14 }, { header: '已收金额', key: 'paidAmount', width: 14 }, { header: '状态', key: 'status', width: 12 }, { header: '备注', key: 'notes', width: 30 }], billRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '押金与冲正流水', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '日期', key: 'entryDate', width: 14 }, { header: '流水类型', key: 'entryType', width: 18 }, { header: '金额', key: 'amount', width: 14 }, { header: '关联收款号', key: 'paymentRecordId', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 32 }], ledgerRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))

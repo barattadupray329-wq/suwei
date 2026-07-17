@@ -20,7 +20,7 @@ const configurationSchema = {
 }
 const changeSchema = z.object({
   rentalId: z.number().int().positive(), itemId: z.number().int().positive(), eventDate: z.string().min(1), reason: z.string().trim().min(2),
-  deviceName: z.string().trim().min(2), deviceType: deviceTypeSchema, deviceCode: optionalText, ...configurationSchema,
+  deviceName: z.string().trim().min(2), deviceType: deviceTypeSchema, deviceCode: optionalText, quantity: z.coerce.number().int().positive(), ...configurationSchema,
   monthlyRent: z.coerce.number().nonnegative(), totalRent: z.coerce.number().nonnegative(), feeAdjustment: z.coerce.number(), notes: optionalText,
 })
 export type RentalChangeInput = z.infer<typeof changeSchema>
@@ -37,15 +37,17 @@ export async function changeRentalItem(input: RentalChangeInput) {
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
     if (!item) throw new Error('设备明细不存在')
-    const after = { ...snapshot(item), deviceName:value.deviceName, deviceType:value.deviceType, deviceCode:value.deviceCode||null, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null, monthlyRent:String(value.monthlyRent), totalRent:String(value.totalRent) }
+    if (value.quantity < item.quantity) throw new Error('配置变更不能减少数量，请使用退租、丢失或买断流程')
+    const after = { ...snapshot(item), deviceName:value.deviceName, deviceType:value.deviceType, deviceCode:value.deviceCode||null, quantity:value.quantity, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null, monthlyRent:String(value.monthlyRent), totalRent:String(value.totalRent) }
     await tx.update(rentalItems).set({ ...after, updatedAt:new Date() }).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id)))
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     if (!rental) throw new Error('租赁合同不存在')
     const items = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId)))
+    const quantity = items.reduce((sum,current)=>sum+current.quantity,0)
     const monthlyRent = items.reduce((sum,current)=>sum+Number(current.monthlyRent),0)
     const totalRent = items.reduce((sum,current)=>sum+Number(current.totalRent),0)+value.feeAdjustment
     const paymentStatus = Number(rental.paidAmount)>=totalRent?'已付清':Number(rental.paidAmount)>0?'部分收款':'待收款'
-    await tx.update(rentals).set({ deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',monthlyRent:String(monthlyRent),totalRent:String(totalRent),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
+    await tx.update(rentals).set({ deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',quantity,monthlyRent:String(monthlyRent),totalRent:String(totalRent),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'配置变更',eventDate:value.eventDate,beforeSnapshot:snapshot(item),afterSnapshot:after,reason:value.reason,feeAdjustment:String(value.feeAdjustment),operatorName:name,notes:value.notes})
   })
   revalidatePath('/')
