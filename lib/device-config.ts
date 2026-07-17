@@ -21,7 +21,7 @@ export type DeviceConfigLike = {
 }
 
 const fields: Record<string, Array<[keyof DeviceConfigLike, string]>> = {
-  台式机: [['cpu','CPU'],['motherboard','主板'],['memory','内存'],['storage','硬盘'],['graphicsCard','显卡'],['powerSupply','电源'],['caseModel','机箱'],['monitorInfo','显示器']],
+  台式机: [['cpu','CPU'],['motherboard','主板'],['memory','内存'],['storage','硬盘'],['graphicsCard','显卡'],['powerSupply','电源'],['caseModel','机箱']],
   笔记本: [['cpu','CPU'],['memory','内存'],['storage','硬盘'],['graphicsCard','显卡'],['screenSize','屏幕尺寸'],['screenResolution','分辨率'],['batteryInfo','电池'],['adapterInfo','适配器']],
   显示器: [['screenSize','屏幕尺寸'],['screenResolution','分辨率'],['refreshRate','刷新率'],['panelType','面板'],['colorGamut','色域'],['ports','接口'],['monitorInfo','支架功能'],['accessories','配件']],
   一体机: [['cpu','CPU'],['memory','内存'],['storage','硬盘'],['graphicsCard','显卡'],['screenSize','屏幕尺寸'],['screenResolution','分辨率'],['ports','接口'],['accessories','配件']],

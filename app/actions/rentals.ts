@@ -22,6 +22,38 @@ const rentalSchema = z.object({
 export type RentalItemInput = z.infer<typeof itemSchema>
 export type RentalInput = z.infer<typeof rentalSchema>
 
+function compactDate(value: string) {
+  return value.replaceAll('-', '')
+}
+
+function devicePrefix(deviceType: RentalItemInput['deviceType']) {
+  return ({ 台式机: 'PC', 笔记本: 'NB', 显示器: 'MON', 一体机: 'AIO', 其他: 'DEV' } as const)[deviceType]
+}
+
+export async function getNextRentalNumbers(startDate: string, items: Array<Pick<RentalItemInput, 'deviceType' | 'quantity'>>) {
+  const userId = await getUserId()
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10)
+  const stamp = compactDate(date)
+  const contractPrefix = `HT${stamp}-`
+  const existingContracts = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), ilike(rentals.contractNo, `${contractPrefix}%`)))
+  const contractSequence = Math.max(0, ...existingContracts.map(({ contractNo }) => Number(contractNo.slice(contractPrefix.length)) || 0)) + 1
+  const allItems = await db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(and(eq(rentalItems.userId, userId), ilike(rentalItems.deviceCode, `%${stamp}-%`)))
+  const counters = new Map<string, number>()
+  for (const { deviceCode } of allItems) {
+    const match = deviceCode?.match(/^([A-Z]+)\d{8}-(\d+)/)
+    if (match) counters.set(match[1], Math.max(counters.get(match[1]) || 0, Number(match[2])))
+  }
+  const deviceCodes = items.map((item) => {
+    const prefix = devicePrefix(item.deviceType)
+    const start = (counters.get(prefix) || 0) + 1
+    const end = start + Math.max(1, item.quantity) - 1
+    counters.set(prefix, end)
+    const first = `${prefix}${stamp}-${String(start).padStart(3, '0')}`
+    return end === start ? first : `${first}～${prefix}${stamp}-${String(end).padStart(3, '0')}`
+  })
+  return { contractNo: `${contractPrefix}${String(contractSequence).padStart(3, '0')}`, deviceCodes }
+}
+
 export async function getRentals(query = '', status = '全部') {
   const userId = await getUserId()
   const filters = [eq(rentals.userId, userId)]
@@ -82,8 +114,10 @@ export async function createRental(input: RentalInput) {
   const value = rentalSchema.parse(input)
   const expectedEndDate = value.billingType === 'daily' ? addCalendarDays(value.startDate, value.duration - 1) : addCalendarDays(addCalendarMonths(value.startDate, value.duration), -1)
   if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
-  const normalizedItems = value.items.map((item) => ({
+  const numbers = await getNextRentalNumbers(value.startDate, value.items)
+  const normalizedItems = value.items.map((item, index) => ({
     ...item,
+    deviceCode: numbers.deviceCodes[index],
     totalRent: Math.round(item.quantity * item.monthlyRent * value.duration * 100) / 100,
   }))
   const quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0)
@@ -92,17 +126,17 @@ export async function createRental(input: RentalInput) {
   try {
     await db.transaction(async (tx) => {
     const first = value.items[0]
-    const [rental] = await tx.insert(rentals).values({ userId, contractNo: value.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
+    const [rental] = await tx.insert(rentals).values({ userId, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
     await tx.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
     const bills = value.billingType === 'daily'
-      ? [{ rentalId: rental.id, billNo: `${value.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
-      : buildMonthlyBills(rental.id, value.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
-    const allBills = value.deposit > 0 ? [...bills, { rentalId: rental.id, billNo: `${value.contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
+      ? [{ rentalId: rental.id, billNo: `${numbers.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
+      : buildMonthlyBills(rental.id, numbers.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
+    const allBills = value.deposit > 0 ? [...bills, { rentalId: rental.id, billNo: `${numbers.contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
     if (allBills.length) await tx.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))
     })
   } catch (error) {
     const cause = typeof error === 'object' && error && 'cause' in error ? error.cause : error
-    if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${value.contractNo}”已存在，请更换后再保存`)
+    if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${numbers.contractNo}”已存在，请更换后再保存`)
     throw error
   }
   revalidatePath('/')
