@@ -17,6 +17,31 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
   const [to, setTo] = useState('')
   const [downloading, setDownloading] = useState(false)
 
+  async function downloadFile(endpoint: string, filename: string, success: string) {
+    setDownloading(true)
+    try {
+      const response = await fetch(endpoint)
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error || '导出失败')
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      toast.success(success)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '导出失败')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   async function downloadExport() {
     if (from && to && from > to) return toast.error('开始日期不能晚于结束日期')
     setDownloading(true)
@@ -63,6 +88,8 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
 
         <article className="rounded-xl border bg-card p-5"><div className="flex items-center gap-2"><Database className="size-5 text-primary" /><h2 className="font-semibold">当前数据概览</h2></div><div className="mt-4 grid grid-cols-2 gap-3">{[['合同', counts.contracts], ['设备明细', counts.devices], ['收款记录', counts.payments], ['员工账号', counts.members]].map(([label, value]) => <div key={String(label)} className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-xl font-bold">{value}</p></div>)}</div><p className="mt-4 text-xs leading-5 text-muted-foreground">业务最近更新：{lastUpdated ? new Date(lastUpdated).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '暂无业务数据'}</p></article>
       </section>
+
+      <section className="rounded-xl border bg-card p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium text-primary">员工常用表格</p><h2 className="mt-1 text-xl font-bold text-balance">导出租机明细全表</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">左侧保留员工熟悉的旧表列和顺序，右侧附带合同编号、客户电话、计费方式、押金等软件匹配字段；自动拆分在租与历史清单。</p></div><button type="button" onClick={()=>downloadFile('/api/exports/rental-ledger',`${storeName.replace(/[\\/:*?\"<>|]/g,'-')}租机明细全表-${new Date().toISOString().slice(0,10)}.xlsx`,'员工租机明细表已下载')} disabled={downloading} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border bg-background px-5 font-medium hover:bg-muted disabled:opacity-60"><FileSpreadsheet className="size-4"/>下载员工明细表</button></div></section>
 
       <section className="grid gap-4 md:grid-cols-2">
         <article className="rounded-xl border bg-card p-5"><div className="flex items-center gap-2"><ShieldCheck className="size-5 text-primary" /><h2 className="font-semibold">升级前安全检查</h2></div><div className="mt-4 flex flex-col gap-3">{['先下载最新 Excel 数据包并妥善保存', '在 Preview 环境完成合同、收款和权限测试', '数据库结构变更只使用向前兼容迁移', '确认无误后再将版本提升到 Production'].map((item) => <div key={item} className="flex items-start gap-3 text-sm"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" /><span>{item}</span></div>)}</div></article>
