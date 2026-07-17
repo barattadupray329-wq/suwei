@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { ArrowLeft, CalendarRange, CheckCircle2, Database, Download, FileSpreadsheet, HardDriveDownload, Info, RefreshCw, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, CalendarRange, CheckCircle2, Cloud, Database, Download, FileSpreadsheet, HardDriveDownload, Info, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 
 type BackupCenterProps = {
@@ -16,6 +16,24 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [snapshots, setSnapshots] = useState<Array<{id:number;backupType:string;recordCount:number;checksum:string;createdAt:string}>>([])
+  const [restorePayload, setRestorePayload] = useState<unknown>(null)
+  const [preview, setPreview] = useState<{createdAt:string;recordCount:number;checksum:string;counts:Record<string,number>}|null>(null)
+  const [confirmation, setConfirmation] = useState('')
+  const [restoring, setRestoring] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const loadSnapshots = () => fetch('/api/backups').then(response => response.json()).then(data => setSnapshots(data.snapshots || [])).catch(() => undefined)
+  useEffect(() => { loadSnapshots() }, [])
+
+  async function createCloudBackup() {
+    setDownloading(true)
+    try { const response = await fetch('/api/backups', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'manual'}) }); const body=await response.json(); if(!response.ok)throw new Error(body.error); await loadSnapshots(); toast.success('云端恢复快照已创建') } catch(error){toast.error(error instanceof Error?error.message:'备份失败')} finally{setDownloading(false)}
+  }
+  async function inspectBackup(file: File) {
+    try { const payload=JSON.parse(await file.text()); const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'preview',payload})}); const body=await response.json(); if(!response.ok)throw new Error(body.error); setRestorePayload(payload);setPreview(body.summary);setConfirmation('');toast.success('备份预检通过') } catch(error){setRestorePayload(null);setPreview(null);toast.error(error instanceof Error?error.message:'备份文件无效')}
+  }
+  async function confirmRestore(){if(!restorePayload)return;setRestoring(true);try{const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'restore',payload:restorePayload,confirmation})});const body=await response.json();if(!response.ok)throw new Error(body.error);toast.success(`已恢复 ${body.restored.recordCount} 条记录`);setPreview(null);setRestorePayload(null);setConfirmation('');await loadSnapshots()}catch(error){toast.error(error instanceof Error?error.message:'恢复失败')}finally{setRestoring(false)}}
 
   async function downloadFile(endpoint: string, filename: string, success: string) {
     setDownloading(true)
@@ -90,6 +108,11 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
       </section>
 
       <section className="rounded-xl border bg-card p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium text-primary">员工常用表格</p><h2 className="mt-1 text-xl font-bold text-balance">导出租机明细全表</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">左侧保留员工熟悉的旧表列和顺序，右侧附带合同编号、客户电话、计费方式、押金等软件匹配字段；自动拆分在租与历史清单。</p></div><button type="button" onClick={()=>downloadFile('/api/exports/rental-ledger',`${storeName.replace(/[\\/:*?\"<>|]/g,'-')}租机明细全表-${new Date().toISOString().slice(0,10)}.xlsx`,'员工租机明细表已下载')} disabled={downloading} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border bg-background px-5 font-medium hover:bg-muted disabled:opacity-60"><FileSpreadsheet className="size-4"/>下载员工明细表</button></div></section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <article className="rounded-xl border bg-card p-5"><div className="flex items-center gap-2"><Cloud className="size-5 text-primary"/><h2 className="font-semibold">可恢复云端快照</h2></div><p className="mt-2 text-sm leading-6 text-muted-foreground">完整 JSON 快照保存在 Neon，并按当前公司隔离。系统工作台打开期间会定时备份，安全退出前也会再创建一次。</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={createCloudBackup} disabled={downloading} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 font-medium text-primary-foreground disabled:opacity-60"><Cloud className="size-4"/>立即云备份</button><button type="button" onClick={()=>downloadFile('/api/backups?download=json',`rental-backup-${new Date().toISOString().slice(0,10)}.json`,'JSON 恢复包已下载')} disabled={downloading} className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 font-medium"><Download className="size-4"/>下载 JSON 恢复包</button></div><div className="mt-4 flex max-h-52 flex-col gap-2 overflow-y-auto">{snapshots.map(snapshot=><div key={snapshot.id} className="flex items-center justify-between gap-3 rounded-lg bg-muted p-3 text-sm"><span><strong>{snapshot.backupType==='pre-restore'?'恢复前保护点':snapshot.backupType==='exit'?'安全退出':'云端备份'}</strong><span className="block text-xs text-muted-foreground">{new Date(snapshot.createdAt).toLocaleString('zh-CN',{hour12:false})} · {snapshot.recordCount} 条</span></span><code className="hidden text-xs text-muted-foreground sm:block">{snapshot.checksum.slice(0,10)}</code></div>)}{!snapshots.length&&<p className="text-sm text-muted-foreground">暂无云端快照</p>}</div></article>
+        <article className="rounded-xl border bg-card p-5"><div className="flex items-center gap-2"><Upload className="size-5 text-primary"/><h2 className="font-semibold">从 JSON 恢复</h2></div><p className="mt-2 text-sm leading-6 text-muted-foreground">先校验备份版本、所属公司、数据表和记录数；确认后在事务中全量替换。执行前自动创建当前数据保护点，任何失败都会回滚。</p><input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" onChange={event=>{const file=event.target.files?.[0];if(file)void inspectBackup(file)}}/><button type="button" onClick={()=>fileRef.current?.click()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg border px-4 font-medium"><Upload className="size-4"/>选择恢复包并预检</button>{preview&&<div className="mt-4 rounded-xl border border-primary bg-primary/5 p-4"><p className="font-medium">预检通过：{preview.recordCount} 条记录</p><p className="mt-1 text-xs text-muted-foreground">备份时间 {new Date(preview.createdAt).toLocaleString('zh-CN',{hour12:false})} · 校验 {preview.checksum.slice(0,16)}</p><label className="mt-4 flex flex-col gap-2 text-sm font-medium">输入“确认恢复”<input value={confirmation} onChange={event=>setConfirmation(event.target.value)} className="h-10 rounded-lg border bg-background px-3"/></label><button type="button" onClick={confirmRestore} disabled={restoring||confirmation!=='确认恢复'} className="mt-3 h-10 rounded-lg bg-destructive px-4 font-medium text-destructive-foreground disabled:opacity-50">{restoring?'正在恢复并校验':'全量恢复数据'}</button></div>}</article>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2">
         <article className="rounded-xl border bg-card p-5"><div className="flex items-center gap-2"><ShieldCheck className="size-5 text-primary" /><h2 className="font-semibold">升级前安全检查</h2></div><div className="mt-4 flex flex-col gap-3">{['先下载最新 Excel 数据包并妥善保存', '在 Preview 环境完成合同、收款和权限测试', '数据库结构变更只使用向前兼容迁移', '确认无误后再将版本提升到 Production'].map((item) => <div key={item} className="flex items-start gap-3 text-sm"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" /><span>{item}</span></div>)}</div></article>
