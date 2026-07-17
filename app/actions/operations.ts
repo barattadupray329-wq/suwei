@@ -51,7 +51,12 @@ export async function returnRentalItem(input: ReturnInput) {
   revalidatePath('/')
 }
 
-const exchangeSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), exchangeDate: z.string().min(1), newDeviceName: z.string().min(2), newDeviceCode: z.string().min(1), newDeviceConfig: z.string().optional(), reason: z.string().min(2), notes: z.string().optional() })
+const exchangeText = z.string().trim().max(500).optional()
+const exchangeSchema = z.object({
+  rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), exchangeDate: z.string().min(1), newDeviceName: z.string().trim().min(2), newDeviceType: z.enum(['台式机','笔记本','显示器','一体机','其他']), newDeviceCode: z.string().trim().min(1), newDeviceConfig: exchangeText,
+  cpu:exchangeText,motherboard:exchangeText,memory:exchangeText,storage:exchangeText,graphicsCard:exchangeText,powerSupply:exchangeText,caseModel:exchangeText,monitorInfo:exchangeText,screenSize:exchangeText,screenResolution:exchangeText,refreshRate:exchangeText,panelType:exchangeText,ports:exchangeText,batteryInfo:exchangeText,adapterInfo:exchangeText,accessories:exchangeText,colorGamut:exchangeText,
+  reason: z.string().trim().min(2), notes: exchangeText,
+})
 export type ExchangeInput = z.infer<typeof exchangeSchema>
 
 export async function exchangeRentalItem(input: ExchangeInput) {
@@ -60,9 +65,12 @@ export async function exchangeRentalItem(input: ExchangeInput) {
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, value.rentalId), eq(rentalItems.id, value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
-    const before = { deviceName: item.deviceName, deviceCode: item.deviceCode, deviceConfig: item.deviceConfig }
-    const after = { deviceName: value.newDeviceName, deviceCode: value.newDeviceCode, deviceConfig: value.newDeviceConfig || '' }
+    const keys = ['deviceName','deviceType','deviceCode','deviceConfig','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
+    const before = Object.fromEntries(keys.map(key => [key, item[key]]))
+    const after = { deviceName:value.newDeviceName,deviceType:value.newDeviceType,deviceCode:value.newDeviceCode,deviceConfig:value.newDeviceConfig||null,cpu:value.cpu||null,motherboard:value.motherboard||null,memory:value.memory||null,storage:value.storage||null,graphicsCard:value.graphicsCard||null,powerSupply:value.powerSupply||null,caseModel:value.caseModel||null,monitorInfo:value.monitorInfo||null,screenSize:value.screenSize||null,screenResolution:value.screenResolution||null,refreshRate:value.refreshRate||null,panelType:value.panelType||null,ports:value.ports||null,batteryInfo:value.batteryInfo||null,adapterInfo:value.adapterInfo||null,accessories:value.accessories||null,colorGamut:value.colorGamut||null }
     await tx.update(rentalItems).set({ ...after, updatedAt: new Date() }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, item.id)))
+    const items = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId)))
+    await tx.update(rentals).set({deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({ userId, rentalId: value.rentalId, eventType: '换机调拨', status: '已完成', eventDate: value.exchangeDate, itemId: item.id, beforeSnapshot: before, afterSnapshot: after, reason: value.reason, operatorName: name, notes: value.notes })
   })
   revalidatePath('/')
