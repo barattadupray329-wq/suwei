@@ -19,7 +19,7 @@ const itemSchema = z.object({
   cpu: z.string().optional(), motherboard: z.string().optional(), memory: z.string().optional(), storage: z.string().optional(), graphicsCard: z.string().optional(), powerSupply: z.string().optional(), caseModel: z.string().optional(), monitorInfo: z.string().optional(), screenSize: z.string().optional(), screenResolution: z.string().optional(), refreshRate: z.string().optional(), panelType: z.string().optional(), ports: z.string().optional(), batteryInfo: z.string().optional(), adapterInfo: z.string().optional(), accessories: z.string().optional(), colorGamut: z.string().optional(),
 })
 const rentalSchema = z.object({
-  contractNo: z.string().min(2), customerCompany: z.string().optional(), customerName: z.string().min(2), customerPhone: z.string().min(6), customerAddress: z.string().optional(), startDate: z.string().min(1), endDate: z.string().min(1), deposit: z.coerce.number().nonnegative(), notes: z.string().optional(), items: z.array(itemSchema).min(1),
+  contractNo: z.string().min(2), customerCompany: z.string().optional(), customerName: z.string().min(2), customerPhone: z.string().min(6), customerAddress: z.string().optional(), billingType: z.enum(['monthly', 'daily']).default('monthly'), duration: z.coerce.number().int().min(1).max(3650).default(1), startDate: z.string().min(1), endDate: z.string().min(1), deposit: z.coerce.number().nonnegative(), notes: z.string().optional(), items: z.array(itemSchema).min(1),
 })
 export type RentalItemInput = z.infer<typeof itemSchema>
 export type RentalInput = z.infer<typeof rentalSchema>
@@ -82,15 +82,18 @@ function buildMonthlyBills(rentalId: number, contractNo: string, startDate: stri
 export async function createRental(input: RentalInput) {
   const userId = await getUserId()
   const value = rentalSchema.parse(input)
-  if (new Date(value.endDate) < new Date(value.startDate)) throw new Error('结束日期不能早于开始日期')
+  const expectedEndDate = value.billingType === 'daily' ? addCalendarDays(value.startDate, value.duration - 1) : addCalendarDays(addCalendarMonths(value.startDate, value.duration), -1)
+  if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
   const quantity = value.items.reduce((sum, item) => sum + item.quantity, 0)
   const monthlyRent = value.items.reduce((sum, item) => sum + item.monthlyRent, 0)
   const totalRent = value.items.reduce((sum, item) => sum + item.totalRent, 0)
   await db.transaction(async (tx) => {
     const first = value.items[0]
-    const [rental] = await tx.insert(rentals).values({ userId, contractNo: value.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: value.notes, deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
+    const [rental] = await tx.insert(rentals).values({ userId, contractNo: value.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
     await tx.insert(rentalItems).values(value.items.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
-    const bills = buildMonthlyBills(rental.id, value.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
+    const bills = value.billingType === 'daily'
+      ? [{ rentalId: rental.id, billNo: `${value.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
+      : buildMonthlyBills(rental.id, value.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
     if (bills.length) await tx.insert(receivableBills).values(bills.map((bill) => ({ ...bill, userId })))
   })
   revalidatePath('/')
@@ -128,7 +131,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[])
       const available = item.quantity - item.boughtOutQuantity
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
       const newEndDate = value.billingUnit === 'month' ? addCalendarMonths(oldEndDate, value.duration) : addCalendarDays(oldEndDate, value.duration)
-      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不一致`)
+      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不���致`)
       const amount = value.quantity * value.unitPrice * value.duration
       const effectiveMonthlyRent = value.billingUnit === 'month' ? value.unitPrice : value.unitPrice * 30
       let renewedItemId = item.id
