@@ -30,6 +30,18 @@ export async function saveCloudSnapshot(userId: string, backupType = 'scheduled'
 export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt)).limit(20) }
 export async function getCloudSnapshot(userId: string, id: number) { const [row] = await db.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.id, id))); if (!row) throw new Error('备份不存在'); return row }
 
+function hydrateBackupRow(row: unknown) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return row
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => {
+    if (['createdAt', 'updatedAt', 'expiresAt'].includes(key) && typeof value === 'string') {
+      const parsed = new Date(value)
+      if (Number.isNaN(parsed.getTime())) throw new Error(`备份中的日期字段 ${key} 无效`)
+      return [key, parsed]
+    }
+    return [key, value]
+  }))
+}
+
 export async function restoreBackup(userId: string, rawPayload: unknown) {
   const payload = validateBackup(rawPayload, userId)
   await saveCloudSnapshot(userId, 'pre-restore')
@@ -38,7 +50,7 @@ export async function restoreBackup(userId: string, rawPayload: unknown) {
     for (const table of deletionOrder) await tx.delete(table).where(eq(table.userId, userId))
     for (const [name, table] of Object.entries(backupTables)) {
       const rows = payload.tables[name]
-      if (rows.length) await tx.insert(table).values(rows as never)
+      if (rows.length) await tx.insert(table).values(rows.map(hydrateBackupRow) as never)
     }
   })
   return { recordCount: countBackupRecords(payload), checksum: backupChecksum(payload) }
