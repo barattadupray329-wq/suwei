@@ -33,7 +33,7 @@ export async function getCloudSnapshot(userId: string, id: number) { const [row]
 function hydrateBackupRow(row: unknown) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return row
   return Object.fromEntries(Object.entries(row).map(([key, value]) => {
-    if (['createdAt', 'updatedAt', 'expiresAt'].includes(key) && typeof value === 'string') {
+    if (['createdAt', 'updatedAt', 'expiresAt', 'lockedUntil', 'lastLoginAt', 'accessTokenExpiresAt', 'refreshTokenExpiresAt'].includes(key) && typeof value === 'string') {
       const parsed = new Date(value)
       if (Number.isNaN(parsed.getTime())) throw new Error(`备份中的日期字段 ${key} 无效`)
       return [key, parsed]
