@@ -85,17 +85,24 @@ export async function createRental(input: RentalInput) {
   const expectedEndDate = value.billingType === 'daily' ? addCalendarDays(value.startDate, value.duration - 1) : addCalendarDays(addCalendarMonths(value.startDate, value.duration), -1)
   if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
   const quantity = value.items.reduce((sum, item) => sum + item.quantity, 0)
-  const monthlyRent = value.items.reduce((sum, item) => sum + item.monthlyRent, 0)
+  const monthlyRent = value.items.reduce((sum, item) => sum + item.monthlyRent * item.quantity, 0)
   const totalRent = value.items.reduce((sum, item) => sum + item.totalRent, 0)
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
     const first = value.items[0]
     const [rental] = await tx.insert(rentals).values({ userId, contractNo: value.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
     await tx.insert(rentalItems).values(value.items.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
     const bills = value.billingType === 'daily'
       ? [{ rentalId: rental.id, billNo: `${value.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
       : buildMonthlyBills(rental.id, value.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
-    if (bills.length) await tx.insert(receivableBills).values(bills.map((bill) => ({ ...bill, userId })))
-  })
+    const allBills = value.deposit > 0 ? [...bills, { rentalId: rental.id, billNo: `${value.contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
+    if (allBills.length) await tx.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))
+    })
+  } catch (error) {
+    const cause = typeof error === 'object' && error && 'cause' in error ? error.cause : error
+    if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${value.contractNo}”已存在，请更换后再保存`)
+    throw error
+  }
   revalidatePath('/')
 }
 
