@@ -21,7 +21,7 @@ const configurationSchema = {
 const changeSchema = z.object({
   rentalId: z.number().int().positive(), itemId: z.number().int().positive(), eventDate: z.string().min(1), reason: z.string().trim().min(2),
   deviceName: z.string().trim().min(2), deviceType: deviceTypeSchema, deviceCode: optionalText, quantity: z.coerce.number().int().positive(), ...configurationSchema,
-  monthlyRent: z.coerce.number().nonnegative(), totalRent: z.coerce.number().nonnegative(), feeAdjustment: z.coerce.number(), notes: optionalText,
+  monthlyRent: z.coerce.number().positive('租金单价必须大于 0'), totalRent: z.coerce.number().positive(), feeAdjustment: z.coerce.number(), notes: optionalText,
 })
 export type RentalChangeInput = z.infer<typeof changeSchema>
 
@@ -44,9 +44,10 @@ export async function changeRentalItem(input: RentalChangeInput) {
     if (!rental) throw new Error('租赁合同不存在')
     const items = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId)))
     const quantity = items.reduce((sum,current)=>sum+current.quantity,0)
-    const monthlyRent = items.reduce((sum,current)=>sum+Number(current.monthlyRent),0)
-    const totalRent = items.reduce((sum,current)=>sum+Number(current.totalRent),0)+value.feeAdjustment
-    const paymentStatus = Number(rental.paidAmount)>=totalRent?'已付清':Number(rental.paidAmount)>0?'部分收款':'待收款'
+    const monthlyRent = items.reduce((sum,current)=>sum+Number(current.monthlyRent)*current.quantity,0)
+    const previousItemTotal = Number(item.totalRent)
+    const totalRent = Number(rental.totalRent)-previousItemTotal+value.totalRent+value.feeAdjustment
+    const paymentStatus = Number(rental.paidAmount)>=totalRent?'已结清':Number(rental.paidAmount)>0?'部分收款':'待收款'
     await tx.update(rentals).set({ deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',quantity,monthlyRent:String(monthlyRent),totalRent:String(totalRent),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'配置变更',eventDate:value.eventDate,beforeSnapshot:snapshot(item),afterSnapshot:after,reason:value.reason,feeAdjustment:String(value.feeAdjustment),operatorName:name,notes:value.notes})
   })
@@ -62,7 +63,7 @@ export async function createRepairRecord(input: RepairInput) {
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     if (!rental) throw new Error('租赁合同不存在')
     const totalRent = Number(rental.totalRent)+value.customerCharge
-    const paymentStatus = Number(rental.paidAmount)>=totalRent?'已付清':Number(rental.paidAmount)>0?'部分收款':'待收款'
+    const paymentStatus = Number(rental.paidAmount)>=totalRent?'已结清':Number(rental.paidAmount)>0?'部分收款':'待收款'
     await tx.update(rentals).set({totalRent:String(totalRent),paymentStatus,updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes})
   })
