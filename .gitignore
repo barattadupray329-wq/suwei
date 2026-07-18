@@ -25,10 +25,17 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Data (包含用户隐私数据，建议不提交)
+# Data（用户隐私与运行日志不提交）
 data/
-*.json
 *.log
+
+# JSON 数据默认不提交，但保留 Web 项目所需配置
+*.json
+!package.json
+!package-lock.json
+!vercel.json
+!components.json
+!tsconfig.json
 
 # Testing
 .pytest_cache/
@@ -42,3 +49,4 @@ htmlcov/
 # Backup files
 *.bak
 *.backup
+.vercel
