@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAccessContext } from '@/lib/access'
-import { buildBackup, listCloudSnapshots, saveCloudSnapshot } from '@/lib/backup'
+import { buildBackup, ensureDailyCloudSnapshot, listCloudSnapshots, saveCloudSnapshot } from '@/lib/backup'
 import { safeError } from '@/lib/errors'
 
 export async function GET(request: Request) {
   try {
     const { userId, role } = await getAccessContext('系统设置')
-    if (role !== 'admin') return NextResponse.json({ error: '仅管理员可访问备份' }, { status: 403 })
+    if (role === 'employee') return NextResponse.json({ error: '仅管理员可访问备份' }, { status: 403 })
     const url = new URL(request.url)
     if (url.searchParams.get('download') === 'json') {
       const payload = await buildBackup(userId)
@@ -19,8 +19,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { userId, role } = await getAccessContext('系统设置')
-    if (role !== 'admin') return NextResponse.json({ error: '仅管理员可创建备份' }, { status: 403 })
+    if (role === 'employee') return NextResponse.json({ error: '仅管理员可创建备份' }, { status: 403 })
     const body = await request.json().catch(() => ({})) as { type?: string }
-    return NextResponse.json({ snapshot: await saveCloudSnapshot(userId, body.type === 'exit' ? 'exit' : 'manual') })
+    if (body.type === 'daily') return NextResponse.json(await ensureDailyCloudSnapshot(userId))
+    return NextResponse.json({ snapshot: await saveCloudSnapshot(userId, 'manual') })
   } catch (error) { const safe=safeError(error,'创建备份失败');return NextResponse.json({ error: safe.message }, { status: safe.status }) }
 }

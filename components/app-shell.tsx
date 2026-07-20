@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Banknote, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
@@ -26,8 +26,6 @@ const items = [
   { href: '/backup', label: '版本与备份', icon: HardDriveDownload, adminOnly: true },
 ]
 
-const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-
 export function AppShell({ children, storeName, userName, role, permissions }: ShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -36,36 +34,25 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const can = (permission?: string) => isManager || !permission || permissions.includes(permission)
   const visibleItems = items.filter((item) => (!item.adminOnly || isManager) && (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
+  const publicRoute = pathname === '/' || pathname.startsWith('/customer') || pathname.startsWith('/portal/')
+
+  useEffect(() => {
+    if (!isManager || publicRoute) return
+    const marker = `suwei-daily-backup:${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())}`
+    if (sessionStorage.getItem(marker)) return
+    const controller = new AbortController()
+    void fetch('/api/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'daily' }), signal: controller.signal })
+      .then(async (response) => { if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || '自动备份失败'); sessionStorage.setItem(marker, 'done') })
+      .catch((error) => { if (error instanceof Error && error.name !== 'AbortError') toast.error('今日自动备份未完成，可前往备份中心手动创建') })
+    return () => controller.abort()
+  }, [isManager, publicRoute])
 
   const safeSignOut = async () => {
-    try {
-      if (isManager) {
-        const snapshot = await fetch('/api/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'exit' }) })
-        if (!snapshot.ok) throw new Error('退出前云备份失败')
-        for (const [endpoint, filename] of [['/api/backups?download=json', `rental-backup-${today()}.json`], ['/api/exports/business', `rental-data-${today()}.xlsx`]]) {
-          const response = await fetch(endpoint)
-          if (!response.ok) throw new Error('退出前本地备份下载失败')
-          const url = URL.createObjectURL(await response.blob())
-          const anchor = document.createElement('a')
-          anchor.href = url
-          anchor.download = filename
-          document.body.appendChild(anchor)
-          anchor.click()
-          anchor.remove()
-          window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-        }
-        toast.success('云端与本地备份已完成')
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '备份失败')
-      return
-    }
     await authClient.signOut()
     router.push('/sign-in')
     router.refresh()
   }
 
-  const publicRoute = pathname === '/' || pathname.startsWith('/customer') || pathname.startsWith('/portal/')
   if (publicRoute || pathname.startsWith('/contracts/')) return children
 
   const navigation = (mobile = false) => <nav aria-label={mobile ? '手机功能菜单' : '后台主导航'} className="flex flex-col gap-1">
@@ -79,7 +66,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5" /></span>
         <div className="min-w-0"><p className="truncate font-semibold">{storeName}</p><p className="text-xs text-muted-foreground">门店业务工作台</p></div>
       </div>
-      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label={isManager ? '安全备份并退出登录' : '退出登录'} title={isManager ? '安全备份并退出' : '退出登录'} onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
+      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="退出登录" title="退出登录" onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
     </header>
 
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭功能菜单" className="absolute inset-0 bg-foreground/30" onClick={() => setMobileMenu(false)} /><aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-card p-4 shadow-xl"><div className="flex items-center justify-between border-b pb-4"><div><p className="font-semibold">功能菜单</p><p className="text-xs text-muted-foreground">{userName} · {role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="关闭功能菜单" onClick={() => setMobileMenu(false)} className="rounded-lg border p-2"><X className="size-5" /></button></div><div className="mt-4">{navigation(true)}</div></aside></div>}

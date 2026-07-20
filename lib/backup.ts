@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
+import { MAX_CLOUD_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
 import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
 export const BACKUP_VERSION = 1
@@ -22,12 +23,31 @@ export function validateBackup(value: unknown, userId: string) {
   for (const name of Object.keys(backupTables)) if (!Array.isArray(payload.tables?.[name])) throw new Error(`备份缺少数据表：${name}`)
   return payload
 }
-export async function saveCloudSnapshot(userId: string, backupType = 'scheduled') {
+async function pruneCloudSnapshots(userId: string) {
+  const stale = await db.select({ id: backupSnapshots.id }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).offset(MAX_CLOUD_SNAPSHOTS)
+  if (stale.length) await db.delete(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), inArray(backupSnapshots.id, stale.map((row) => row.id))))
+}
+
+export async function saveCloudSnapshot(userId: string, backupType = 'manual') {
   const payload = await buildBackup(userId)
   const [snapshot] = await db.insert(backupSnapshots).values({ userId, backupType, schemaVersion: BACKUP_VERSION, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), payload }).returning()
+  await pruneCloudSnapshots(userId)
   return snapshot
 }
-export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt)).limit(20) }
+
+export async function ensureDailyCloudSnapshot(userId: string) {
+  const lockKey = `suwei-daily-backup:${userId}:${shanghaiDateKey()}`
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`)
+    const rows = await tx.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.backupType, `daily:${shanghaiDateKey()}`))).limit(1)
+    if (rows[0]) return { created: false, snapshot: rows[0] }
+    const payload = await buildBackup(userId)
+    const [snapshot] = await tx.insert(backupSnapshots).values({ userId, backupType: `daily:${shanghaiDateKey()}`, schemaVersion: BACKUP_VERSION, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), payload }).returning()
+    return { created: true, snapshot }
+  }).then(async (result) => { await pruneCloudSnapshots(userId); return result })
+}
+
+export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).limit(MAX_CLOUD_SNAPSHOTS) }
 export async function getCloudSnapshot(userId: string, id: number) { const [row] = await db.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.id, id))); if (!row) throw new Error('备份不存在'); return row }
 
 function hydrateBackupRow(row: unknown) {
