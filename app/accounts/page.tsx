@@ -1,3 +1,6 @@
 import { getAccounts } from '@/app/actions/business'
-import { AccountsPage } from '@/components/business-pages'
-export default async function Page(){return <AccountsPage data={await getAccounts()}/>}
+import { AccountManagement } from '@/components/account-management'
+
+export default async function Page() {
+  return <AccountManagement data={await getAccounts()} />
+}
