@@ -32,6 +32,14 @@ export function getDeviceConfigRows(device: DeviceConfigLike) {
   return (fields[device.deviceType || '其他'] || fields.其他).map(([key, label]) => ({ label, value: String(device[key] ?? '') }))
 }
 
+const allFields: Array<[keyof DeviceConfigLike, string]> = [
+  ['deviceConfig', '系统/其他配置'], ['cpu', 'CPU'], ['motherboard', '主板'], ['memory', '内存'], ['storage', '硬盘'], ['graphicsCard', '显卡'], ['powerSupply', '电源'], ['caseModel', '机箱'], ['monitorInfo', '显示器/支架'], ['screenSize', '屏幕尺寸'], ['screenResolution', '分辨率'], ['refreshRate', '刷新率'], ['panelType', '面板'], ['colorGamut', '色域'], ['ports', '接口'], ['batteryInfo', '电池'], ['adapterInfo', '适配器'], ['accessories', '配件'],
+]
+
 export function formatDeviceConfig(device: DeviceConfigLike, includeEmpty = false) {
-  return getDeviceConfigRows(device).filter(row => includeEmpty || row.value.trim()).map(row => `${row.label}：${row.value}`).join(' / ')
+  return allFields
+    .map(([key, label]) => ({ label, value: String(device[key] ?? '') }))
+    .filter(row => includeEmpty || row.value.trim())
+    .map(row => `${row.label}：${row.value}`)
+    .join(' / ')
 }
