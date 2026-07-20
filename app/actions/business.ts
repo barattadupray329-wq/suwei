@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
@@ -42,16 +43,30 @@ export async function getAccounts() {
   return { owner, members }
 }
 
-export async function addMember(email: string, permissions: string[]) {
-  const id = await requireAdmin()
-  const normalized = z.string().email('请输入有效的员工邮箱').parse(email.trim().toLowerCase())
-  const validPermissions = validateAccountPermissions(permissions)
-  const [member] = await db.select().from(user).where(eq(user.email, normalized))
-  if (!member) throw new Error('该邮箱尚未注册，请员工先创建登录账号')
-  if (member.id === id) throw new Error('不能添加自己为员工')
-  const [existingMembership] = await db.select({ ownerId: organizationMembers.ownerId }).from(organizationMembers).where(eq(organizationMembers.memberUserId, member.id))
-  if (existingMembership && existingMembership.ownerId !== id) throw new Error('该账号已加入其他组织')
-  await db.insert(organizationMembers).values({ ownerId: id, memberUserId: member.id, permissions: validPermissions.join(',') }).onConflictDoUpdate({ target: organizationMembers.memberUserId, set: { ownerId: id, permissions: validPermissions.join(','), active: true, updatedAt: new Date() } })
+export async function addMember(input: { name: string; email: string; password: string; confirmPassword: string; permissions: string[] }) {
+  const ownerId = await requireAdmin()
+  const name = accountNameSchema.parse(input.name)
+  const email = z.string().email('请输入有效的员工邮箱').parse(input.email.trim().toLowerCase())
+  const password = validatePasswordConfirmation({ newPassword: input.password, confirmPassword: input.confirmPassword })
+  const permissions = validateAccountPermissions(input.permissions)
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, email))
+  if (existingUser) throw new Error('该邮箱已存在，请使用其他邮箱')
+
+  const memberUserId = randomUUID()
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, createdAt: now, updatedAt: now })
+    await tx.insert(account).values({
+      id: randomUUID(),
+      accountId: memberUserId,
+      providerId: 'credential',
+      userId: memberUserId,
+      password: await hashPassword(password),
+      createdAt: now,
+      updatedAt: now,
+    })
+    await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
+  })
   revalidatePath('/accounts')
 }
 

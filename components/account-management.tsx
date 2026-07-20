@@ -67,7 +67,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
             <div className="rounded-xl border border-dashed bg-card p-8 text-center">
               <Users className="mx-auto size-8 text-muted-foreground" />
               <p className="mt-3 font-medium">还没有员工账号</p>
-              <p className="mt-1 text-sm text-muted-foreground">员工注册后，可通过上方邮箱将其加入团队。</p>
+              <p className="mt-1 text-sm text-muted-foreground">请通过上方表单创建首个员工账号并分配权限。</p>
             </div>
           )}
         </section>
@@ -150,36 +150,42 @@ function OwnerSection({ owner }: { owner: Account }) {
 function AddMemberSection() {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [email, setEmail] = useState('')
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
   const [selected, setSelected] = useState<string[]>(['租赁操作'])
+  const [showPassword, setShowPassword] = useState(false)
 
   return (
     <section className="rounded-xl border bg-card p-5" aria-labelledby="add-member-title">
       <div className="flex items-center gap-3">
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><UserPlus className="size-5" /></span>
         <div>
-          <h2 id="add-member-title" className="font-semibold">新增员工</h2>
-          <p className="text-sm text-muted-foreground">员工先注册账号，再使用登录邮箱关联并授权。</p>
+          <h2 id="add-member-title" className="font-semibold">创建员工账号</h2>
+          <p className="text-sm text-muted-foreground">公开注册已关闭。只有超级管理员可以创建账号并设置临时密码。</p>
         </div>
       </div>
       <form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => {
         event.preventDefault()
         start(async () => {
           try {
-            await addMember(email, selected)
-            setEmail('')
+            await addMember({ ...form, permissions: selected })
+            setForm({ name: '', email: '', password: '', confirmPassword: '' })
             setSelected(['租赁操作'])
-            toast.success('员工已添加')
+            toast.success('员工账号已创建，请安全告知员工临时密码')
             router.refresh()
           } catch (error) {
-            toast.error(error instanceof Error ? error.message : '员工添加失败')
+            toast.error(error instanceof Error ? error.message : '员工账号创建失败')
           }
         })
       }}>
-        <div className="max-w-lg"><Field label="员工登录邮箱" value={email} onChange={setEmail} type="email" autoComplete="email" placeholder="name@example.com" /></div>
+        <div className="grid max-w-3xl gap-4 md:grid-cols-2">
+          <Field label="员工姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入员工姓名" />
+          <Field label="登录邮箱" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} type="email" autoComplete="off" placeholder="name@example.com" />
+          <PasswordField label="临时密码" value={form.password} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(password) => setForm((value) => ({ ...value, password }))} autoComplete="new-password" />
+          <PasswordField label="确认临时密码" value={form.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(confirmPassword) => setForm((value) => ({ ...value, confirmPassword }))} autoComplete="new-password" />
+        </div>
         <PermissionPicker selected={selected} onChange={setSelected} />
-        <button disabled={pending || !email || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
-          {pending ? '正在添加…' : '添加员工'}
+        <button disabled={pending || !form.name || !form.email || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+          {pending ? '正在创建…' : '创建员工账号'}
         </button>
       </form>
     </section>
