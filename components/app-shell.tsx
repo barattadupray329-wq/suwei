@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, ClipboardList, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
@@ -23,6 +23,7 @@ const items = [
   { href: '/website-packages', label: '官网套餐', icon: Globe2, superAdminOnly: true },
   { href: '/settings', label: '系统设置', icon: Palette, permission: '系统设置' },
   { href: '/customer-portals', label: '客户门户', icon: QrCode, adminOnly: true },
+  { href: '/audit-logs', label: '操作日志', icon: ClipboardList, adminOnly: true },
   { href: '/backup', label: '版本与备份', icon: HardDriveDownload, adminOnly: true },
 ]
 

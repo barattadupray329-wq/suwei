@@ -66,6 +66,10 @@ export const backupSnapshots = pgTable('backup_snapshots', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), backupType: text('backupType').notNull().default('scheduled'), schemaVersion: integer('schemaVersion').notNull().default(1), recordCount: integer('recordCount').notNull().default(0), checksum: text('checksum').notNull(), payload: jsonb('payload').notNull(), status: text('status').notNull().default('ready'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 
+export const auditLogs = pgTable('audit_logs', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), actorUserId: text('actorUserId').notNull(), actorName: text('actorName').notNull(), action: text('action').notNull(), resourceType: text('resourceType').notNull(), resourceId: text('resourceId'), summary: text('summary').notNull(), metadata: jsonb('metadata').notNull().default({}), createdAt: timestamp('createdAt').notNull().defaultNow(),
+})
+
 export const customerPortals = pgTable('customer_portals', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), phone: text('phone').notNull(), customerName: text('customerName').notNull(), accessTokenHash: text('accessTokenHash').notNull().unique(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('active'), failedAttempts: integer('failedAttempts').notNull().default(0), lockedUntil: timestamp('lockedUntil'), sessionVersion: integer('sessionVersion').notNull().default(1), lastLoginAt: timestamp('lastLoginAt'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 }, (table) => [unique().on(table.userId, table.phone)])

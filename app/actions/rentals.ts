@@ -5,7 +5,7 @@ import { and, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, buyoutRecords, contractSnapshots, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -110,7 +110,8 @@ function buildMonthlyBills(rentalId: number, contractNo: string, startDate: stri
 }
 
 export async function createRental(input: RentalInput) {
-  const userId = await getUserId()
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
   const value = rentalSchema.parse(input)
   const expectedEndDate = value.billingType === 'daily' ? addCalendarDays(value.startDate, value.duration - 1) : addCalendarDays(addCalendarMonths(value.startDate, value.duration), -1)
   if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
@@ -133,6 +134,7 @@ export async function createRental(input: RentalInput) {
       : buildMonthlyBills(rental.id, numbers.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
     const allBills = value.deposit > 0 ? [...bills, { rentalId: rental.id, billNo: `${numbers.contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
     if (allBills.length) await tx.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))
+    await tx.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rental.id), summary: `创建合同 ${numbers.contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity } })
     })
   } catch (error) {
     const cause = typeof error === 'object' && error && 'cause' in error ? error.cause : error
@@ -330,19 +332,20 @@ export async function getCustomerHistory(phone: string) {
 export async function changeStatus(id: number, status: string) {
   const access = await getAccessContext('租赁操作')
   if (!['在租', '逾期', '丢失', '已关闭'].includes(status)) throw new Error('无效状态')
-  if (status === '已关闭' && access.role !== 'admin') throw new Error('只有管理员可以关闭订单')
+  if (status === '已关闭' && access.role === 'employee') throw new Error('只有管理员可以关闭订单')
   const [rental] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
   if (!rental) throw new Error('订单不存在')
   await db.transaction(async (tx) => {
     await tx.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
     if (status === '已关闭') await tx.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' })
+    await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '变更状态', resourceType: '租赁合同', resourceId: String(id), summary: `合同状态变更为 ${status}`, metadata: { status } })
   })
   revalidatePath('/')
 }
 
 export async function deleteTestRental(id: number) {
   const access = await getAccessContext('租赁操作')
-  if (access.role !== 'admin') throw new Error('只有管理员可以删除测试订单')
+  if (access.role === 'employee') throw new Error('只有管理员可以删除测试订单')
   await db.transaction(async (tx) => {
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
     if (!rental) throw new Error('订单不存在')
@@ -356,6 +359,7 @@ export async function deleteTestRental(id: number) {
       tx.select({ id: accountLedger.id }).from(accountLedger).where(and(eq(accountLedger.rentalId, id), eq(accountLedger.userId, access.userId))),
     ])
     if ([payments, buyouts, renewals, returns, losses, events, ledger].some((records) => records.length > 0)) throw new Error('该订单已有收款或业务记录，不能删除；请改为关闭订单')
+    await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '删除', resourceType: '租赁合同', resourceId: String(id), summary: `删除测试合同 ${rental.contractNo}`, metadata: { customerName: rental.customerName } })
     await tx.delete(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, access.userId)))
     await tx.delete(contractSnapshots).where(and(eq(contractSnapshots.rentalId, id), eq(contractSnapshots.userId, access.userId)))
     await tx.delete(rentalItems).where(and(eq(rentalItems.rentalId, id), eq(rentalItems.userId, access.userId)))
