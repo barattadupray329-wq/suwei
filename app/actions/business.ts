@@ -9,6 +9,7 @@ import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
 import { account, businessSettings, contractSnapshots, organizationMembers, paymentRecords, rentalItems, rentals, session, user } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
+import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
 const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数量、配置及外观，签收即视为验收合格。\n2. 租金与押金：承租方按约定时间支付租金及押金；押金不得直接抵扣租金。\n3. 使用与保管：承租方应合理使用设备，不得擅自拆机、转租或用于违法活动。\n4. 维修责任：正常使用产生的故障由出租方负责；人为损坏产生的费用由承租方承担。\n5. 丢失与损坏：设备丢失或无法修复时，承租方按双方确认价值承担赔偿。\n6. 续租与退租：续租须在到期前确认；退租以设备实际归还并验收之日为准。\n7. 违约与争议：违约方承担相应损失；争议应先协商，协商不成由出租方所在地有管辖权的人民法院处理。\n8. 通知送达：本合同记载的电话和地址为有效联系方式，变更应及时书面通知。`
 
@@ -25,19 +26,6 @@ export async function saveSettings(input:z.infer<typeof settingsSchema>){const i
 
 export async function getContract(rentalId:number){const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId))).orderBy(asc(rentalItems.id));const [snapshot]=await db.select().from(contractSnapshots).where(and(eq(contractSnapshots.userId,id),eq(contractSnapshots.rentalId,rentalId)));const settings=await loadSettings(id);return{rental,items,settings,snapshot}}
 export async function saveContractSnapshot(rentalId:number,input:{customerType:'个人'|'企业';customerIdentityNo?:string;customerCompany?:string;customerCreditCode?:string;terms:string}){const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId)));const settings=await loadSettings(id);const values={userId:id,rentalId,customerType:input.customerType,customerIdentityNo:input.customerIdentityNo,customerCompany:input.customerCompany,customerCreditCode:input.customerCreditCode,lessorJson:JSON.stringify(settings),customerJson:JSON.stringify({name:rental.customerName,phone:rental.customerPhone,address:rental.customerAddress}),itemsJson:JSON.stringify(items),terms:input.terms};await db.insert(contractSnapshots).values(values).onConflictDoUpdate({target:contractSnapshots.rentalId,set:{...values,updatedAt:new Date()}});revalidatePath(`/contracts/${rentalId}`)}
-
-const ACCOUNT_PERMISSIONS = ['租赁操作', '资金查看', '合同管理', '账号管理', '系统设置'] as const
-const nameSchema = z.string().trim().min(2, '姓名至少需要 2 个字').max(40, '姓名最多 40 个字')
-const passwordSchema = z.string().min(8, '密码至少需要 8 位').max(128, '密码最多 128 位')
-
-function validatePermissions(permissions: string[]) {
-  const unique = [...new Set(permissions)]
-  if (unique.length === 0) throw new Error('请至少选择一项权限')
-  if (unique.some((permission) => !ACCOUNT_PERMISSIONS.includes(permission as (typeof ACCOUNT_PERMISSIONS)[number]))) {
-    throw new Error('包含无效的账号权限')
-  }
-  return unique
-}
 
 async function requireOwnedMember(ownerId: string, memberUserId: string) {
   const [member] = await db
@@ -57,7 +45,7 @@ export async function getAccounts() {
 export async function addMember(email: string, permissions: string[]) {
   const id = await requireAdmin()
   const normalized = z.string().email('请输入有效的员工邮箱').parse(email.trim().toLowerCase())
-  const validPermissions = validatePermissions(permissions)
+  const validPermissions = validateAccountPermissions(permissions)
   const [member] = await db.select().from(user).where(eq(user.email, normalized))
   if (!member) throw new Error('该邮箱尚未注册，请员工先创建登录账号')
   if (member.id === id) throw new Error('不能添加自己为员工')
@@ -69,7 +57,7 @@ export async function addMember(email: string, permissions: string[]) {
 
 export async function updateOwnName(name: string) {
   const id = await requireAdmin()
-  const validName = nameSchema.parse(name)
+  const validName = accountNameSchema.parse(name)
   await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, id))
   revalidatePath('/accounts')
   revalidatePath('/')
@@ -77,8 +65,7 @@ export async function updateOwnName(name: string) {
 
 export async function changeOwnPassword(input: { currentPassword: string; newPassword: string; confirmPassword: string }) {
   await requireAdmin()
-  const newPassword = passwordSchema.parse(input.newPassword)
-  if (newPassword !== input.confirmPassword) throw new Error('两次输入的新密码不一致')
+  const newPassword = validatePasswordConfirmation(input)
   if (input.currentPassword === newPassword) throw new Error('新密码不能与当前密码相同')
   try {
     await auth.api.changePassword({ headers: await headers(), body: { currentPassword: input.currentPassword, newPassword, revokeOtherSessions: true } })
@@ -90,7 +77,7 @@ export async function changeOwnPassword(input: { currentPassword: string; newPas
 export async function updateMemberName(memberUserId: string, name: string) {
   const id = await requireAdmin()
   await requireOwnedMember(id, memberUserId)
-  const validName = nameSchema.parse(name)
+  const validName = accountNameSchema.parse(name)
   await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, memberUserId))
   revalidatePath('/accounts')
 }
@@ -98,8 +85,7 @@ export async function updateMemberName(memberUserId: string, name: string) {
 export async function resetMemberPassword(memberUserId: string, input: { newPassword: string; confirmPassword: string }) {
   const id = await requireAdmin()
   await requireOwnedMember(id, memberUserId)
-  const newPassword = passwordSchema.parse(input.newPassword)
-  if (newPassword !== input.confirmPassword) throw new Error('两次输入的新密码不一致')
+  const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
   if (!credential) throw new Error('该员工没有邮箱密码登录凭据')
   await db.transaction(async (tx) => {
@@ -111,7 +97,7 @@ export async function resetMemberPassword(memberUserId: string, input: { newPass
 export async function updateMember(memberUserId: string, input: { active: boolean; permissions: string[] }) {
   const id = await requireAdmin()
   await requireOwnedMember(id, memberUserId)
-  const validPermissions = validatePermissions(input.permissions)
+  const validPermissions = validateAccountPermissions(input.permissions)
   await db.transaction(async (tx) => {
     await tx.update(organizationMembers).set({ active: input.active, permissions: validPermissions.join(','), updatedAt: new Date() }).where(and(eq(organizationMembers.ownerId, id), eq(organizationMembers.memberUserId, memberUserId)))
     if (!input.active) await tx.delete(session).where(eq(session.userId, memberUserId))

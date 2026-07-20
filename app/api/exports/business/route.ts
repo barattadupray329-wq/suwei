@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { formatDeviceConfig } from '@/lib/device-config'
+import { safeError } from '@/lib/errors'
 import { db } from '@/lib/db'
 import {
   accountLedger,
@@ -103,7 +104,7 @@ export async function GET(request: NextRequest) {
     const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '')
     return new NextResponse(Buffer.from(buffer), { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="suwei-backup-${stamp}.xlsx"`, 'Cache-Control': 'private, no-store' } })
   } catch (error) {
-    const message = error instanceof Error ? error.message : '导出失败'
-    return NextResponse.json({ error: message }, { status: message === '未登录' ? 401 : 403 })
+    const safe = safeError(error, '导出失败，请稍后重试')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
 }

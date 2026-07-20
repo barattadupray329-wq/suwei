@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAccessContext } from '@/lib/access'
 import { backupChecksum, countBackupRecords, restoreBackup, validateBackup } from '@/lib/backup'
+import { safeError } from '@/lib/errors'
 
 function translateRestoreError(error: unknown) {
   const raw = error instanceof Error ? error.message : '恢复失败'
@@ -8,7 +9,8 @@ function translateRestoreError(error: unknown) {
   if (raw.includes('duplicate key')) return '备份中存在重复编号，恢复已停止，现有数据未被修改'
   if (raw.includes('violates not-null constraint')) return '备份缺少必要字段，恢复已停止，现有数据未被修改'
   if (raw.includes('invalid input syntax')) return '备份中存在格式错误的数据，恢复已停止，现有数据未被修改'
-  return raw
+  const safe = safeError(error, '备份内容无效或恢复失败，现有数据未被修改')
+  return safe.message
 }
 
 export async function POST(request: Request) {

@@ -5,6 +5,7 @@ import { getAccessContext } from '@/lib/access'
 import { formatDeviceConfig } from '@/lib/device-config'
 import { db } from '@/lib/db'
 import { rentalItems, rentals } from '@/lib/db/schema'
+import { safeError } from '@/lib/errors'
 
 export const runtime = 'nodejs'
 
@@ -79,7 +80,7 @@ export async function GET() {
     const stamp = new Date().toISOString().slice(0, 10)
     return new NextResponse(Buffer.from(buffer), { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`租机明细全表-${stamp}.xlsx`)}`, 'Cache-Control': 'private, no-store' } })
   } catch (error) {
-    const message = error instanceof Error ? error.message : '导出失败'
-    return NextResponse.json({ error: message }, { status: message === '未登录' ? 401 : 403 })
+    const safe = safeError(error, '导出失败，请稍后重试')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
 }

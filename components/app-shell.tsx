@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Banknote, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
@@ -34,8 +34,6 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const can = (permission?: string) => role === 'admin' || !permission || permissions.includes(permission)
   const visibleItems = items.filter((item) => (!item.adminOnly || role === 'admin') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
-
-  useEffect(() => setMobileMenu(false), [pathname])
 
   const safeSignOut = async () => {
     try {
@@ -68,7 +66,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   if (pathname.startsWith('/contracts/') || pathname.startsWith('/portal/')) return children
 
   const navigation = (mobile = false) => <nav aria-label={mobile ? '手机功能菜单' : '后台主导航'} className="flex flex-col gap-1">
-    {visibleItems.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5" />{label}</Link>)}
+    {visibleItems.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={mobile ? () => setMobileMenu(false) : undefined} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5" />{label}</Link>)}
   </nav>
 
   return <div className="min-h-svh bg-background">
