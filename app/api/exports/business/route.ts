@@ -44,7 +44,19 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, columns: Array<{ hea
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B6B4F' } }
   for (const row of rows) sheet.addRow(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, safeCell(value)])))
-  sheet.eachRow((row) => { row.alignment = { vertical: 'middle', wrapText: true } })
+  const configurationColumn = columns.findIndex((column) => column.key === 'configuration') + 1
+  sheet.eachRow((row, index) => {
+    if (index === 1) {
+      row.height = 28
+      row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      return
+    }
+    row.height = 24
+    row.alignment = { vertical: 'middle', wrapText: false }
+    if (configurationColumn > 0) {
+      row.getCell(configurationColumn).note = '双击此单元格，可在编辑栏查看和编辑完整配置。'
+    }
+  })
 }
 
 export async function GET(request: NextRequest) {
@@ -88,7 +100,7 @@ export async function GET(request: NextRequest) {
       { header: '合同编号', key: 'contractNo', width: 20 }, { header: '客户公司', key: 'customerCompany', width: 28 }, { header: '联系人', key: 'customerName', width: 18 }, { header: '联系电话', key: 'customerPhone', width: 16 }, { header: '地址', key: 'customerAddress', width: 28 }, { header: '设备概览', key: 'deviceName', width: 32 }, { header: '数量', key: 'quantity', width: 10 }, { header: '开始日期', key: 'startDate', width: 14 }, { header: '结束日期', key: 'endDate', width: 14 }, { header: '月租合计', key: 'monthlyRent', width: 14 }, { header: '租金总额', key: 'totalRent', width: 14 }, { header: '约定押金', key: 'deposit', width: 14 }, { header: '已收租金', key: 'paidAmount', width: 14 }, { header: '收款状态', key: 'paymentStatus', width: 12 }, { header: '合同状态', key: 'status', width: 12 }, { header: '备注', key: 'notes', width: 30 },
     ], rentalRows)
     addSheet(workbook, '设备明细', [
-      { header: '合同编号', key: 'contractNo', width: 20 }, { header: '设备名称', key: 'deviceName', width: 24 }, { header: '类型', key: 'deviceType', width: 12 }, { header: '设备编号', key: 'deviceCode', width: 18 }, { header: '数量', key: 'quantity', width: 10 }, { header: '已买断', key: 'boughtOutQuantity', width: 10 }, { header: '已退租', key: 'returnedQuantity', width: 10 }, { header: '已丢失', key: 'lostQuantity', width: 10 }, { header: '开始日期', key: 'startDate', width: 14 }, { header: '结束日期', key: 'endDate', width: 14 }, { header: '月租', key: 'monthlyRent', width: 14 }, { header: '配置', key: 'configuration', width: 45 },
+      { header: '合同编号', key: 'contractNo', width: 16 }, { header: '设备名称', key: 'deviceName', width: 18 }, { header: '类型', key: 'deviceType', width: 10 }, { header: '设备编号', key: 'deviceCode', width: 15 }, { header: '数量', key: 'quantity', width: 8 }, { header: '已买断', key: 'boughtOutQuantity', width: 8 }, { header: '已退租', key: 'returnedQuantity', width: 8 }, { header: '已丢失', key: 'lostQuantity', width: 8 }, { header: '开始日期', key: 'startDate', width: 12 }, { header: '结束日期', key: 'endDate', width: 12 }, { header: '月租', key: 'monthlyRent', width: 10 }, { header: '配置', key: 'configuration', width: 28 },
     ], itemRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId, configuration: formatDeviceConfig(row, true) })))
     addSheet(workbook, '收款记录', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '收款日期', key: 'paymentDate', width: 14 }, { header: '金额', key: 'amount', width: 14 }, { header: '费用类型', key: 'feeType', width: 14 }, { header: '支付方式', key: 'paymentMethod', width: 14 }, { header: '经办人', key: 'operatorName', width: 16 }, { header: '备注', key: 'notes', width: 30 }], paymentRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))
     addSheet(workbook, '月度应收账单', [{ header: '合同编号', key: 'contractNo', width: 20 }, { header: '账单编号', key: 'billNo', width: 22 }, { header: '账期开始', key: 'periodStart', width: 14 }, { header: '账期结束', key: 'periodEnd', width: 14 }, { header: '到期日', key: 'dueDate', width: 14 }, { header: '账单类型', key: 'billType', width: 16 }, { header: '应收金额', key: 'amount', width: 14 }, { header: '已收金额', key: 'paidAmount', width: 14 }, { header: '状态', key: 'status', width: 12 }, { header: '备注', key: 'notes', width: 30 }], billRows.map((row) => ({ ...row, contractNo: contractMap.get(row.rentalId) || row.rentalId })))

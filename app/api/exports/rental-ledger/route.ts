@@ -25,7 +25,12 @@ function styleSheet(sheet: ExcelJS.Worksheet) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: column <= 15 ? 'FF166534' : 'FF075985' } }
   })
   sheet.eachRow((row, index) => {
-    if (index > 1) row.alignment = { vertical: 'middle', wrapText: true }
+    if (index > 1) {
+      row.height = 24
+      row.alignment = { vertical: 'middle', wrapText: false }
+      row.getCell(3).alignment = { vertical: 'middle', wrapText: false }
+      row.getCell(3).note = '双击此单元格，可在编辑栏查看和编辑完整配置。'
+    }
   })
 }
 
@@ -40,8 +45,8 @@ export async function GET() {
     const workbook = new ExcelJS.Workbook()
     workbook.creator = '速维租赁管理'
     const columns = [
-      ['租赁开始时间', 'startDate', 14], ['机器号', 'machineNo', 14], ['电脑配置', 'configuration', 46], ['原始数量', 'originalQuantity', 10], ['在租数量', 'activeQuantity', 10], ['租赁人', 'customerName', 18], ['租赁期间', 'period', 26], ['租金', 'rentText', 18], ['每月租金', 'periodRent', 14], ['已付租金', 'paidRent', 14], ['租赁结束时间', 'endDate', 14], ['到期提醒', 'expiry', 16], ['备注', 'notes', 36], ['租赁情况', 'status', 12], ['位置', 'location', 20],
-      ['合同编号*', 'contractNo', 20], ['客户电话*', 'customerPhone', 16], ['客户公司', 'customerCompany', 24], ['联系人*', 'contactName', 18], ['设备类型*', 'deviceType', 14], ['设备名称*', 'deviceName', 22], ['设备编号', 'deviceCode', 18], ['计费方式*', 'billingType', 12], ['租赁整数*', 'duration', 12], ['单价（元/台/期）*', 'unitPrice', 18], ['押金（元）', 'deposit', 14], ['已收租金（元）', 'paidAmount', 16], ['导出状态', 'exportStatus', 14], ['数据说明', 'dataNotes', 34],
+      ['租赁开始时间', 'startDate', 12], ['机器号', 'machineNo', 14], ['电脑配置', 'configuration', 28], ['原始数量', 'originalQuantity', 8], ['在租数量', 'activeQuantity', 8], ['租赁人', 'customerName', 12], ['租赁期间', 'period', 22], ['租金', 'rentText', 13], ['每月租金', 'periodRent', 11], ['已付租金', 'paidRent', 11], ['租赁结束时间', 'endDate', 12], ['到期提醒', 'expiry', 12], ['备注', 'notes', 20], ['租赁情况', 'status', 10], ['位置', 'location', 18],
+      ['合同编号*', 'contractNo', 16], ['客户电话*', 'customerPhone', 14], ['客户公司', 'customerCompany', 18], ['联系人*', 'contactName', 12], ['设备类型*', 'deviceType', 10], ['设备名称*', 'deviceName', 16], ['设备编号', 'deviceCode', 15], ['计费方式*', 'billingType', 10], ['租赁整数*', 'duration', 10], ['单价（元/台/期）*', 'unitPrice', 13], ['押金（元）', 'deposit', 11], ['已收租金（元）', 'paidAmount', 13], ['导出状态', 'exportStatus', 11], ['数据说明', 'dataNotes', 22],
     ] as const
     const monthsBetween = (start: string, end: string) => {
       const a = new Date(`${start}T00:00:00`)
@@ -73,7 +78,7 @@ export async function GET() {
     createSheet('在租清单', current)
     createSheet('历史清单', history)
     const info = workbook.addWorksheet('填写说明')
-    info.addRows([['员工租机明细导出说明'], ['左侧绿色15列延续旧表查看习惯，右侧蓝色列用于与软件精准匹配。'], ['修改数据时请保留合同编号；合同编号是回传匹配的第一依据。'], ['租赁时间必须为整数，单价必须大于0，日期使用 YYYY-MM-DD。'], ['押金与租金分开记录，“已付租金”不包含押金。']])
+    info.addRows([['员工租机明细导出说明'], ['左侧绿色15列延续旧表查看习惯，右侧蓝色列用于与软件精准匹配。'], ['表格采用紧凑单行显示；双击“电脑配置”单元格，可在编辑栏查看和编辑完整配置。'], ['修改数据时请保留合同编号；合同编号是回传匹配的第一依据。'], ['租赁时间必须为整数，单价必须大于0，日期使用 YYYY-MM-DD。'], ['押金与租金分开记录，“已付租金”不包含押金。']])
     info.getColumn(1).width = 90
     info.getRow(1).font = { bold: true, size: 16, color: { argb: 'FF166534' } }
     const buffer = await workbook.xlsx.writeBuffer()
