@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, organizationMembers, paymentRecords, rentalItems, rentals, session, user } from '@/lib/db/schema'
+import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
@@ -16,7 +16,12 @@ const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数
 
 async function userId(permission?:ModulePermission) { return (await getAccessContext(permission)).userId }
 async function requireManager() { const context=await getAccessContext('账号管理');if(context.role==='employee')throw new Error('仅管理员可管理员工账号');return context }
-async function requireSuperAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='super_admin')throw new Error('仅超级管理员可审核管理员申请');return context }
+async function requireSuperAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='super_admin')throw new Error('仅超级管理员可执行此操作');return context }
+
+const websitePackageSchema = z.object({ name: z.string().trim().min(2).max(30), subtitle: z.string().trim().max(60), monthlyPrice: z.coerce.number().int().min(0).max(100000), cpuSpec: z.string().trim().max(60), memorySpec: z.string().trim().max(40), storageSpec: z.string().trim().max(60), graphicsSpec: z.string().trim().max(60), displaySpec: z.string().trim().max(80), audience: z.string().trim().max(100), badge: z.string().trim().max(12), active: z.boolean(), sortOrder: z.coerce.number().int().min(0).max(10000) })
+export async function getWebsitePackagesForAdmin(){const context=await requireSuperAdmin();return db.select().from(websitePackages).where(eq(websitePackages.userId,context.userId)).orderBy(asc(websitePackages.sortOrder),asc(websitePackages.id))}
+export async function saveWebsitePackage(input:z.infer<typeof websitePackageSchema>&{id?:number}){const context=await requireSuperAdmin();const value=websitePackageSchema.parse(input);const now=new Date();if(input.id){await db.update(websitePackages).set({...value,updatedAt:now}).where(and(eq(websitePackages.id,input.id),eq(websitePackages.userId,context.userId)))}else{await db.insert(websitePackages).values({...value,userId:context.userId,createdAt:now,updatedAt:now})}revalidatePath('/');revalidatePath('/website-packages')}
+export async function deleteWebsitePackage(id:number){const context=await requireSuperAdmin();await db.delete(websitePackages).where(and(eq(websitePackages.id,id),eq(websitePackages.userId,context.userId)));revalidatePath('/');revalidatePath('/website-packages')}
 
 export async function getFinanceData(from?:string,to?:string){const id=await userId('资金查看');const filters=[eq(paymentRecords.userId,id)];if(from)filters.push(gte(paymentRecords.paymentDate,from));if(to)filters.push(lte(paymentRecords.paymentDate,to));const rows=await db.select({id:paymentRecords.id,rentalId:paymentRecords.rentalId,amount:paymentRecords.amount,paymentDate:paymentRecords.paymentDate,paymentMethod:paymentRecords.paymentMethod,feeType:paymentRecords.feeType,notes:paymentRecords.notes,operatorName:paymentRecords.operatorName,contractNo:rentals.contractNo,customerCompany:rentals.customerCompany,customerName:rentals.customerName,customerPhone:rentals.customerPhone,deviceName:rentals.deviceName,renewalRecordId:paymentRecords.renewalRecordId}).from(paymentRecords).innerJoin(rentals,and(eq(rentals.id,paymentRecords.rentalId),eq(rentals.userId,id))).where(and(...filters)).orderBy(desc(paymentRecords.paymentDate),desc(paymentRecords.id));const now=new Date();const day=now.toISOString().slice(0,10);const month=day.slice(0,7);const year=day.slice(0,4);const all=await db.select({date:paymentRecords.paymentDate,amount:paymentRecords.amount,feeType:paymentRecords.feeType}).from(paymentRecords).where(eq(paymentRecords.userId,id));const sum=(test:(d:string)=>boolean)=>all.filter(x=>test(x.date)).reduce((s,x)=>s+Number(x.amount),0);return{rows,summary:{today:sum(d=>d===day),month:sum(d=>d.startsWith(month)),year:sum(d=>d.startsWith(year)),all:sum(()=>true)},types:Object.entries(all.reduce<Record<string,number>>((a,x)=>(a[x.feeType]=(a[x.feeType]||0)+Number(x.amount),a),{}))}}
 

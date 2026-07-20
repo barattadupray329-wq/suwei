@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { Banknote, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
@@ -17,9 +17,10 @@ type ShellProps = {
 }
 
 const items = [
-  { href: '/', label: '经营总览', icon: LayoutDashboard, permission: '租赁操作' },
+  { href: '/dashboard', label: '经营总览', icon: LayoutDashboard, permission: '租赁操作' },
   { href: '/finance', label: '资金流水', icon: Banknote, permission: '资金查看' },
   { href: '/accounts', label: '账号管理', icon: UserRoundCog, permission: '账号管理' },
+  { href: '/website-packages', label: '官网套餐', icon: Globe2, superAdminOnly: true },
   { href: '/settings', label: '系统设置', icon: Palette, permission: '系统设置' },
   { href: '/customer-portals', label: '客户门户', icon: QrCode, adminOnly: true },
   { href: '/backup', label: '版本与备份', icon: HardDriveDownload, adminOnly: true },
@@ -33,7 +34,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const [mobileMenu, setMobileMenu] = useState(false)
   const isManager = role === 'super_admin' || role === 'admin'
   const can = (permission?: string) => isManager || !permission || permissions.includes(permission)
-  const visibleItems = items.filter((item) => (!item.adminOnly || isManager) && can(item.permission))
+  const visibleItems = items.filter((item) => (!item.adminOnly || isManager) && (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
 
   const safeSignOut = async () => {
@@ -64,7 +65,8 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
     router.refresh()
   }
 
-  if (pathname.startsWith('/contracts/') || pathname.startsWith('/portal/')) return children
+  const publicRoute = pathname === '/' || pathname.startsWith('/customer') || pathname.startsWith('/portal/')
+  if (publicRoute || pathname.startsWith('/contracts/')) return children
 
   const navigation = (mobile = false) => <nav aria-label={mobile ? '手机功能菜单' : '后台主导航'} className="flex flex-col gap-1">
     {visibleItems.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={mobile ? () => setMobileMenu(false) : undefined} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5" />{label}</Link>)}
@@ -88,7 +90,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
     </div>
 
     <nav aria-label="手机快捷导航" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-2 border-t bg-card px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
-      <Link href="/" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname === '/' ? 'text-primary' : 'text-muted-foreground'}`}><LayoutDashboard className="size-5" />经营总览</Link>
+      <Link href="/dashboard" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}><LayoutDashboard className="size-5" />经营总览</Link>
       {can('资金查看') ? <Link href="/finance" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname.startsWith('/finance') ? 'text-primary' : 'text-muted-foreground'}`}><Banknote className="size-5" />资金流水</Link> : <button type="button" onClick={() => setMobileMenu(true)} className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-muted-foreground"><Menu className="size-5" />全部功能</button>}
     </nav>
   </div>

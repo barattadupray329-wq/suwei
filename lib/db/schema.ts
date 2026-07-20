@@ -58,6 +58,10 @@ export const adminApplications = pgTable('admin_applications', {
   id: serial('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull(), phone: text('phone').notNull(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('pending'), reviewedBy: text('reviewedBy'), reviewedAt: timestamp('reviewedAt'), rejectionReason: text('rejectionReason'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 
+export const websitePackages = pgTable('website_packages', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), name: text('name').notNull(), subtitle: text('subtitle').notNull().default(''), monthlyPrice: integer('monthlyPrice').notNull(), cpuSpec: text('cpuSpec').notNull().default(''), memorySpec: text('memorySpec').notNull().default(''), storageSpec: text('storageSpec').notNull().default(''), graphicsSpec: text('graphicsSpec').notNull().default(''), displaySpec: text('displaySpec').notNull().default(''), audience: text('audience').notNull().default(''), badge: text('badge').notNull().default(''), active: boolean('active').notNull().default(true), sortOrder: integer('sortOrder').notNull().default(0), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+})
+
 export const backupSnapshots = pgTable('backup_snapshots', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), backupType: text('backupType').notNull().default('scheduled'), schemaVersion: integer('schemaVersion').notNull().default(1), recordCount: integer('recordCount').notNull().default(0), checksum: text('checksum').notNull(), payload: jsonb('payload').notNull(), status: text('status').notNull().default('ready'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })

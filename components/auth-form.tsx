@@ -41,7 +41,7 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
       setError(result.error.message ?? '邮箱或密码不正确')
       return
     }
-    router.push('/')
+    router.push('/dashboard')
     router.refresh()
   }
 

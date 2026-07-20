@@ -10,7 +10,7 @@ import './globals.css'
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
-export const metadata: Metadata = { title: '速维租赁管理', description: '电脑租赁业务管理平台' }
+export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.cn'), title: { default: '速维电脑租赁｜电脑按月租', template: '%s' }, description: '龙岩电脑租赁服务，办公、设计、电竞电脑按月灵活租用。', applicationName: '速维电脑租赁', keywords: ['龙岩电脑租赁','电脑月租','办公电脑租赁','电竞电脑租赁','速维租赁'] }
 export const viewport: Viewport = { themeColor: '#f5f7f6', width: 'device-width', initialScale: 1 }
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() })
