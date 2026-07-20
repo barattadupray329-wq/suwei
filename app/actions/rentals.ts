@@ -5,7 +5,7 @@ import { and, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, buyoutRecords, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, buyoutRecords, contractSnapshots, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -328,8 +328,38 @@ export async function getCustomerHistory(phone: string) {
 }
 
 export async function changeStatus(id: number, status: string) {
-  const userId = await getUserId()
-  if (!['在租', '逾期', '丢失'].includes(status)) throw new Error('无效状态')
-  await db.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId)))
+  const access = await getAccessContext('租赁操作')
+  if (!['在租', '逾期', '丢失', '已关闭'].includes(status)) throw new Error('无效状态')
+  if (status === '已关闭' && access.role !== 'admin') throw new Error('只有管理员可以关闭订单')
+  const [rental] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+  if (!rental) throw new Error('订单不存在')
+  await db.transaction(async (tx) => {
+    await tx.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+    if (status === '已关闭') await tx.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' })
+  })
+  revalidatePath('/')
+}
+
+export async function deleteTestRental(id: number) {
+  const access = await getAccessContext('租赁操作')
+  if (access.role !== 'admin') throw new Error('只有管理员可以删除测试订单')
+  await db.transaction(async (tx) => {
+    const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+    if (!rental) throw new Error('订单不存在')
+    const [payments, buyouts, renewals, returns, losses, events, ledger] = await Promise.all([
+      tx.select({ id: paymentRecords.id }).from(paymentRecords).where(and(eq(paymentRecords.rentalId, id), eq(paymentRecords.userId, access.userId))),
+      tx.select({ id: buyoutRecords.id }).from(buyoutRecords).where(and(eq(buyoutRecords.rentalId, id), eq(buyoutRecords.userId, access.userId))),
+      tx.select({ id: renewalRecords.id }).from(renewalRecords).where(and(eq(renewalRecords.rentalId, id), eq(renewalRecords.userId, access.userId))),
+      tx.select({ id: returnRecords.id }).from(returnRecords).where(and(eq(returnRecords.rentalId, id), eq(returnRecords.userId, access.userId))),
+      tx.select({ id: lossRecords.id }).from(lossRecords).where(and(eq(lossRecords.rentalId, id), eq(lossRecords.userId, access.userId))),
+      tx.select({ id: rentalEvents.id }).from(rentalEvents).where(and(eq(rentalEvents.rentalId, id), eq(rentalEvents.userId, access.userId))),
+      tx.select({ id: accountLedger.id }).from(accountLedger).where(and(eq(accountLedger.rentalId, id), eq(accountLedger.userId, access.userId))),
+    ])
+    if ([payments, buyouts, renewals, returns, losses, events, ledger].some((records) => records.length > 0)) throw new Error('该订单已有收款或业务记录，不能删除；请改为关闭订单')
+    await tx.delete(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, access.userId)))
+    await tx.delete(contractSnapshots).where(and(eq(contractSnapshots.rentalId, id), eq(contractSnapshots.userId, access.userId)))
+    await tx.delete(rentalItems).where(and(eq(rentalItems.rentalId, id), eq(rentalItems.userId, access.userId)))
+    await tx.delete(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+  })
   revalidatePath('/')
 }
