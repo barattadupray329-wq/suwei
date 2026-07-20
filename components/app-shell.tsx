@@ -12,7 +12,7 @@ type ShellProps = {
   children: ReactNode
   storeName: string
   userName: string
-  role: 'admin' | 'employee'
+  role: 'super_admin' | 'admin' | 'employee'
   permissions: string[]
 }
 
@@ -31,13 +31,14 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenu, setMobileMenu] = useState(false)
-  const can = (permission?: string) => role === 'admin' || !permission || permissions.includes(permission)
-  const visibleItems = items.filter((item) => (!item.adminOnly || role === 'admin') && can(item.permission))
+  const isManager = role === 'super_admin' || role === 'admin'
+  const can = (permission?: string) => isManager || !permission || permissions.includes(permission)
+  const visibleItems = items.filter((item) => (!item.adminOnly || isManager) && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
 
   const safeSignOut = async () => {
     try {
-      if (role === 'admin') {
+      if (isManager) {
         const snapshot = await fetch('/api/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'exit' }) })
         if (!snapshot.ok) throw new Error('退出前云备份失败')
         for (const [endpoint, filename] of [['/api/backups?download=json', `rental-backup-${today()}.json`], ['/api/exports/business', `rental-data-${today()}.xlsx`]]) {
@@ -76,10 +77,10 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5" /></span>
         <div className="min-w-0"><p className="truncate font-semibold">{storeName}</p><p className="text-xs text-muted-foreground">门店业务工作台</p></div>
       </div>
-      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label={role === 'admin' ? '安全备份并退出登录' : '退出登录'} title={role === 'admin' ? '安全备份并退出' : '退出登录'} onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
+      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label={isManager ? '安全备份并退出登录' : '退出登录'} title={isManager ? '安全备份并退出' : '退出登录'} onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
     </header>
 
-    {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭功能菜单" className="absolute inset-0 bg-foreground/30" onClick={() => setMobileMenu(false)} /><aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-card p-4 shadow-xl"><div className="flex items-center justify-between border-b pb-4"><div><p className="font-semibold">功能菜单</p><p className="text-xs text-muted-foreground">{userName} · {role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="关闭功能菜单" onClick={() => setMobileMenu(false)} className="rounded-lg border p-2"><X className="size-5" /></button></div><div className="mt-4">{navigation(true)}</div></aside></div>}
+    {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭功能菜单" className="absolute inset-0 bg-foreground/30" onClick={() => setMobileMenu(false)} /><aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-card p-4 shadow-xl"><div className="flex items-center justify-between border-b pb-4"><div><p className="font-semibold">功能菜单</p><p className="text-xs text-muted-foreground">{userName} · {role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="关闭功能菜单" onClick={() => setMobileMenu(false)} className="rounded-lg border p-2"><X className="size-5" /></button></div><div className="mt-4">{navigation(true)}</div></aside></div>}
 
     <div className="flex pb-20 md:pb-0">
       <aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-56 shrink-0 self-start overflow-y-auto border-r bg-card p-4 md:block">{navigation()}</aside>

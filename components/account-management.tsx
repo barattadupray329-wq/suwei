@@ -9,6 +9,7 @@ import {
   addMember,
   changeOwnPassword,
   resetMemberPassword,
+  reviewAdminApplication,
   updateMember,
   updateMemberName,
   updateOwnName,
@@ -30,7 +31,9 @@ type Member = Account & {
   permissions: string
 }
 
-export function AccountManagement({ data }: { data: { owner: Account[]; members: Member[] } }) {
+type Application = { id: number; name: string; email: string; phone: string; status: string; createdAt: Date | string }
+
+export function AccountManagement({ data }: { data: { owner: Account[]; members: Member[]; applications: Application[]; currentRole: 'super_admin' | 'admin' } }) {
   const owner = data.owner[0]
   return (
     <main className="min-h-svh bg-background p-4 md:p-6">
@@ -49,7 +52,8 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
           </div>
         </header>
 
-        {owner ? <OwnerSection owner={owner} /> : null}
+        {owner ? <OwnerSection owner={owner} role={data.currentRole} /> : null}
+        {data.currentRole === 'super_admin' ? <ApplicationSection applications={data.applications} /> : null}
         <AddMemberSection />
 
         <section className="flex flex-col gap-4" aria-labelledby="member-accounts-title">
@@ -76,7 +80,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
   )
 }
 
-function OwnerSection({ owner }: { owner: Account }) {
+function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | 'admin' }) {
   const router = useRouter()
   const [profilePending, startProfile] = useTransition()
   const [passwordPending, startPassword] = useTransition()
@@ -92,7 +96,7 @@ function OwnerSection({ owner }: { owner: Account }) {
           <h2 id="my-account-title" className="font-semibold">我的管理员账号</h2>
           <p className="text-sm text-muted-foreground">修改姓名或使用当前密码更新登录密码。</p>
         </div>
-        <span className="ml-auto hidden rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary sm:inline-flex">管理员 · 正常</span>
+        <span className="ml-auto hidden rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary sm:inline-flex">{role === 'super_admin' ? '超级管理员' : '管理员'} · 正常</span>
       </div>
       <div className="grid gap-6 p-5 lg:grid-cols-2">
         <form className="flex flex-col gap-4" aria-busy={profilePending} onSubmit={(event) => {
@@ -147,6 +151,19 @@ function OwnerSection({ owner }: { owner: Account }) {
   )
 }
 
+function ApplicationSection({ applications }: { applications: Application[] }) {
+  const router = useRouter()
+  const [pendingId, setPendingId] = useState<number | null>(null)
+  const review = async (id: number, decision: 'approve' | 'reject') => {
+    if (!window.confirm(decision === 'approve' ? '确认批准该管理员申请吗？批准后对方可登录并创建员工。' : '确认拒绝该管理员申请吗？')) return
+    setPendingId(id)
+    try { await reviewAdminApplication(id, decision); toast.success(decision === 'approve' ? '管理员申请已批准' : '管理员申请已拒绝'); router.refresh() }
+    catch (error) { toast.error(error instanceof Error ? error.message : '申请处理失败') }
+    finally { setPendingId(null) }
+  }
+  return <section className="rounded-xl border bg-card p-5" aria-labelledby="applications-title"><div><h2 id="applications-title" className="font-semibold">管理员申请审核</h2><p className="text-sm text-muted-foreground">只有超级管理员可以批准管理员。审核前申请人不能登录。</p></div><div className="mt-4 grid gap-3">{applications.length ? applications.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{item.name}</p><p className="text-sm text-muted-foreground">{item.email} · {item.phone}</p><p className="mt-1 text-xs text-muted-foreground">申请时间：{formatDate(item.createdAt)}</p></div><div className="flex gap-2"><button disabled={pendingId === item.id} onClick={() => review(item.id, 'reject')} className="h-9 rounded-lg border px-3 text-sm font-medium disabled:opacity-50">拒绝</button><button disabled={pendingId === item.id} onClick={() => review(item.id, 'approve')} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">批准为管理员</button></div></article>) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">当前没有待审核的管理员申请。</p>}</div></section>
+}
+
 function AddMemberSection() {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -160,7 +177,7 @@ function AddMemberSection() {
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><UserPlus className="size-5" /></span>
         <div>
           <h2 id="add-member-title" className="font-semibold">创建员工账号</h2>
-          <p className="text-sm text-muted-foreground">公开注册已关闭。只有超级管理员可以创建账号并设置临时密码。</p>
+          <p className="text-sm text-muted-foreground">员工不能自行注册。管理员和超级管理员可以创建员工账号并设置临时密码。</p>
         </div>
       </div>
       <form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => {

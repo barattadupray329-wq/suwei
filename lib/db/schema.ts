@@ -50,6 +50,14 @@ export const businessSettings = pgTable('business_settings', { id: serial('id').
 export const contractSnapshots = pgTable('contract_snapshots', { id: serial('id').primaryKey(), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull().unique(), customerType: text('customerType').notNull().default('个人'), customerIdentityNo: text('customerIdentityNo'), customerCompany: text('customerCompany'), customerCreditCode: text('customerCreditCode'), lessorJson: text('lessorJson').notNull(), customerJson: text('customerJson').notNull(), itemsJson: text('itemsJson').notNull(), terms: text('terms').notNull(), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
 export const organizationMembers = pgTable('organization_members', { id: serial('id').primaryKey(), ownerId: text('ownerId').notNull(), memberUserId: text('memberUserId').notNull().unique(), role: text('role').notNull().default('employee'), active: boolean('active').notNull().default(true), permissions: text('permissions').notNull().default('rentals'), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
 
+export const accountProfiles = pgTable('account_profiles', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), role: text('role').notNull().default('employee'), phone: text('phone').unique(), recoveryPhone: text('recoveryPhone'), active: boolean('active').notNull().default(true), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+})
+
+export const adminApplications = pgTable('admin_applications', {
+  id: serial('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull(), phone: text('phone').notNull(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('pending'), reviewedBy: text('reviewedBy'), reviewedAt: timestamp('reviewedAt'), rejectionReason: text('rejectionReason'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+})
+
 export const backupSnapshots = pgTable('backup_snapshots', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), backupType: text('backupType').notNull().default('scheduled'), schemaVersion: integer('schemaVersion').notNull().default(1), recordCount: integer('recordCount').notNull().default(0), checksum: text('checksum').notNull(), payload: jsonb('payload').notNull(), status: text('status').notNull().default('ready'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
