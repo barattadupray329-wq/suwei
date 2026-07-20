@@ -14,7 +14,9 @@ export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.c
 export const viewport: Viewport = { themeColor: '#f5f7f6', width: 'device-width', initialScale: 1 }
 export const dynamic = 'force-dynamic'
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const requestHeaders = await headers()
+  const hasRequestContext = requestHeaders.has('host')
+  const session = hasRequestContext ? await auth.api.getSession({ headers: requestHeaders }) : null
   let content = children
   if (session?.user) {
     const [access, storeName] = await Promise.all([getAccessContext(), getStoreName()])
