@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     await verifyCustomerOtp(String(body.phone ?? ''), String(body.code ?? ''))
     return NextResponse.json({ ok: true })
   } catch (error) {
-    const otpError = error instanceof CustomerOtpError ? error : new CustomerOtpError('验证失败，请稍后重试', 500)
+    const otpError = error instanceof CustomerOtpError || (error instanceof Error && error.name === 'CustomerOtpError') ? error as CustomerOtpError : new CustomerOtpError('验证失败，请稍后重试', 500)
     return NextResponse.json({ ok: false, message: otpError.message, retryAfter: otpError.retryAfter }, { status: otpError.status, headers: otpError.retryAfter ? { 'Retry-After': String(otpError.retryAfter) } : undefined })
   }
 }
