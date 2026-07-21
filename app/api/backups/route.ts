@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAccessContext } from '@/lib/access'
 import { buildBackup, ensureDailyCloudSnapshot, listCloudSnapshots, saveCloudSnapshot } from '@/lib/backup'
 import { safeError } from '@/lib/errors'
+import { isTrustedMutationRequest } from '@/lib/request-security'
 
 export async function GET(request: Request) {
   try {
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    if (!isTrustedMutationRequest(request)) return NextResponse.json({ error: '请求来源无效' }, { status: 403 })
     const { userId, role } = await getAccessContext('系统设置')
     if (role === 'employee') return NextResponse.json({ error: '仅管理员可创建备份' }, { status: 403 })
     const body = await request.json().catch(() => ({})) as { type?: string }

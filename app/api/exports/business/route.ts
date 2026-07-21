@@ -62,7 +62,7 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, columns: Array<{ hea
 export async function GET(request: NextRequest) {
   try {
     const access = await getAccessContext('系统设置')
-    if (access.role !== 'admin') return NextResponse.json({ error: '仅管理员可以导出完整数据' }, { status: 403 })
+    if (access.role === 'employee') return NextResponse.json({ error: '仅管理员可以导出完整数据' }, { status: 403 })
     const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams))
     if (!parsed.success) return NextResponse.json({ error: '日期格式无效' }, { status: 400 })
     const { from, to } = parsed.data
