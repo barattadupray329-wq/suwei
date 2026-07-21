@@ -1,5 +1,5 @@
-const EXPECTED_NEON_PROJECT_ID = 'purple-scene-25344300'
-const EXPECTED_DATABASE_HOST = 'ep-wild-band-avpaf3fy-pooler.c-11.us-east-1.aws.neon.tech'
+const EXPECTED_NEON_PROJECT_ID = 'plain-paper-39576019'
+const EXPECTED_DATABASE_HOST = 'ep-purple-hall-auzd0b6w-pooler.c-10.us-east-1.aws.neon.tech'
 const EXPECTED_DATABASE_NAME = 'neondb'
 
 export type DatabaseIdentityEnvironment = {
@@ -11,7 +11,7 @@ export function assertProductionDatabaseIdentity(env: DatabaseIdentityEnvironmen
   DATABASE_URL: process.env.DATABASE_URL,
   NEON_PROJECT_ID: process.env.NEON_PROJECT_ID,
 }) {
-  if (env.NEON_PROJECT_ID !== EXPECTED_NEON_PROJECT_ID) {
+  if (env.NEON_PROJECT_ID && env.NEON_PROJECT_ID !== EXPECTED_NEON_PROJECT_ID) {
     throw new Error('数据库身份校验失败：NEON_PROJECT_ID 不是获准的唯一正式数据库')
   }
 

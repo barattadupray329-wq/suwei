@@ -369,11 +369,14 @@ export async function deleteTestRental(id: number) {
     ] as const
     const existingTypes = relatedRecords.filter(([, records]) => records.length > 0).map(([label]) => label)
     if (existingTypes.length > 0) throw new Error(`该合同已有${existingTypes.join('、')}记录，不能永久删除；请使用“关闭订单”保留业务记录`)
-    await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '删除', resourceType: '租赁合同', resourceId: String(id), summary: `删除测试合同 ${rental.contractNo}`, metadata: { customerName: rental.customerName } })
     await tx.delete(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, access.userId)))
     await tx.delete(contractSnapshots).where(and(eq(contractSnapshots.rentalId, id), eq(contractSnapshots.userId, access.userId)))
     await tx.delete(rentalItems).where(and(eq(rentalItems.rentalId, id), eq(rentalItems.userId, access.userId)))
-    await tx.delete(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+    const deletedRentals = await tx.delete(rentals)
+      .where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
+      .returning({ id: rentals.id })
+    if (deletedRentals.length !== 1) throw new Error('合同删除未完成，所有改动已回滚，请刷新后重试')
+    await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '删除', resourceType: '租赁合同', resourceId: String(id), summary: `删除测试合同 ${rental.contractNo}`, metadata: { customerName: rental.customerName } })
   })
   revalidatePath('/')
 }
