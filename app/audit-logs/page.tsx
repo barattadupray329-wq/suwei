@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation'
 import { getAccessContext } from '@/lib/access'
 import { listAuditLogs } from '@/lib/audit'
 
 export default async function AuditLogsPage() {
-  const access = await getAccessContext('账号管理')
-  if (access.role === 'employee') redirect('/dashboard')
+  const access = await getAccessContext('系统设置')
   const logs = await listAuditLogs(access.userId)
   return <main className="mx-auto flex max-w-7xl flex-col gap-6 p-4 md:p-6">
     <header><p className="text-sm font-medium text-primary">安全审计</p><h1 className="mt-1 text-2xl font-bold text-balance">操作日志</h1><p className="mt-1 text-sm text-muted-foreground">查看关键业务操作的人员、时间和影响对象，最近展示 100 条。</p></header>

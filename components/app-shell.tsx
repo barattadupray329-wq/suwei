@@ -22,9 +22,9 @@ const items = [
   { href: '/accounts', label: '账号管理', icon: UserRoundCog, permission: '账号管理' },
   { href: '/website-packages', label: '官网套餐', icon: Globe2, superAdminOnly: true },
   { href: '/settings', label: '系统设置', icon: Palette, permission: '系统设置' },
-  { href: '/customer-portals', label: '客户门户', icon: QrCode, adminOnly: true },
-  { href: '/audit-logs', label: '操作日志', icon: ClipboardList, adminOnly: true },
-  { href: '/backup', label: '版本与备份', icon: HardDriveDownload, adminOnly: true },
+  { href: '/customer-portals', label: '客户门户', icon: QrCode, permission: '合同管理' },
+  { href: '/audit-logs', label: '操作日志', icon: ClipboardList, permission: '系统设置' },
+  { href: '/backup', label: '版本与备份', icon: HardDriveDownload, permission: '系统设置' },
 ]
 
 export function AppShell({ children, storeName, userName, role, permissions }: ShellProps) {
@@ -32,8 +32,8 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const router = useRouter()
   const [mobileMenu, setMobileMenu] = useState(false)
   const isManager = role === 'super_admin' || role === 'admin'
-  const can = (permission?: string) => isManager || !permission || permissions.includes(permission)
-  const visibleItems = items.filter((item) => (!item.adminOnly || isManager) && (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
+  const can = (permission?: string) => role === 'super_admin' || !permission || permissions.includes(permission)
+  const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
 
@@ -78,7 +78,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
     </div>
 
     <nav aria-label="手机快捷导航" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t bg-card px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_hsl(var(--foreground)/0.06)] md:hidden">
-      <Link href="/dashboard" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}><LayoutDashboard className="size-5" />经营总览</Link>
+      {can('租赁操作') ? <Link href="/dashboard" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}><LayoutDashboard className="size-5" />经营总览</Link> : <span />}
       {can('资金查看') ? <Link href="/finance" className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${pathname.startsWith('/finance') ? 'text-primary' : 'text-muted-foreground'}`}><Banknote className="size-5" />资金流水</Link> : <span />}
       <button type="button" onClick={() => setMobileMenu(true)} className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${!pathname.startsWith('/dashboard') && !pathname.startsWith('/finance') ? 'text-primary' : 'text-muted-foreground'}`}><Menu className="size-5" />全部功能</button>
     </nav>

@@ -1,5 +1,4 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import { redirect } from 'next/navigation'
 import { BackupCenter } from '@/components/backup-center'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -9,7 +8,6 @@ import { getStoreName } from '@/app/actions/business'
 
 export default async function Page() {
   const access = await getAccessContext('系统设置')
-  if (access.role !== 'admin') redirect('/')
   const userId = access.userId
   const [[counts], [latest], storeName] = await Promise.all([
     db.select({

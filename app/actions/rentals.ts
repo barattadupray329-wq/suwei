@@ -358,7 +358,17 @@ export async function deleteTestRental(id: number) {
       tx.select({ id: rentalEvents.id }).from(rentalEvents).where(and(eq(rentalEvents.rentalId, id), eq(rentalEvents.userId, access.userId))),
       tx.select({ id: accountLedger.id }).from(accountLedger).where(and(eq(accountLedger.rentalId, id), eq(accountLedger.userId, access.userId))),
     ])
-    if ([payments, buyouts, renewals, returns, losses, events, ledger].some((records) => records.length > 0)) throw new Error('该订单已有收款或业务记录，不能删除；请改为关闭订单')
+    const relatedRecords = [
+      ['收款', payments],
+      ['买断', buyouts],
+      ['续租', renewals],
+      ['退租', returns],
+      ['丢失', losses],
+      ['售后或状态变更', events],
+      ['资金流水', ledger],
+    ] as const
+    const existingTypes = relatedRecords.filter(([, records]) => records.length > 0).map(([label]) => label)
+    if (existingTypes.length > 0) throw new Error(`该合同已有${existingTypes.join('、')}记录，不能永久删除；请使用“关闭订单”保留业务记录`)
     await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '删除', resourceType: '租赁合同', resourceId: String(id), summary: `删除测试合同 ${rental.contractNo}`, metadata: { customerName: rental.customerName } })
     await tx.delete(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, access.userId)))
     await tx.delete(contractSnapshots).where(and(eq(contractSnapshots.rentalId, id), eq(contractSnapshots.userId, access.userId)))

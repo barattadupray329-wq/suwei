@@ -10,5 +10,5 @@ export default async function Page() {
   if (!session?.user) redirect('/sign-in')
 
   const [summary, rentals, access] = await Promise.all([getDashboard(), getRentals(), getAccessContext('租赁操作')])
-  return <Dashboard role={access.role} summary={summary} rentals={rentals} />
+  return <Dashboard role={access.role} permissions={access.permissions} summary={summary} rentals={rentals} />
 }
