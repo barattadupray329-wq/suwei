@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { verifyCustomerOtp } from '@/lib/customer-phone-auth'
+import { CustomerOtpError, verifyCustomerOtp } from '@/lib/customer-phone-auth'
 import { isTrustedMutationRequest } from '@/lib/request-security'
 
 export async function POST(request: Request) {
@@ -9,6 +9,7 @@ export async function POST(request: Request) {
     await verifyCustomerOtp(String(body.phone ?? ''), String(body.code ?? ''))
     return NextResponse.json({ ok: true })
   } catch (error) {
-    return NextResponse.json({ ok: false, message: error instanceof Error ? error.message : '验证失败' }, { status: 400 })
+    const otpError = error instanceof CustomerOtpError ? error : new CustomerOtpError('验证失败，请稍后重试', 500)
+    return NextResponse.json({ ok: false, message: otpError.message, retryAfter: otpError.retryAfter }, { status: otpError.status, headers: otpError.retryAfter ? { 'Retry-After': String(otpError.retryAfter) } : undefined })
   }
 }

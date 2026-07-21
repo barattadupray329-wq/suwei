@@ -17,15 +17,44 @@ function requirePhone(value: string) {
   return phone
 }
 
+const SMS_RESEND_SECONDS = 60
+const SMS_EXPIRES_SECONDS = 5 * 60
+
+export class CustomerOtpError extends Error {
+  constructor(message: string, readonly status = 400, readonly retryAfter?: number) {
+    super(message)
+    this.name = 'CustomerOtpError'
+  }
+}
+
+export const maskCustomerPhone = (phone: string) => phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
+
+export function smsFailureMessage(code?: string) {
+  if (code === 'isv.BUSINESS_LIMIT_CONTROL') return '验证码请求过于频繁，请稍后再试'
+  if (code === 'isv.MOBILE_NUMBER_ILLEGAL') return '请输入正确的中国大陆手机号'
+  if (code === 'isv.SMS_TEMPLATE_ILLEGAL' || code === 'isv.SMS_SIGNATURE_ILLEGAL') return '短信服务暂不可用，请联系客服'
+  return '验证码发送失败，请稍后重试'
+}
+
 async function sendSms(phone: string, code: string) {
   const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID
   const accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET
   const signName = process.env.ALIYUN_SMS_SIGN_NAME
   const templateCode = process.env.ALIYUN_SMS_TEMPLATE_CODE
-  if (!accessKeyId || !accessKeySecret || !signName || !templateCode) throw new Error('短信服务尚未配置，请联系管理员')
-  const client = new Dysmsapi20170525(new $OpenApi.Config({ accessKeyId, accessKeySecret, endpoint: 'dysmsapi.aliyuncs.com' }))
-  const response = await client.sendSms(new $Dysmsapi20170525.SendSmsRequest({ phoneNumbers: phone, signName, templateCode, templateParam: JSON.stringify({ code }) }))
-  if (response.body?.code !== 'OK') throw new Error('验证码发送失败，请稍后重试')
+  if (!accessKeyId || !accessKeySecret || !signName || !templateCode) throw new CustomerOtpError('短信服务暂不可用，请联系客服', 503)
+  try {
+    const client = new Dysmsapi20170525(new $OpenApi.Config({ accessKeyId, accessKeySecret, endpoint: 'dysmsapi.aliyuncs.com', connectTimeout: 5000, readTimeout: 10000 }))
+    const response = await client.sendSms(new $Dysmsapi20170525.SendSmsRequest({ phoneNumbers: phone, signName, templateCode, templateParam: JSON.stringify({ code }) }))
+    if (response.body?.code !== 'OK') {
+      console.error('[sms] Aliyun rejected OTP request', { code: response.body?.code, requestId: response.body?.requestId, phone: maskCustomerPhone(phone) })
+      throw new CustomerOtpError(smsFailureMessage(response.body?.code), response.body?.code === 'isv.BUSINESS_LIMIT_CONTROL' ? 429 : 502, SMS_RESEND_SECONDS)
+    }
+    console.info('[sms] OTP accepted by Aliyun', { requestId: response.body?.requestId, phone: maskCustomerPhone(phone) })
+  } catch (error) {
+    if (error instanceof CustomerOtpError) throw error
+    console.error('[sms] Aliyun OTP request failed', { name: error instanceof Error ? error.name : 'UnknownError', phone: maskCustomerPhone(phone) })
+    throw new CustomerOtpError('验证码发送失败，请稍后重试', 502, SMS_RESEND_SECONDS)
+  }
 }
 
 export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
@@ -40,31 +69,38 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
     db.select({ value: count() }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), gt(customerOtpChallenges.createdAt, oneHourAgo))),
     db.select({ value: count() }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.requestIpHash, ipHash), gt(customerOtpChallenges.createdAt, oneDayAgo))),
   ])
-  if (recentIp || recentPhone) throw new Error('请求过于频繁，请一分钟后再试')
-  if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new Error('验证码请求次数已达上限，请稍后再试')
+  if (recentIp || recentPhone) throw new CustomerOtpError('请求过于频繁，请一分钟后再试', 429, SMS_RESEND_SECONDS)
+  if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
   const [eligible] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).limit(1)
-  if (!eligible) return
+  if (!eligible) return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
 
   const code = String(randomInt(100000, 1000000))
   await sendSms(phone, code)
-  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`), expiresAt: new Date(Date.now() + 5 * 60000), requestIpHash: ipHash })
+  const now = new Date()
+  await db.update(customerOtpChallenges).set({ consumedAt: now }).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt)))
+  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
+  return { sent: true, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
 }
 
 export async function verifyCustomerOtp(rawPhone: string, code: string) {
   const phone = requirePhone(rawPhone)
   if (!/^\d{6}$/.test(code)) throw new Error('请输入 6 位验证码')
   const [challenge] = await db.select().from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt), gt(customerOtpChallenges.expiresAt, new Date()))).orderBy(desc(customerOtpChallenges.createdAt)).limit(1)
-  if (!challenge || challenge.attempts >= 5) throw new Error('验证码错误或已过期')
-  const expected = Buffer.from(challenge.codeHash)
-  const actual = Buffer.from(digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`))
+  if (!challenge) throw new CustomerOtpError('验证码已过期，请重新获取', 400)
+  if (challenge.attempts >= 5) throw new CustomerOtpError('尝试次数过多，请重新获取验证码', 429, SMS_RESEND_SECONDS)
+  const expected = Buffer.from(challenge.codeHash, 'hex')
+  const actual = Buffer.from(digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`), 'hex')
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    await db.update(customerOtpChallenges).set({ attempts: challenge.attempts + 1 }).where(eq(customerOtpChallenges.id, challenge.id))
-    throw new Error('验证码错误或已过期')
+    const attempts = challenge.attempts + 1
+    await db.update(customerOtpChallenges).set({ attempts, consumedAt: attempts >= 5 ? new Date() : null }).where(eq(customerOtpChallenges.id, challenge.id))
+    throw new CustomerOtpError(attempts >= 5 ? '尝试次数过多，请重新获取验证码' : '验证码不正确，请重新输入', attempts >= 5 ? 429 : 400, attempts >= 5 ? SMS_RESEND_SECONDS : undefined)
   }
-  await db.update(customerOtpChallenges).set({ consumedAt: new Date() }).where(eq(customerOtpChallenges.id, challenge.id))
+  const now = new Date()
+  await db.update(customerOtpChallenges).set({ consumedAt: now }).where(eq(customerOtpChallenges.id, challenge.id))
   const token = randomBytes(32).toString('base64url')
-  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000)
+  const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
+  await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
   await db.insert(customerPhoneSessions).values({ phone, tokenHash: digest(token), expiresAt })
   ;(await cookies()).set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
 }
