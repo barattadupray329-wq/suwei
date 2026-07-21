@@ -54,9 +54,9 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
 
         {owner ? <OwnerSection owner={owner} role={data.currentRole} /> : null}
         {data.currentRole === 'super_admin' ? <ApplicationSection applications={data.applications} /> : null}
-        <AddMemberSection />
+        {data.currentRole === 'admin' ? <AddMemberSection /> : null}
 
-        <section className="flex flex-col gap-4" aria-labelledby="member-accounts-title">
+        {data.currentRole === 'admin' ? <section className="flex flex-col gap-4" aria-labelledby="member-accounts-title">
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 id="member-accounts-title" className="text-lg font-semibold">员工账号</h2>
@@ -74,7 +74,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
               <p className="mt-1 text-sm text-muted-foreground">请通过上方表单创建首个员工账号并分配权限。</p>
             </div>
           )}
-        </section>
+        </section> : null}
       </div>
     </main>
   )

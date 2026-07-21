@@ -15,7 +15,8 @@ import { accountNameSchema, validateAccountPermissions, validatePasswordConfirma
 const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数量、配置及外观，签收即视为验收合格。\n2. 租金与押金：承租方按约定时间支付租金及押金；押金不得直接抵扣租金。\n3. 使用与保管：承租方应合理使用设备，不得擅自拆机、转租或用于违法活动。\n4. 维修责任：正常使用产生的故障由出租方负责；人为损坏产生的费用由承租方承担。\n5. 丢失与损坏：设备丢失或无法修复时，承租方按双方确认价值承担赔偿。\n6. 续租与退租：续租须在到期前确认；退租以设备实际归还并验收之日为准。\n7. 违约与争议：违约方承担相应损失；争议应先协商，协商不成由出租方所在地有管辖权的人民法院处理。\n8. 通知送达：本合同记载的电话和地址为有效联系方式，变更应及时书面通知。`
 
 async function userId(permission?:ModulePermission) { return (await getAccessContext(permission)).userId }
-async function requireManager() { const context=await getAccessContext('账号管理');if(context.role==='employee')throw new Error('仅管理员可管理员工账号');return context }
+async function requireManager() { const context=await getAccessContext('账号管理');if(context.role==='employee')throw new Error('仅管理员可管理账号');return context }
+async function requireStoreAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='admin')throw new Error('仅店铺管理员可管理员工账号');return context }
 async function requireSuperAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='super_admin')throw new Error('仅超级管理员可执行此操作');return context }
 
 const websitePackageSchema = z.object({ name: z.string().trim().min(2).max(30), subtitle: z.string().trim().max(60), monthlyPrice: z.coerce.number().int().min(0).max(100000), cpuSpec: z.string().trim().max(60), memorySpec: z.string().trim().max(40), storageSpec: z.string().trim().max(60), graphicsSpec: z.string().trim().max(60), displaySpec: z.string().trim().max(80), audience: z.string().trim().max(100), badge: z.string().trim().max(12), active: z.boolean(), sortOrder: z.coerce.number().int().min(0).max(10000) })
@@ -45,7 +46,7 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
 export async function getAccounts() {
   const context = await requireManager()
   const owner = await db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId))
-  const members = await db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(eq(organizationMembers.ownerId, context.userId)).orderBy(desc(organizationMembers.updatedAt))
+  const members = context.role === 'admin' ? await db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)) : []
   const applications = context.role === 'super_admin' ? await db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : []
   return { owner, members, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
@@ -77,7 +78,6 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
       await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
-      await tx.insert(organizationMembers).values({ ownerId: context.userId, memberUserId: newUserId, role: 'admin', active: true, permissions: '租赁操作,资金查看,合同管理,账号管理,系统设置', updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
     })
   }
@@ -85,7 +85,7 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
 }
 
 export async function addMember(input: { name: string; email: string; password: string; confirmPassword: string; permissions: string[] }) {
-  const { userId: ownerId } = await requireManager()
+  const { userId: ownerId } = await requireStoreAdmin()
   const name = accountNameSchema.parse(input.name)
   const email = z.string().email('请输入有效的员工邮箱').parse(input.email.trim().toLowerCase())
   const password = validatePasswordConfirmation({ newPassword: input.password, confirmPassword: input.confirmPassword })
