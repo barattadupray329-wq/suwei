@@ -1,6 +1,6 @@
 'use server'
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
+import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
@@ -44,10 +44,13 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
 
 export async function getAccounts() {
   const context = await requireManager()
-  const owner = await db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId))
-  const members = await db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(eq(organizationMembers.ownerId, context.userId)).orderBy(desc(organizationMembers.updatedAt))
-  const applications = context.role === 'super_admin' ? await db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : []
-  return { owner, members, applications, currentRole: context.role as 'super_admin' | 'admin' }
+  const [owner, members, customers, applications] = await Promise.all([
+    db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
+    db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
+    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
+  ])
+  return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
 
 const applicationSchema = z.object({ name: accountNameSchema, email: z.string().trim().toLowerCase().email('请输入有效邮箱'), phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
@@ -57,7 +60,7 @@ export async function submitAdminApplication(input: z.infer<typeof applicationSc
   const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, value.email))
   if (existingUser) throw new Error('该邮箱已存在，不能重复申请')
   const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.email), eq(adminApplications.status, 'pending')))
-  if (pending) throw new Error('该邮箱已有待审核申请')
+  if (pending) throw new Error('该邮箱已有���审核申请')
   await db.insert(adminApplications).values({ name: value.name, email: value.email, phone: value.phone, passwordHash: await hashPassword(value.password) })
   return { success: true }
 }
@@ -77,7 +80,6 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
       await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
-      await tx.insert(organizationMembers).values({ ownerId: context.userId, memberUserId: newUserId, role: 'admin', active: true, permissions: '租赁操作,资金查看,合同管理,账号管理,系统设置', updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
     })
   }
@@ -108,6 +110,43 @@ export async function addMember(input: { name: string; email: string; password: 
     })
     await tx.insert(accountProfiles).values({ userId: memberUserId, role: 'employee', active: true, createdAt: now, updatedAt: now })
     await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
+  })
+  revalidatePath('/accounts')
+}
+
+const customerSchema = z.object({
+  name: accountNameSchema,
+  phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
+})
+
+export async function addCustomer(input: z.input<typeof customerSchema>) {
+  const context = await requireManager()
+  const value = customerSchema.parse(input)
+  const [existing] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.userId, context.userId), eq(customerPortals.phone, value.phone)))
+  if (existing) throw new Error('该手机号已是本店客户，不能重复添加')
+  const now = new Date()
+  const legacySecret = createHash('sha256').update(randomBytes(32)).digest('hex')
+  await db.insert(customerPortals).values({
+    userId: context.userId,
+    phone: value.phone,
+    customerName: value.name,
+    accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+    passwordHash: legacySecret,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  })
+  revalidatePath('/accounts')
+}
+
+export async function updateCustomer(customerId: number, input: { name: string; active: boolean }) {
+  const context = await requireManager()
+  const name = accountNameSchema.parse(input.name)
+  const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+  if (!customer) throw new Error('客户不存在或不属于当前店铺')
+  await db.transaction(async (tx) => {
+    await tx.update(customerPortals).set({ customerName: name, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
   })
   revalidatePath('/accounts')
 }

@@ -12,11 +12,19 @@ export async function getAccessContext(permission?: ModulePermission) {
   const [profile] = await db.select().from(accountProfiles).where(eq(accountProfiles.userId, session.user.id))
   if (!profile?.active) throw new Error('账号未授权或已停用')
   const allPermissions: ModulePermission[] = ['租赁操作', '资金查看', '合同管理', '账号管理', '系统设置']
-  if (profile.role === 'super_admin') return { userId: session.user.id, actorId: session.user.id, actorName: session.user.name, role: 'super_admin' as const, permissions: allPermissions }
+  if (profile.role === 'super_admin' || profile.role === 'admin') {
+    return {
+      userId: session.user.id,
+      actorId: session.user.id,
+      actorName: session.user.name,
+      role: profile.role as 'super_admin' | 'admin',
+      permissions: allPermissions,
+    }
+  }
+  if (profile.role !== 'employee') throw new Error('账号角色无效')
   const [membership] = await db.select().from(organizationMembers).where(eq(organizationMembers.memberUserId, session.user.id))
-  if (!membership?.active) throw new Error('账号未加入组织或已停用')
+  if (!membership?.active || membership.role !== 'employee') throw new Error('账号未加入店铺或已停用')
   const permissions = membership.permissions.split(',').filter(Boolean) as ModulePermission[]
   if (permission && !permissions.includes(permission)) throw new Error('没有该模块的操作权限')
-  const role = profile.role === 'admin' ? 'admin' as const : 'employee' as const
-  return { userId: membership.ownerId, actorId: session.user.id, actorName: session.user.name, role, permissions }
+  return { userId: membership.ownerId, actorId: session.user.id, actorName: session.user.name, role: 'employee' as const, permissions }
 }

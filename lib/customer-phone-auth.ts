@@ -4,7 +4,7 @@ import * as $OpenApi from '@alicloud/openapi-client'
 import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { customerOtpChallenges, customerPhoneSessions, rentalItems, rentals } from '@/lib/db/schema'
+import { customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals } from '@/lib/db/schema'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -72,7 +72,7 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   if (recentIp || recentPhone) throw new CustomerOtpError('请求过于频繁，请一分钟后再试', 429, SMS_RESEND_SECONDS)
   if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
-  const [eligible] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).limit(1)
+  const [eligible] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
   if (!eligible) return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
 
   const code = String(randomInt(100000, 1000000))
@@ -98,6 +98,9 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   }
   const now = new Date()
   await db.update(customerOtpChallenges).set({ consumedAt: now }).where(eq(customerOtpChallenges.id, challenge.id))
+  const [customer] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
+  if (!customer) throw new CustomerOtpError('客户账号不存在或已停用，请联系店铺管理员', 403)
+  await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
   const token = randomBytes(32).toString('base64url')
   const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
   await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
@@ -122,8 +125,11 @@ async function sessionPhone() {
 export async function getCustomerActiveRentals() {
   const phone = await sessionPhone()
   if (!phone) return null
-  const contracts = await db.select({ id: rentals.id, contractNo: rentals.contractNo, customerName: rentals.customerName, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, deposit: rentals.deposit, status: rentals.status }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
+  const customerAccounts = await db.select({ ownerId: customerPortals.userId, name: customerPortals.customerName }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
+  if (!customerAccounts.length) return null
+  const ownerIds = [...new Set(customerAccounts.map((account) => account.ownerId))]
+  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerName: rentals.customerName, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, deposit: rentals.deposit, status: rentals.status }).from(rentals).where(and(inArray(rentals.userId, ownerIds), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
   const ids = contracts.map((contract) => contract.id)
-  const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate }).from(rentalItems).where(inArray(rentalItems.rentalId, ids)) : []
-  return { phone, contracts, items }
+  const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate }).from(rentalItems).where(and(inArray(rentalItems.userId, ownerIds), inArray(rentalItems.rentalId, ids))) : []
+  return { phone, customerName: customerAccounts[0].name, contracts, items }
 }
