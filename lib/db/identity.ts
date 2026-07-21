@@ -8,8 +8,8 @@ export type DatabaseIdentityEnvironment = {
 }
 
 export function assertProductionDatabaseIdentity(env: DatabaseIdentityEnvironment = {
-  DATABASE_URL: process.env.DATABASE_URL,
-  NEON_PROJECT_ID: process.env.NEON_PROJECT_ID,
+  DATABASE_URL: process.env.PRODUCTION_DATABASE_URL ?? process.env.DATABASE_URL,
+  NEON_PROJECT_ID: process.env.PRODUCTION_DATABASE_URL ? undefined : process.env.NEON_PROJECT_ID,
 }) {
   if (env.NEON_PROJECT_ID && env.NEON_PROJECT_ID !== EXPECTED_NEON_PROJECT_ID) {
     throw new Error('数据库身份校验失败：NEON_PROJECT_ID 不是获准的唯一正式数据库')
