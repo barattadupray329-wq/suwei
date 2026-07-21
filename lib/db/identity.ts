@@ -7,8 +7,26 @@ export type DatabaseIdentityEnvironment = {
   NEON_PROJECT_ID?: string
 }
 
+export function resolveDatabaseUrl(env: { PRODUCTION_DATABASE_URL?: string; DATABASE_URL?: string } = {
+  PRODUCTION_DATABASE_URL: process.env.PRODUCTION_DATABASE_URL,
+  DATABASE_URL: process.env.DATABASE_URL,
+}) {
+  const candidates = [env.PRODUCTION_DATABASE_URL, env.DATABASE_URL]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      const url = new URL(candidate)
+      const isPlaceholder = candidate.includes('...') || url.hostname.includes('example.com')
+      if (['postgres:', 'postgresql:'].includes(url.protocol) && !isPlaceholder && url.hostname && url.pathname !== '/') return candidate
+    } catch {
+      // Ignore malformed optional overrides and continue to the managed database URL.
+    }
+  }
+  throw new Error('数据库连接失败：未配置有效的 PostgreSQL DATABASE_URL')
+}
+
 export function assertProductionDatabaseIdentity(env: DatabaseIdentityEnvironment = {
-  DATABASE_URL: process.env.PRODUCTION_DATABASE_URL ?? process.env.DATABASE_URL,
+  DATABASE_URL: resolveDatabaseUrl(),
   NEON_PROJECT_ID: process.env.PRODUCTION_DATABASE_URL ? undefined : process.env.NEON_PROJECT_ID,
 }) {
   if (env.NEON_PROJECT_ID && env.NEON_PROJECT_ID !== EXPECTED_NEON_PROJECT_ID) {
