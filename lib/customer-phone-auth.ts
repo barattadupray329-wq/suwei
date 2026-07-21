@@ -13,7 +13,7 @@ export const normalizeCustomerPhone = (value: string) => value.replace(/\D/g, ''
 
 function requirePhone(value: string) {
   const phone = normalizeCustomerPhone(value)
-  if (!/^1\d{10}$/.test(phone)) throw new Error('请输入正确的中国大陆手机号')
+  if (!/^1\d{10}$/.test(phone)) throw new CustomerOtpError('请输入正确的中国大陆手机号', 400)
   return phone
 }
 
@@ -85,7 +85,7 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
 
 export async function verifyCustomerOtp(rawPhone: string, code: string) {
   const phone = requirePhone(rawPhone)
-  if (!/^\d{6}$/.test(code)) throw new Error('请输入 6 位验证码')
+  if (!/^\d{6}$/.test(code)) throw new CustomerOtpError('请输入 6 位验证码', 400)
   const [challenge] = await db.select().from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt), gt(customerOtpChallenges.expiresAt, new Date()))).orderBy(desc(customerOtpChallenges.createdAt)).limit(1)
   if (!challenge) throw new CustomerOtpError('验证码已过期，请重新获取', 400)
   if (challenge.attempts >= 5) throw new CustomerOtpError('尝试次数过多，请重新获取验证码', 429, SMS_RESEND_SECONDS)
