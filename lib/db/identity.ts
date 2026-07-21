@@ -1,5 +1,5 @@
-const EXPECTED_NEON_PROJECT_ID = 'plain-paper-39576019'
-const EXPECTED_DATABASE_HOST = 'ep-purple-hall-auzd0b6w-pooler.c-10.us-east-1.aws.neon.tech'
+const EXPECTED_NEON_PROJECT_ID = 'purple-scene-25344300'
+const EXPECTED_DATABASE_HOST = 'ep-wild-band-avpaf3fy-pooler.c-11.us-east-1.aws.neon.tech'
 const EXPECTED_DATABASE_NAME = 'neondb'
 
 export type DatabaseIdentityEnvironment = {
