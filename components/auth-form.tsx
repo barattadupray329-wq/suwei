@@ -50,7 +50,7 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
       <section className="flex w-full max-w-4xl overflow-hidden rounded-2xl border bg-card shadow-xl">
         <div className="hidden w-1/2 flex-col justify-between bg-primary p-10 text-primary-foreground md:flex">
           <div className="flex items-center gap-3 font-semibold"><span className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/15"><ShieldCheck /></span>速维租赁管理</div>
-          <div className="flex flex-col gap-4"><p className="text-balance text-3xl font-semibold">让每一台设备、每一笔租金都有迹可循</p><p className="leading-relaxed opacity-80">面向电脑租赁门店的安全、高效业务工作台。</p></div>
+          <div className="flex flex-col gap-4"><p className="text-balance text-3xl font-semibold">统一管理合同、设备、收款与客户服务</p><p className="leading-relaxed opacity-80">面向租赁团队的日常业务管理中心。</p></div>
           <p className="text-sm opacity-70">数据加密传输 · 多设备随时访问</p>
         </div>
         <div className="w-full p-8 md:w-1/2 md:p-10">

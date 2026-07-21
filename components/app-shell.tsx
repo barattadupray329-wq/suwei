@@ -20,11 +20,11 @@ const items = [
   { href: '/dashboard', label: '经营总览', icon: LayoutDashboard, permission: '租赁操作' },
   { href: '/finance', label: '资金流水', icon: Banknote, permission: '资金查看' },
   { href: '/accounts', label: '账号管理', icon: UserRoundCog, permission: '账号管理' },
-  { href: '/website-packages', label: '官网套餐', icon: Globe2, superAdminOnly: true },
-  { href: '/settings', label: '系统设置', icon: Palette, permission: '系统设置' },
-  { href: '/customer-portals', label: '客户门户', icon: QrCode, permission: '合同管理' },
-  { href: '/audit-logs', label: '操作日志', icon: ClipboardList, permission: '系统设置' },
-  { href: '/backup', label: '版本与备份', icon: HardDriveDownload, permission: '系统设置' },
+  { href: '/website-packages', label: '官网方案', icon: Globe2, superAdminOnly: true },
+  { href: '/settings', label: '业务设置', icon: Palette, permission: '系统设置' },
+  { href: '/customer-portals', label: '客户服务', icon: QrCode, permission: '合同管理' },
+  { href: '/audit-logs', label: '业务记录', icon: ClipboardList, permission: '系统设置' },
+  { href: '/backup', label: '数据备份', icon: HardDriveDownload, permission: '系统设置' },
 ]
 
 export function AppShell({ children, storeName, userName, role, permissions }: ShellProps) {
@@ -65,7 +65,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
       <div className="flex min-w-0 items-center gap-3">
         <button type="button" aria-label="打开功能菜单" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className="rounded-lg border p-2 md:hidden"><Menu className="size-5" /></button>
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5" /></span>
-        <div className="min-w-0"><p className="truncate font-semibold">{storeName}</p><p className="text-xs text-muted-foreground">门店业务工作台</p></div>
+        <div className="min-w-0"><p className="truncate font-semibold">{storeName}</p><p className="text-xs text-muted-foreground">租赁业务管理中心</p></div>
       </div>
       <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="退出登录" title="退出登录" onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
     </header>
@@ -73,7 +73,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭功能菜单" className="absolute inset-0 bg-foreground/30" onClick={() => setMobileMenu(false)} /><aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-card p-4 shadow-xl"><div className="flex items-center justify-between border-b pb-4"><div><p className="font-semibold">功能菜单</p><p className="text-xs text-muted-foreground">{userName} · {role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="关闭功能菜单" onClick={() => setMobileMenu(false)} className="rounded-lg border p-2"><X className="size-5" /></button></div><div className="mt-4">{navigation(true)}</div></aside></div>}
 
     <div className="flex pb-20 md:pb-0">
-      <aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-60 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><div className="mt-6 rounded-xl bg-muted p-3"><p className="text-xs font-semibold">速维租赁管理</p><p className="mt-1 text-xs leading-5 text-muted-foreground">每天首次进入自动备份，最近保留 7 次。</p></div></aside>
+      <aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-60 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><div className="mt-6 rounded-xl bg-muted p-3"><p className="text-xs font-semibold">速维租赁管理</p><p className="mt-1 text-xs leading-5 text-muted-foreground">系统每日自动保护业务数据。</p></div></aside>
       <main className="min-w-0 flex-1">{children}</main>
     </div>
 

@@ -177,7 +177,7 @@ function AddMemberSection() {
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><UserPlus className="size-5" /></span>
         <div>
           <h2 id="add-member-title" className="font-semibold">创建员工账号</h2>
-          <p className="text-sm text-muted-foreground">员工不能自行注册。管理员和超级管理员可以创建员工账号并设置临时密码。</p>
+          <p className="text-sm text-muted-foreground">创建员工登录账号，并根据岗位分配可使用的业务功能。</p>
         </div>
       </div>
       <form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => {
@@ -294,8 +294,8 @@ function MemberCard({ member }: { member: Member }) {
 
         <div className="flex flex-col gap-4 border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
           <div>
-            <h4 className="text-sm font-semibold">模块权限</h4>
-            <p className="mt-1 text-sm text-muted-foreground">至少保留一项权限，保存后立即生效。</p>
+            <h4 className="text-sm font-semibold">工作权限</h4>
+            <p className="mt-1 text-sm text-muted-foreground">选择该员工负责的工作范围，未选择的功能不会显示。</p>
           </div>
           <PermissionPicker selected={selected} onChange={setSelected} />
           <button disabled={accessPending || selected.length === 0} onClick={() => saveAccess(member.active)} className="inline-flex h-9 self-start items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="size-4" />{accessPending ? '正在保存…' : '保存权限'}</button>
