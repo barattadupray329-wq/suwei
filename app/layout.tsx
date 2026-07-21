@@ -10,7 +10,7 @@ import './globals.css'
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
-export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.cn'), title: { default: '速维台式机租赁｜电商与游戏工作室电脑租赁', template: '%s' }, description: '面向电商团队、游戏工作室和个人提供台式电脑租赁，支持配置匹配、批量交付、灵活租期、设备维护与升级更换。', applicationName: '速维电脑租赁', keywords: ['台式机租赁','电脑主机租赁','电商工作室电脑租赁','游戏工作室电脑租赁','龙岩电脑租赁','速维租赁'] }
+export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.cn'), title: { default: '速维电脑租赁｜台式机、笔记本与显示器租赁', template: '%s' }, description: '面向电商、公司、个人和游戏工作室提供电脑设备租赁，以台式机为主，并提供笔记本、显示器和一体机，支持单台租用与批量部署。', applicationName: '速维电脑租赁', keywords: ['台式机租赁','电脑租赁','笔记本租赁','显示器租赁','一体机租赁','电商电脑租赁','公司电脑租赁','游戏工作室电脑租赁','龙岩电脑租赁','速维租赁'] }
 export const viewport: Viewport = { themeColor: '#f5f7f6', width: 'device-width', initialScale: 1 }
 export const dynamic = 'force-dynamic'
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
