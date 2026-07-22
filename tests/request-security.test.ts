@@ -17,7 +17,7 @@ describe('敏感请求来源保护', () => {
     expect(isTrustedMutationRequest(request({ origin: 'https://attacker.example', 'sec-fetch-site': 'cross-site' }))).toBe(false)
   })
 
-  it('支持 Vercel 转发后的同源判断', () => {
+  it('支持反向代理转发后的同源判断', () => {
     expect(isTrustedMutationRequest(request({
       origin: 'https://www.tuzhuzu.cn',
       'x-forwarded-host': 'www.tuzhuzu.cn',
