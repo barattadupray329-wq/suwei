@@ -88,7 +88,7 @@ export async function getRentals(query = '', status = '全部') {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [summary] = await db.select({ total: sql<number>`count(*)::int`, active: sql<number>`count(*) filter (where ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失'))::int`, overdue: sql<number>`count(*) filter (where ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')))::int`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(greatest(${rentals.totalRent} - ${rentals.paidAmount}, 0)), 0)` }).from(rentals).where(eq(rentals.userId, userId))
+  const [summary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(max(${rentals.totalRent} - ${rentals.paidAmount}, 0)), 0)` }).from(rentals).where(eq(rentals.userId, userId))
   return summary
 }
 
