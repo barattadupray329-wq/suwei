@@ -9,6 +9,11 @@ import { customerOtpChallenges, customerPhoneSessions, customerPortals, rentalIt
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+function otpSecret() {
+  const secret = process.env.BETTER_AUTH_SECRET
+  if (!secret) throw new CustomerOtpError('验证服务暂不可用，请联系客服', 503)
+  return secret
+}
 export const normalizeCustomerPhone = (value: string) => value.replace(/\D/g, '')
 
 function requirePhone(value: string) {
@@ -59,7 +64,7 @@ async function sendSms(phone: string, code: string) {
 
 export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   const phone = requirePhone(rawPhone)
-  const ipHash = digest(`${requestIp}.${process.env.BETTER_AUTH_SECRET}`)
+  const ipHash = digest(`${requestIp}.${otpSecret()}`)
   const oneMinuteAgo = new Date(Date.now() - 60000)
   const oneHourAgo = new Date(Date.now() - 60 * 60000)
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60000)
@@ -73,13 +78,17 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
   const [eligible] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
-  if (!eligible) return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
+  if (!eligible) {
+    const now = new Date()
+    await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(randomBytes(32).toString('hex')), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), consumedAt: now, requestIpHash: ipHash })
+    return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
+  }
 
   const code = String(randomInt(100000, 1000000))
   await sendSms(phone, code)
   const now = new Date()
   await db.update(customerOtpChallenges).set({ consumedAt: now }).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt)))
-  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
+  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${otpSecret()}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
   return { sent: true, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
 }
 
@@ -90,7 +99,7 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   if (!challenge) throw new CustomerOtpError('验证码已过期，请重新获取', 400)
   if (challenge.attempts >= 5) throw new CustomerOtpError('尝试次数过多，请重新获取验证码', 429, SMS_RESEND_SECONDS)
   const expected = Buffer.from(challenge.codeHash, 'hex')
-  const actual = Buffer.from(digest(`${phone}.${code}.${process.env.BETTER_AUTH_SECRET}`), 'hex')
+  const actual = Buffer.from(digest(`${phone}.${code}.${otpSecret()}`), 'hex')
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     const attempts = challenge.attempts + 1
     await db.update(customerOtpChallenges).set({ attempts, consumedAt: attempts >= 5 ? new Date() : null }).where(eq(customerOtpChallenges.id, challenge.id))
