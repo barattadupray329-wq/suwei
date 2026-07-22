@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { headers } from 'next/headers'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
@@ -17,7 +16,7 @@ const operationSchema = z.object({ rentalId: z.number().int().positive(), rental
 export type ReturnInput = z.infer<typeof operationSchema> & { condition: '完好'|'轻微磨损'|'损坏'; deductionAmount: number; depositRefund: number }
 export type LossInput = z.infer<typeof operationSchema> & { unitCompensation: number }
 
-async function updateRentalStatus(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], userId: string, rentalId: number) {
+async function updateRentalStatus(tx: typeof db, userId: string, rentalId: number) {
   const items = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, rentalId)))
   const total = items.reduce((s, i) => s + i.quantity, 0)
   const returned = items.reduce((s, i) => s + i.returnedQuantity, 0)
@@ -31,7 +30,7 @@ async function updateRentalStatus(tx: Parameters<Parameters<typeof db.transactio
 export async function returnRentalItem(input: ReturnInput) {
   const { userId, name } = await actor()
   const value = operationSchema.extend({ condition: z.enum(['完好','轻微磨损','损坏']), deductionAmount: z.number().nonnegative(), depositRefund: z.number().nonnegative() }).parse(input)
-  await db.transaction(async tx => {
+  { const tx = db
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
     const available = item.quantity-item.boughtOutQuantity-item.returnedQuantity-item.lostQuantity
@@ -47,7 +46,7 @@ export async function returnRentalItem(input: ReturnInput) {
     if (value.deductionAmount > 0) await tx.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金抵扣赔偿', amount: String(-value.deductionAmount), entryDate: value.date, operatorName: name, notes: value.notes })
     if (value.depositRefund > 0) await tx.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金退还', amount: String(-value.depositRefund), entryDate: value.date, operatorName: name, notes: value.notes })
     await updateRentalStatus(tx,userId,value.rentalId)
-  })
+  }
   revalidatePath('/')
 }
 
@@ -62,7 +61,7 @@ export type ExchangeInput = z.infer<typeof exchangeSchema>
 export async function exchangeRentalItem(input: ExchangeInput) {
   const { userId, name } = await actor()
   const value = exchangeSchema.parse(input)
-  await db.transaction(async tx => {
+  { const tx = db
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, value.rentalId), eq(rentalItems.id, value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
     const keys = ['deviceName','deviceType','deviceCode','deviceConfig','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
@@ -72,14 +71,14 @@ export async function exchangeRentalItem(input: ExchangeInput) {
     const items = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId)))
     await tx.update(rentals).set({deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({ userId, rentalId: value.rentalId, eventType: '换机调拨', status: '已完成', eventDate: value.exchangeDate, itemId: item.id, beforeSnapshot: before, afterSnapshot: after, reason: value.reason, operatorName: name, notes: value.notes })
-  })
+  }
   revalidatePath('/')
 }
 
 export async function reportLostItem(input: LossInput) {
   const { userId, name } = await actor()
   const value = operationSchema.extend({ unitCompensation: z.number().positive() }).parse(input)
-  await db.transaction(async tx => {
+  { const tx = db
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
     const available = item.quantity-item.boughtOutQuantity-item.returnedQuantity-item.lostQuantity
@@ -87,6 +86,6 @@ export async function reportLostItem(input: LossInput) {
     await tx.update(rentalItems).set({lostQuantity:item.lostQuantity+value.quantity,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id)))
     await tx.insert(lossRecords).values({userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,lossDate:value.date,unitCompensation:String(value.unitCompensation),amount:String(value.unitCompensation*value.quantity),notes:value.notes,operatorName:name})
     await updateRentalStatus(tx,userId,value.rentalId)
-  })
+  }
   revalidatePath('/')
 }
