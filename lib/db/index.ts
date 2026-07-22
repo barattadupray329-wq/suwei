@@ -1,9 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './schema'
-import { assertProductionDatabaseIdentity } from './identity'
 
-assertProductionDatabaseIdentity()
+const { env } = await getCloudflareContext({ async: true })
+if (!env.DB) throw new Error('Cloudflare D1 binding DB 未配置')
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-export const db = drizzle(pool, { schema })
+export const db = drizzle(env.DB, { schema })

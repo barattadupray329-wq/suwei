@@ -27,7 +27,7 @@ export function CustomerPhoneLogin() {
     setPending(true); setMessage('')
     try {
       const response = await fetch('/api/customer-auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) })
-      const result = await response.json().catch(() => ({ message: '短信服务暂时繁忙，请稍后重试' }))
+      const result = await response.json().catch(() => ({ message: '短信服务暂时繁忙，请稍后重试' })) as { message: string; retryAfter?: number }
       setMessage(result.message); setMessageType(response.ok ? 'success' : 'error')
       if (response.ok) {
         setSent(true); setCountdown(Number(result.retryAfter) || 60)
@@ -42,7 +42,7 @@ export function CustomerPhoneLogin() {
     setPending(true); setMessage('')
     try {
       const response = await fetch('/api/customer-auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }) })
-      const result = await response.json().catch(() => ({ message: '验证服务暂时繁忙，请稍后重试' }))
+      const result = await response.json().catch(() => ({ message: '验证服务暂时繁忙，请稍后重试' })) as { message: string; retryAfter?: number }
       if (!response.ok) { setMessage(result.message); setMessageType('error'); if (result.retryAfter) setCountdown(Number(result.retryAfter)); return }
       router.push('/customer'); router.refresh()
     } catch {

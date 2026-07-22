@@ -12,37 +12,42 @@ type BackupCenterProps = {
   lastUpdated: string | null
 }
 
+type ApiError = { error?: string }
+type Snapshot = { id: number; backupType: string; recordCount: number; checksum: string; createdAt: string }
+type RestoreSummary = { createdAt: string; recordCount: number; checksum: string; counts: Record<string, number> }
+type RestoreResponse = ApiError & { summary?: RestoreSummary; restored?: { recordCount: number } }
+
 export function BackupCenter({ storeName, version, counts, lastUpdated }: BackupCenterProps) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
   const [showRestore, setShowRestore] = useState(false)
-  const [snapshots, setSnapshots] = useState<Array<{id:number;backupType:string;recordCount:number;checksum:string;createdAt:string}>>([])
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [restorePayload, setRestorePayload] = useState<unknown>(null)
-  const [preview, setPreview] = useState<{createdAt:string;recordCount:number;checksum:string;counts:Record<string,number>}|null>(null)
+  const [preview, setPreview] = useState<RestoreSummary | null>(null)
   const [confirmation, setConfirmation] = useState('')
   const [restoring, setRestoring] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const loadSnapshots = () => fetch('/api/backups').then(response => response.json()).then(data => setSnapshots(data.snapshots || [])).catch(() => undefined)
+  const loadSnapshots = () => fetch('/api/backups').then(response => response.json() as Promise<{ snapshots?: Snapshot[] }>).then(data => setSnapshots(data.snapshots || [])).catch(() => undefined)
   useEffect(() => { loadSnapshots() }, [])
 
   async function createCloudBackup() {
     setBusyAction('working')
-    try { const response = await fetch('/api/backups', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'manual'}) }); const body=await response.json(); if(!response.ok)throw new Error(body.error); await loadSnapshots(); toast.success('云端恢复快照已创建') } catch(error){toast.error(error instanceof Error?error.message:'备份失败')} finally{setBusyAction(null)}
+    try { const response = await fetch('/api/backups', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'manual'}) }); const body=await response.json() as ApiError; if(!response.ok)throw new Error(body.error); await loadSnapshots(); toast.success('云端恢复快照已创建') } catch(error){toast.error(error instanceof Error?error.message:'备份失败')} finally{setBusyAction(null)}
   }
   async function inspectBackup(file: File) {
-    try { const payload=JSON.parse(await file.text()); const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'preview',payload})}); const body=await response.json(); if(!response.ok)throw new Error(body.error); setRestorePayload(payload);setPreview(body.summary);setConfirmation('');toast.success('备份预检通过') } catch(error){setRestorePayload(null);setPreview(null);toast.error(error instanceof Error?error.message:'备份文件无效')}
+    try { const payload=JSON.parse(await file.text()); const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'preview',payload})}); const body=await response.json() as RestoreResponse; if(!response.ok)throw new Error(body.error); if (!body.summary) throw new Error('备份预检结果无效'); setRestorePayload(payload);setPreview(body.summary);setConfirmation('');toast.success('备份预检通过') } catch(error){setRestorePayload(null);setPreview(null);toast.error(error instanceof Error?error.message:'备份文件无效')}
   }
-  async function confirmRestore(){if(!restorePayload)return;setRestoring(true);try{const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'restore',payload:restorePayload,confirmation})});const body=await response.json();if(!response.ok)throw new Error(body.error);toast.success(`已恢复 ${body.restored.recordCount} 条记录`);setPreview(null);setRestorePayload(null);setConfirmation('');await loadSnapshots()}catch(error){const raw=error instanceof Error?error.message:'';toast.error(raw.includes('toISOString')?'备份中的时间字段格式不正确，恢复已停止，现有数据未被修改':raw||'恢复失败，现有数据未被修改')}finally{setRestoring(false)}}
+  async function confirmRestore(){if(!restorePayload)return;setRestoring(true);try{const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'restore',payload:restorePayload,confirmation})});const body=await response.json() as RestoreResponse;if(!response.ok)throw new Error(body.error);if (!body.restored) throw new Error('恢复结果无效');toast.success(`已恢复 ${body.restored.recordCount} 条记录`);setPreview(null);setRestorePayload(null);setConfirmation('');await loadSnapshots()}catch(error){const raw=error instanceof Error?error.message:'';toast.error(raw.includes('toISOString')?'备份中的时间字段格式不正确，恢复已停止，现有数据未被修改':raw||'恢复失败，现有数据未被修改')}finally{setRestoring(false)}}
 
   async function downloadFile(endpoint: string, filename: string, success: string) {
     setBusyAction('working')
     try {
       const response = await fetch(endpoint)
       if (!response.ok) {
-        const body = await response.json().catch(() => null)
+        const body = await response.json().catch(() => null) as ApiError | null
         throw new Error(body?.error || '导出失败')
       }
       const blob = await response.blob()
@@ -71,7 +76,7 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
       if (to) params.set('to', to)
       const response = await fetch(`/api/exports/business?${params.toString()}`)
       if (!response.ok) {
-        const body = await response.json().catch(() => null)
+        const body = await response.json().catch(() => null) as ApiError | null
         throw new Error(body?.error || '导出失败')
       }
       const blob = await response.blob()

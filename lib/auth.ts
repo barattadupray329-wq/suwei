@@ -1,10 +1,12 @@
 import { betterAuth } from 'better-auth'
-import { pool } from '@/lib/db'
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { db } from '@/lib/db'
+import * as schema from '@/lib/db/schema'
 
 if (!process.env.BETTER_AUTH_SECRET) throw new Error('BETTER_AUTH_SECRET 未配置')
 
 export const auth = betterAuth({
-  database: pool,
+  database: drizzleAdapter(db, { provider: 'sqlite', schema }),
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.V0_RUNTIME_URL),
   emailAndPassword: { enabled: true, autoSignIn: true, disableSignUp: true },

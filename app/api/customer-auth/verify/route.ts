@@ -5,7 +5,7 @@ import { isTrustedMutationRequest } from '@/lib/request-security'
 export async function POST(request: Request) {
   try {
     if (!isTrustedMutationRequest(request)) return NextResponse.json({ ok: false, message: '请求来源无效' }, { status: 403 })
-    const body = await request.json()
+    const body = await request.json() as { phone?: unknown; code?: unknown }
     await verifyCustomerOtp(String(body.phone ?? ''), String(body.code ?? ''))
     return NextResponse.json({ ok: true })
   } catch (error) {
