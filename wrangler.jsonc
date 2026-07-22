@@ -1,0 +1,38 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "suwei-web",
+	"compatibility_date": "2026-07-22",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "suwei-web"
+		}
+	],
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "suwei-db",
+			"database_id": "f4ce4067-8b29-4186-83d7-49a48b8a1206",
+			"migrations_dir": "migrations/d1"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}
