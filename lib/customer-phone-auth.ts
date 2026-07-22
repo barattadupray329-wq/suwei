@@ -4,7 +4,7 @@ import * as $OpenApi from '@alicloud/openapi-client'
 import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals, session, user } from '@/lib/db/schema'
+import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -78,10 +78,18 @@ async function sendSms(phone: string, code: string) {
 export async function getPhoneIdentities(rawPhone: string) {
   const phone = requirePhone(rawPhone)
   const [staff, customers] = await Promise.all([
-    db.select({ id: user.id }).from(user).innerJoin(accountProfiles, eq(accountProfiles.userId, user.id)).where(and(eq(user.phoneNumber, phone), eq(accountProfiles.active, true))).limit(1),
+    db.select({ id: user.id, role: accountProfiles.role }).from(user).innerJoin(accountProfiles, eq(accountProfiles.userId, user.id)).where(and(eq(user.phoneNumber, phone), eq(accountProfiles.active, true))).limit(1),
     ensureEligibleCustomerProfiles(phone),
   ])
-  return { phone, workspace: staff.length > 0, customer: customers.length > 0 }
+  const staffUser = staff[0]
+  let shopId = customers[0]?.userId ?? null
+  if (!shopId && staffUser?.role === 'admin') shopId = staffUser.id
+  if (!shopId && staffUser?.role === 'employee') {
+    const [membership] = await db.select({ shopId: organizationMembers.shopId, ownerId: organizationMembers.ownerId }).from(organizationMembers).where(and(eq(organizationMembers.memberUserId, staffUser.id), eq(organizationMembers.active, true))).limit(1)
+    shopId = membership?.shopId ?? membership?.ownerId ?? null
+  }
+  const [shop] = shopId ? await db.select({ name: shops.name }).from(shops).where(and(eq(shops.id, shopId), eq(shops.status, 'active'))).limit(1) : []
+  return { phone, workspace: staff.length > 0, customer: customers.length > 0, shopId, shopName: shop?.name ?? null }
 }
 
 export async function sendUnifiedPhoneOtp(rawPhone: string, code: string, requestIp: string) {
@@ -142,11 +150,12 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   if (!identities.workspace && !identities.customer) throw new CustomerOtpError('当前没有可使用的账号或在租信息', 403)
   const cookieStore = await cookies()
   if (identities.customer) {
-    await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
+    if (!identities.shopId) throw new CustomerOtpError('未找到所属店铺，请联系管理员', 403)
+    await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.userId, identities.shopId), eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
     await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
-    await db.insert(customerPhoneSessions).values({ phone, tokenHash: digest(token), expiresAt })
+    await db.insert(customerPhoneSessions).values({ phone, shopId: identities.shopId, tokenHash: digest(token), expiresAt })
     cookieStore.set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
   }
   if (identities.workspace) {
@@ -174,17 +183,21 @@ async function sessionPhone() {
   const token = (await cookies()).get(COOKIE)?.value
   if (!token) return null
   const [session] = await db.select().from(customerPhoneSessions).where(and(eq(customerPhoneSessions.tokenHash, digest(token)), gt(customerPhoneSessions.expiresAt, new Date())))
-  return session?.phone ?? null
+  return session ? { phone: session.phone, shopId: session.shopId } : null
 }
 
 export async function getCustomerActiveRentals() {
-  const phone = await sessionPhone()
-  if (!phone) return null
-  const customerAccounts = await db.select({ ownerId: customerPortals.userId, name: customerPortals.customerName }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
-  if (!customerAccounts.length) return null
-  const ownerIds = [...new Set(customerAccounts.map((account) => account.ownerId))]
-  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerName: rentals.customerName, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, deposit: rentals.deposit, status: rentals.status }).from(rentals).where(and(inArray(rentals.userId, ownerIds), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
+  const customerSession = await sessionPhone()
+  if (!customerSession?.shopId) return null
+  const { phone, shopId } = customerSession
+  const [customer] = await db.select({ name: customerPortals.customerName, assigneeUserId: customerPortals.assigneeUserId }).from(customerPortals).where(and(eq(customerPortals.userId, shopId), eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
+  if (!customer) return null
+  const [[shop], [assignee]] = await Promise.all([
+    db.select({ name: shops.name }).from(shops).where(eq(shops.id, shopId)).limit(1),
+    customer.assigneeUserId ? db.select({ name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, customer.assigneeUserId)).limit(1) : Promise.resolve([]),
+  ])
+  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
   const ids = contracts.map((contract) => contract.id)
-  const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate }).from(rentalItems).where(and(inArray(rentalItems.userId, ownerIds), inArray(rentalItems.rentalId, ids))) : []
-  return { phone, customerName: customerAccounts[0].name, contracts, items }
+  const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate, monthlyRent: rentalItems.monthlyRent, totalRent: rentalItems.totalRent }).from(rentalItems).where(and(eq(rentalItems.userId, shopId), inArray(rentalItems.rentalId, ids))) : []
+  return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts, items }
 }

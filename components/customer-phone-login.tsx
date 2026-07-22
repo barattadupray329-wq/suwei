@@ -14,6 +14,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
   const [messageType, setMessageType] = useState<'success' | 'error'>('success')
   const [countdown, setCountdown] = useState(0)
   const [identities, setIdentities] = useState<{ workspace: boolean; customer: boolean } | null>(null)
+  const [shopName, setShopName] = useState('')
   const codeRef = useRef<HTMLInputElement>(null)
   const validPhone = /^1\d{10}$/.test(phone)
 
@@ -29,7 +30,8 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
     setMessage('')
     try {
       const response = await fetch('/api/customer-auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) })
-      const result = await response.json().catch(() => ({ message: '短信服务暂时繁忙，请稍后重试' })) as { message: string; retryAfter?: number }
+      const result = await response.json().catch(() => ({ message: '短信服务暂时繁忙，请稍后重试' })) as { message: string; shopName?: string; retryAfter?: number }
+      setShopName(result.shopName ?? '')
       setMessage(result.message)
       setMessageType(response.ok ? 'success' : 'error')
       if (response.ok) {
@@ -103,7 +105,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
           <label className="flex flex-col gap-2 text-sm font-medium">
             {embedded ? '登录手机号' : '合同手机号'}
             <div className="flex gap-2">
-              <input inputMode="tel" autoComplete="tel" required pattern="1[0-9]{10}" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '').slice(0, 11)); setMessage('') }} className="h-12 min-w-0 flex-1 rounded-xl border bg-background px-4 text-base outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 11 位手机号" />
+              <input inputMode="tel" autoComplete="tel" required pattern="1[0-9]{10}" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '').slice(0, 11)); setShopName(''); setMessage('') }} className="h-12 min-w-0 flex-1 rounded-xl border bg-background px-4 text-base outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 11 位手机号" />
               <button type="button" onClick={() => void requestCode()} disabled={!validPhone || Boolean(pendingAction) || countdown > 0} className="flex h-12 min-w-28 items-center justify-center rounded-xl border border-primary px-3 text-sm font-semibold text-primary disabled:border-border disabled:text-muted-foreground disabled:opacity-70">
                 {pendingAction === 'send' ? <LoaderCircle className="size-4 animate-spin" /> : countdown > 0 ? `${countdown} 秒` : '获取验证码'}
               </button>
@@ -114,6 +116,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
             <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setMessage('') }} className="h-12 rounded-xl border bg-background px-4 text-center text-lg tracking-[0.4em] outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 6 位验证码" />
             <span className="text-xs font-normal text-muted-foreground">验证码 5 分钟内有效。未收到时请在倒计时结束后重新获取。</span>
           </label>
+          {shopName ? <p className="rounded-xl border bg-muted px-4 py-3 text-sm"><span className="text-muted-foreground">所属店铺</span><strong className="ml-2 text-foreground">{shopName}</strong></p> : null}
           {message && <p role={messageType === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl px-4 py-3 text-sm ${messageType === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>{message}</p>}
           <button type="submit" disabled={!validPhone || code.length !== 6 || Boolean(pendingAction)} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">
             {pendingAction === 'verify' ? <LoaderCircle className="size-5 animate-spin" /> : <MessageSquareText className="size-5" />}{pendingAction === 'verify' ? '正在验证…' : embedded ? '验证并登录' : '验证并查看租赁'}

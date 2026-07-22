@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
+import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, shops, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
@@ -47,14 +47,14 @@ export async function getAccounts() {
   const [owner, members, customers, applications] = await Promise.all([
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
-    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
+    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    context.role === 'super_admin' ? db.select({ id: adminApplications.id, shopName: adminApplications.shopName, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
 
 const loginAccountSchema = z.string().trim().toLowerCase().min(3, '账号至少需要 3 位').max(80, '账号最多 80 位').regex(/^[a-zA-Z0-9._@+-]+$/, '账号只能包含字母、数字及 . _ @ + -')
-const applicationSchema = z.object({ name: accountNameSchema, account: loginAccountSchema, phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
+const applicationSchema = z.object({ shopName: z.string().trim().min(2, '店铺名称至少需要 2 个字').max(40, '店铺名称最多 40 个字'), name: accountNameSchema, account: loginAccountSchema, phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
 export async function submitAdminApplication(input: z.infer<typeof applicationSchema>) {
   const value = applicationSchema.parse(input)
   if (value.password !== value.confirmPassword) throw new Error('两次输入的密码不一致')
@@ -64,7 +64,7 @@ export async function submitAdminApplication(input: z.infer<typeof applicationSc
   if (existingPhone) throw new Error('该手机号已绑定其他团队账号')
   const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.account), eq(adminApplications.status, 'pending')))
   if (pending) throw new Error('该登录账号已有待审核申请')
-  await db.insert(adminApplications).values({ name: value.name, email: value.account, phone: value.phone, passwordHash: await hashPassword(value.password) })
+  await db.insert(adminApplications).values({ shopName: value.shopName, name: value.name, email: value.account, phone: value.phone, passwordHash: await hashPassword(value.password) })
   return { success: true }
 }
 
@@ -85,6 +85,8 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
       await tx.insert(user).values({ id: newUserId, name: application.name, email: `${newUserId}@account.local`, emailVerified: false, username: application.email, displayUsername: application.email, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
+      await tx.insert(shops).values({ id: newUserId, name: application.shopName?.trim() || `${application.name}的店铺`, ownerUserId: newUserId, status: 'active', createdAt: now, updatedAt: now })
+      await tx.insert(businessSettings).values({ userId: newUserId, storeName: application.shopName?.trim() || `${application.name}的店铺`, updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
     }
   }
@@ -117,7 +119,7 @@ export async function addMember(input: { name: string; account: string; phone: s
       updatedAt: now,
     })
     await tx.insert(accountProfiles).values({ userId: memberUserId, role: 'employee', active: true, createdAt: now, updatedAt: now })
-    await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
+    await tx.insert(organizationMembers).values({ shopId: ownerId, ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
   }
   revalidatePath('/accounts')
 }
@@ -125,19 +127,29 @@ export async function addMember(input: { name: string; account: string; phone: s
 const customerSchema = z.object({
   name: accountNameSchema,
   phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
+  assigneeUserId: z.string().min(1, '请选择客户负责人'),
 })
+
+async function requireShopAssignee(ownerId: string, assigneeUserId: string) {
+  if (assigneeUserId === ownerId) return
+  await requireOwnedMember(ownerId, assigneeUserId)
+}
 
 export async function addCustomer(input: z.input<typeof customerSchema>) {
   const context = await requireManager()
   const value = customerSchema.parse(input)
-  const [existing] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.userId, context.userId), eq(customerPortals.phone, value.phone)))
-  if (existing) throw new Error('该手机号已是本店客户，不能重复添加')
+  await requireShopAssignee(context.userId, value.assigneeUserId)
+  const [existing] = await db.select({ id: customerPortals.id, userId: customerPortals.userId }).from(customerPortals).where(eq(customerPortals.phone, value.phone))
+  if (existing) throw new Error(existing.userId === context.userId ? '该手机号已是本店客户，不能重复添加' : '该手机号已属于其他店铺')
+  const [teamAccount] = await db.select({ id: user.id }).from(user).where(eq(user.phoneNumber, value.phone))
+  if (teamAccount) throw new Error('该手机号已绑定团队账号，不能再加入客户团队')
   const now = new Date()
   const legacySecret = createHash('sha256').update(randomBytes(32)).digest('hex')
   await db.insert(customerPortals).values({
     userId: context.userId,
     phone: value.phone,
     customerName: value.name,
+    assigneeUserId: value.assigneeUserId,
     accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
     passwordHash: legacySecret,
     status: 'active',
@@ -147,13 +159,14 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
   revalidatePath('/accounts')
 }
 
-export async function updateCustomer(customerId: number, input: { name: string; active: boolean }) {
+export async function updateCustomer(customerId: number, input: { name: string; active: boolean; assigneeUserId: string }) {
   const context = await requireManager()
   const name = accountNameSchema.parse(input.name)
+  await requireShopAssignee(context.userId, input.assigneeUserId)
   const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
   { const tx = db
-    await tx.update(customerPortals).set({ customerName: name, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    await tx.update(customerPortals).set({ customerName: name, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
     if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
   }
   revalidatePath('/accounts')

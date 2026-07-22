@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const identities = await getPhoneIdentities(phone)
     if (!identities.workspace && !identities.customer) throw new CustomerOtpError('当前没有可使用的账号或在租信息', 403)
     const result = await requestCustomerOtp(phone, forwarded)
-    return NextResponse.json({ ok: true, message: '如果该手机号存在可用身份，验证码将在稍后送达', retryAfter: result.retryAfter, expiresIn: result.expiresIn })
+    return NextResponse.json({ ok: true, message: '验证码已发送', shopName: identities.shopName, retryAfter: result.retryAfter, expiresIn: result.expiresIn })
   } catch (error) {
     const otpError = error instanceof CustomerOtpError || (error instanceof Error && error.name === 'CustomerOtpError') ? error as CustomerOtpError : new CustomerOtpError('验证码发送失败，请稍后重试', 500)
     return NextResponse.json({ ok: false, message: otpError.message, retryAfter: otpError.retryAfter }, { status: otpError.status, headers: otpError.retryAfter ? { 'Retry-After': String(otpError.retryAfter) } : undefined })

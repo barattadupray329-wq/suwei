@@ -17,7 +17,7 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showApplication, setShowApplication] = useState(false)
-  const [application, setApplication] = useState({ name: '', account: '', phone: '', password: '', confirmPassword: '' })
+  const [application, setApplication] = useState({ shopName: '', name: '', account: '', phone: '', password: '', confirmPassword: '' })
   const [applicationMessage, setApplicationMessage] = useState('')
 
   async function submitPassword(event: React.FormEvent) {
@@ -38,7 +38,7 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
     try {
       await submitAdminApplication(application)
       setApplicationMessage('申请已提交。审核通过后可使用账号密码或绑定手机号登录。')
-      setApplication({ name: '', account: '', phone: '', password: '', confirmPassword: '' })
+      setApplication({ shopName: '', name: '', account: '', phone: '', password: '', confirmPassword: '' })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '申请提交失败')
     } finally { setLoading(false) }
@@ -66,7 +66,8 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
             <p className="text-xs leading-5 text-muted-foreground">租赁客户没有账号密码，请使用手机号验证码登录。</p>
           </form>}
         </> : <form onSubmit={submitApplication} className="mt-6 flex flex-col gap-4">
-          <label className="flex flex-col gap-2 text-sm font-medium">姓名<input className="h-10 rounded-lg border bg-background px-3" value={application.name} onChange={(event) => setApplication((value) => ({ ...value, name: event.target.value }))} required /></label>
+          <label className="flex flex-col gap-2 text-sm font-medium">店铺名称<input className="h-10 rounded-lg border bg-background px-3" value={application.shopName} onChange={(event) => setApplication((value) => ({ ...value, shopName: event.target.value }))} required placeholder="例如：速维电脑租赁" /></label>
+          <label className="flex flex-col gap-2 text-sm font-medium">管理员姓名<input className="h-10 rounded-lg border bg-background px-3" value={application.name} onChange={(event) => setApplication((value) => ({ ...value, name: event.target.value }))} required /></label>
           <label className="flex flex-col gap-2 text-sm font-medium">登录账号<input className="h-10 rounded-lg border bg-background px-3" value={application.account} onChange={(event) => setApplication((value) => ({ ...value, account: event.target.value }))} required placeholder="用户名或邮箱格式账号" /></label>
           <label className="flex flex-col gap-2 text-sm font-medium">手机号<input inputMode="numeric" pattern="1[0-9]{10}" className="h-10 rounded-lg border bg-background px-3" value={application.phone} onChange={(event) => setApplication((value) => ({ ...value, phone: event.target.value.replace(/\D/g, '').slice(0, 11) }))} required /></label>
           <label className="flex flex-col gap-2 text-sm font-medium">登录密码<input type="password" minLength={8} className="h-10 rounded-lg border bg-background px-3" value={application.password} onChange={(event) => setApplication((value) => ({ ...value, password: event.target.value }))} required /></label>
