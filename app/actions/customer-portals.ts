@@ -19,7 +19,7 @@ async function ensureCustomerAccessProfiles(ownerId: string) {
   for (const customer of customers) {
     const phone = normalizePhone(customer.phone)
     if (!/^1\d{10}$/.test(phone) || known.has(phone)) continue
-    await db.insert(customerPortals).values({ userId: ownerId, phone, customerName: customer.customerName, accessTokenHash: legacySecret(), passwordHash: legacySecret(), status: 'active' })
+    await db.insert(customerPortals).values({ userId: ownerId, phone, customerName: customer.customerName, assigneeUserId: ownerId, accessTokenHash: legacySecret(), passwordHash: legacySecret(), status: 'active' })
   }
 }
 
@@ -34,7 +34,7 @@ export async function getCustomerPortalCustomers() {
     activeCount: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租','即将到期','逾期') then 1 else 0 end), 0)`,
   }).from(rentals).where(eq(rentals.userId, ownerId)).groupBy(rentals.customerPhone)
   const portals = await db.select().from(customerPortals).where(eq(customerPortals.userId, ownerId))
-  const sessionPhones = new Set((await db.select({ phone: customerPhoneSessions.phone }).from(customerPhoneSessions)).map((row) => row.phone))
+  const sessionPhones = new Set((await db.select({ phone: customerPhoneSessions.phone }).from(customerPhoneSessions).where(eq(customerPhoneSessions.shopId, ownerId))).map((row) => row.phone))
   const portalMap = new Map(portals.map((portal) => [normalizePhone(portal.phone), portal]))
   return grouped.map((customer) => {
     const phone = normalizePhone(customer.phone)
@@ -46,7 +46,7 @@ export async function setCustomerPortalStatus(phone: string, status: 'active' | 
   const { userId: ownerId } = await getAccessContext('系统设置')
   const normalizedPhone = normalizePhone(phone)
   await db.update(customerPortals).set({ status, sessionVersion: sql`${customerPortals.sessionVersion} + 1`, updatedAt: new Date() }).where(and(eq(customerPortals.userId, ownerId), eq(customerPortals.phone, normalizedPhone)))
-  if (status === 'paused') await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, normalizedPhone))
+  if (status === 'paused') await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, ownerId), eq(customerPhoneSessions.phone, normalizedPhone)))
   revalidatePath('/customer-portals')
 }
 
@@ -55,7 +55,7 @@ export async function revokeCustomerSessions(phone: string) {
   const normalizedPhone = normalizePhone(phone)
   const [portal] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.userId, ownerId), eq(customerPortals.phone, normalizedPhone))).limit(1)
   if (!portal) throw new Error('客户访问档案不存在')
-  await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, normalizedPhone))
+  await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, ownerId), eq(customerPhoneSessions.phone, normalizedPhone)))
   await db.update(customerPortals).set({ sessionVersion: sql`${customerPortals.sessionVersion} + 1`, updatedAt: new Date() }).where(eq(customerPortals.id, portal.id))
   revalidatePath('/customer-portals')
 }

@@ -167,15 +167,15 @@ export async function updateCustomer(customerId: number, input: { name: string; 
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
   { const tx = db
     await tx.update(customerPortals).set({ customerName: name, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
-    if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
+    if (!input.active) await tx.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, context.userId), eq(customerPhoneSessions.phone, customer.phone)))
   }
   revalidatePath('/accounts')
 }
 
 export async function updateOwnName(name: string) {
-  const { userId: id } = await requireManager()
+  const { actorId } = await requireManager()
   const validName = accountNameSchema.parse(name)
-  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, id))
+  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, actorId))
   revalidatePath('/accounts')
   revalidatePath('/')
 }

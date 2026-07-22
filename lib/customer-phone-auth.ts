@@ -38,13 +38,10 @@ async function ensureEligibleCustomerProfiles(phone: string) {
   const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES)))
   if (!contracts.length) return []
   const existing = await db.select().from(customerPortals).where(eq(customerPortals.phone, phone))
-  const existingOwners = new Set(existing.map((portal) => portal.userId))
-  const customersByOwner = new Map(contracts.map((contract) => [contract.ownerId, contract.customerName]))
-  for (const [ownerId, customerName] of customersByOwner) {
-    if (existingOwners.has(ownerId)) continue
-    await db.insert(customerPortals).values({ userId: ownerId, phone, customerName, accessTokenHash: digest(randomBytes(32).toString('hex')), passwordHash: digest(randomBytes(32).toString('hex')), status: 'active' })
-  }
-  return db.select().from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
+  if (existing.length) return existing.filter((portal) => portal.status === 'active')
+  const firstContract = contracts[0]
+  await db.insert(customerPortals).values({ userId: firstContract.ownerId, phone, customerName: firstContract.customerName, assigneeUserId: firstContract.ownerId, accessTokenHash: digest(randomBytes(32).toString('hex')), passwordHash: digest(randomBytes(32).toString('hex')), status: 'active' })
+  return db.select().from(customerPortals).where(and(eq(customerPortals.userId, firstContract.ownerId), eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
 }
 
 export function smsFailureMessage(code?: string) {
@@ -154,7 +151,7 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
     await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.userId, identities.shopId), eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
-    await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
+    await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, identities.shopId), eq(customerPhoneSessions.phone, phone)))
     await db.insert(customerPhoneSessions).values({ phone, shopId: identities.shopId, tokenHash: digest(token), expiresAt })
     cookieStore.set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
   }

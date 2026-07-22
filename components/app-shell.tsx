@@ -31,8 +31,8 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenu, setMobileMenu] = useState(false)
-  const isManager = role === 'super_admin' || role === 'admin'
-  const can = (permission?: string) => role === 'super_admin' || !permission || permissions.includes(permission)
+  const isManager = role === 'admin'
+  const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
