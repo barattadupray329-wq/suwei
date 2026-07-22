@@ -22,7 +22,6 @@
     "@alicloud/openapi-client": "^0.4.15",
     "better-auth": "^1.6.23",
     "drizzle-orm": "^0.45.2",
-    "exceljs": "^4.4.0",
     "lucide-react": "^1.24.0",
     "next": "^16.2.11",
     "qrcode": "^1.5.4",

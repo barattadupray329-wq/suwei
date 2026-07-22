@@ -1,38 +1,11 @@
-import ExcelJS from 'exceljs'
 import { asc, eq } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { getAccessContext } from '@/lib/access'
+import { createCsv, csvResponse } from '@/lib/csv'
 import { formatDeviceConfig } from '@/lib/device-config'
 import { db } from '@/lib/db'
 import { rentalItems, rentals } from '@/lib/db/schema'
 import { safeError } from '@/lib/errors'
-
-export const runtime = 'nodejs'
-
-const safe = (value: unknown) => {
-  const text = value == null ? '' : String(value)
-  return /^[=+\-@]/.test(text) ? `'${text}` : text
-}
-
-function styleSheet(sheet: ExcelJS.Worksheet) {
-  sheet.views = [{ state: 'frozen', ySplit: 1 }]
-  sheet.autoFilter = { from: 'A1', to: 'AC1' }
-  const header = sheet.getRow(1)
-  header.height = 28
-  header.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  header.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-  header.eachCell((cell, column) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: column <= 15 ? 'FF166534' : 'FF075985' } }
-  })
-  sheet.eachRow((row, index) => {
-    if (index > 1) {
-      row.height = 24
-      row.alignment = { vertical: 'middle', wrapText: false }
-      row.getCell(3).alignment = { vertical: 'middle', wrapText: false }
-      row.getCell(3).note = '双击此单元格，可在编辑栏查看和编辑完整配置。'
-    }
-  })
-}
 
 export async function GET() {
   try {
@@ -41,49 +14,24 @@ export async function GET() {
       db.select().from(rentals).where(eq(rentals.userId, access.userId)).orderBy(asc(rentals.id)),
       db.select().from(rentalItems).where(eq(rentalItems.userId, access.userId)).orderBy(asc(rentalItems.rentalId), asc(rentalItems.id)),
     ])
-    const contractMap = new Map(contracts.map(row => [row.id, row]))
-    const workbook = new ExcelJS.Workbook()
-    workbook.creator = '速维租赁管理'
-    const columns = [
-      ['租赁开始时间', 'startDate', 12], ['机器号', 'machineNo', 14], ['电脑配置', 'configuration', 28], ['原始数量', 'originalQuantity', 8], ['在租数量', 'activeQuantity', 8], ['租赁人', 'customerName', 12], ['租赁期间', 'period', 22], ['租金', 'rentText', 13], ['每月租金', 'periodRent', 11], ['已付租金', 'paidRent', 11], ['租赁结束时间', 'endDate', 12], ['到期提醒', 'expiry', 12], ['备注', 'notes', 20], ['租赁情况', 'status', 10], ['位置', 'location', 18],
-      ['合同编号*', 'contractNo', 16], ['客户电话*', 'customerPhone', 14], ['客户公司', 'customerCompany', 18], ['联系人*', 'contactName', 12], ['设备类型*', 'deviceType', 10], ['设备名称*', 'deviceName', 16], ['设备编号', 'deviceCode', 15], ['计费方式*', 'billingType', 10], ['租赁整数*', 'duration', 10], ['单价（元/台/期）*', 'unitPrice', 13], ['押金（元）', 'deposit', 11], ['已收租金（元）', 'paidAmount', 13], ['导出状态', 'exportStatus', 11], ['数据说明', 'dataNotes', 22],
-    ] as const
-    const monthsBetween = (start: string, end: string) => {
-      const a = new Date(`${start}T00:00:00`)
-      const b = new Date(`${end}T00:00:00`)
-      return Math.max(1, Math.round((b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + (b.getDate() - a.getDate()) / 30))
-    }
-    const createSheet = (name: string, source: typeof items) => {
-      const sheet = workbook.addWorksheet(name)
-      sheet.columns = columns.map(([header, key, width]) => ({ header, key, width }))
-      for (const item of source) {
-        const rental = contractMap.get(item.rentalId)
-        if (!rental) continue
-        const active = Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity)
-        const status = active > 0 && rental.status === '在租' ? '在租' : item.boughtOutQuantity >= item.quantity ? '买断' : '已退租'
-        const remainingDays = Math.ceil((new Date(`${item.endDate}T00:00:00`).getTime() - Date.now()) / 86400000)
-        sheet.addRow(Object.fromEntries(Object.entries({
-          startDate: item.startDate, machineNo: item.deviceCode, configuration: formatDeviceConfig(item, true), originalQuantity: item.quantity, activeQuantity: active,
-          customerName: rental.customerName, period: `${item.startDate} 至 ${item.endDate}`, rentText: `${Number(item.monthlyRent)}元/台/月`,
-          periodRent: Number(item.monthlyRent) * active, paidRent: Number(rental.paidAmount), endDate: item.endDate, expiry: remainingDays < 0 ? `已过期${Math.abs(remainingDays)}天` : `剩余${remainingDays}天`, notes: rental.notes,
-          status, location: rental.customerAddress, contractNo: rental.contractNo, customerPhone: rental.customerPhone, customerCompany: rental.customerCompany, contactName: rental.customerName,
-          deviceType: item.deviceType, deviceName: item.deviceName, deviceCode: item.deviceCode, billingType: '月租', duration: monthsBetween(item.startDate || rental.startDate, item.endDate || rental.endDate),
-          unitPrice: Number(item.monthlyRent), deposit: Number(rental.deposit), paidAmount: Number(rental.paidAmount), exportStatus: '软件导出', dataNotes: '可按合同编号重新匹配；修改后上传前请保留表头',
-        }).map(([key, value]) => [key, safe(value)])))
-      }
-      styleSheet(sheet)
-    }
-    const current = items.filter(item => contractMap.get(item.rentalId)?.status === '在租' && item.quantity > item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity)
-    const history = items.filter(item => !current.some(active => active.id === item.id))
-    createSheet('在租清单', current)
-    createSheet('历史清单', history)
-    const info = workbook.addWorksheet('填写说明')
-    info.addRows([['员工租机明细导出说明'], ['左侧绿色15列延续旧表查看习惯，右侧蓝色列用于与软件精准匹配。'], ['表格采用紧凑单行显示；双击“电脑配置”单元格，可在编辑栏查看和编辑完整配置。'], ['修改数据时请保留合同编号；合同编号是回传匹配的第一依据。'], ['租赁时间必须为整数，单价必须大于0，日期使用 YYYY-MM-DD。'], ['押金与租金分开记录，“已付租金”不包含押金。']])
-    info.getColumn(1).width = 90
-    info.getRow(1).font = { bold: true, size: 16, color: { argb: 'FF166534' } }
-    const buffer = await workbook.xlsx.writeBuffer()
+    const contractMap = new Map(contracts.map((row) => [row.id, row]))
+    const headers = ['清单类型', '租赁开始时间', '机器号', '电脑配置', '原始数量', '在租数量', '租赁人', '租赁期间', '每月租金', '已付租金', '租赁结束时间', '到期提醒', '备注', '租赁情况', '位置', '合同编号', '客户电话', '客户公司', '设备类型', '设备名称', '设备编号', '押金']
+    const rows = items.flatMap((item) => {
+      const rental = contractMap.get(item.rentalId)
+      if (!rental) return []
+      const active = Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity)
+      const current = active > 0 && rental.status === '在租'
+      const status = current ? '在租' : item.boughtOutQuantity >= item.quantity ? '买断' : '已退租'
+      const remainingDays = Math.ceil((new Date(`${item.endDate}T00:00:00`).getTime() - Date.now()) / 86400000)
+      return [[
+        current ? '在租清单' : '历史清单', item.startDate, item.deviceCode, formatDeviceConfig(item, true), item.quantity, active,
+        rental.customerName, `${item.startDate} 至 ${item.endDate}`, Number(item.monthlyRent), Number(rental.paidAmount), item.endDate,
+        remainingDays < 0 ? `已过期${Math.abs(remainingDays)}天` : `剩余${remainingDays}天`, rental.notes, status, rental.customerAddress,
+        rental.contractNo, rental.customerPhone, rental.customerCompany, item.deviceType, item.deviceName, item.deviceCode, Number(rental.deposit),
+      ]]
+    })
     const stamp = new Date().toISOString().slice(0, 10)
-    return new NextResponse(Buffer.from(buffer), { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`租机明细全表-${stamp}.xlsx`)}`, 'Cache-Control': 'private, no-store' } })
+    return csvResponse(createCsv(headers, rows), `租机明细全表-${stamp}.csv`)
   } catch (error) {
     const safe = safeError(error, '导出失败，请稍后重试')
     return NextResponse.json({ error: safe.message }, { status: safe.status })
