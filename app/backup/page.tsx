@@ -11,10 +11,10 @@ export default async function Page() {
   const userId = access.userId
   const [[counts], [latest], storeName] = await Promise.all([
     db.select({
-      contracts: sql<number>`(select count(*)::int from ${rentals} where ${rentals.userId} = ${userId})`,
-      devices: sql<number>`(select count(*)::int from ${rentalItems} where ${rentalItems.userId} = ${userId})`,
-      payments: sql<number>`(select count(*)::int from ${paymentRecords} where ${paymentRecords.userId} = ${userId})`,
-      members: sql<number>`(select count(*)::int from ${organizationMembers} where ${organizationMembers.ownerId} = ${userId})`,
+      contracts: sql<number>`(select count(*) from ${rentals} where ${rentals.userId} = ${userId})`,
+      devices: sql<number>`(select count(*) from ${rentalItems} where ${rentalItems.userId} = ${userId})`,
+      payments: sql<number>`(select count(*) from ${paymentRecords} where ${paymentRecords.userId} = ${userId})`,
+      members: sql<number>`(select count(*) from ${organizationMembers} where ${organizationMembers.ownerId} = ${userId})`,
     }).from(rentals).limit(1),
     db.select({ updatedAt: rentals.updatedAt }).from(rentals).where(eq(rentals.userId, userId)).orderBy(desc(rentals.updatedAt)).limit(1),
     getStoreName(),
