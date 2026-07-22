@@ -13,8 +13,7 @@ export function CustomerPortalAdmin({ customers }: { customers: any[] }) {
   const [status, setStatus] = useState<'all'|'active'|'paused'>('all')
   const [showQr, setShowQr] = useState(false)
   const [qr, setQr] = useState('')
-  const [queryUrl, setQueryUrl] = useState('/customer-login')
-  useEffect(() => { setQueryUrl(`${window.location.origin}/customer-login`) }, [])
+  const [queryUrl] = useState(() => typeof window === 'undefined' ? '/customer-login' : `${window.location.origin}/customer-login`)
   useEffect(() => { if (showQr) QRCode.toDataURL(queryUrl, { width: 320, margin: 2, color: { dark: '#0b6b4b', light: '#ffffff' } }).then(setQr) }, [showQr, queryUrl])
   const filtered = useMemo(() => customers.filter((customer) => {
     const matchesQuery = !query || `${customer.customerName}${customer.customerCompany || ''}${customer.phone}`.toLowerCase().includes(query.toLowerCase())
