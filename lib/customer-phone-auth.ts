@@ -34,6 +34,19 @@ export class CustomerOtpError extends Error {
 
 export const maskCustomerPhone = (phone: string) => phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
 
+async function ensureEligibleCustomerProfiles(phone: string) {
+  const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES)))
+  if (!contracts.length) return []
+  const existing = await db.select().from(customerPortals).where(eq(customerPortals.phone, phone))
+  const existingOwners = new Set(existing.map((portal) => portal.userId))
+  const customersByOwner = new Map(contracts.map((contract) => [contract.ownerId, contract.customerName]))
+  for (const [ownerId, customerName] of customersByOwner) {
+    if (existingOwners.has(ownerId)) continue
+    await db.insert(customerPortals).values({ userId: ownerId, phone, customerName, accessTokenHash: digest(randomBytes(32).toString('hex')), passwordHash: digest(randomBytes(32).toString('hex')), status: 'active' })
+  }
+  return db.select().from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
+}
+
 export function smsFailureMessage(code?: string) {
   if (code === 'isv.BUSINESS_LIMIT_CONTROL') return '验证码请求过于频繁，请稍后再试'
   if (code === 'isv.MOBILE_NUMBER_ILLEGAL') return '请输入正确的中国大陆手机号'
@@ -77,8 +90,8 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   if (recentIp || recentPhone) throw new CustomerOtpError('请求过于频繁，请一分钟后再试', 429, SMS_RESEND_SECONDS)
   if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
-  const [eligible] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
-  if (!eligible) {
+  const eligible = await ensureEligibleCustomerProfiles(phone)
+  if (!eligible.length) {
     const now = new Date()
     await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(randomBytes(32).toString('hex')), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), consumedAt: now, requestIpHash: ipHash })
     return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
@@ -107,8 +120,8 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   }
   const now = new Date()
   await db.update(customerOtpChallenges).set({ consumedAt: now }).where(eq(customerOtpChallenges.id, challenge.id))
-  const [customer] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
-  if (!customer) throw new CustomerOtpError('客户账号不存在或已停用，请联系店铺管理员', 403)
+  const customers = await ensureEligibleCustomerProfiles(phone)
+  if (!customers.length) throw new CustomerOtpError('当前没有可查询的租赁合同，或查询权限已暂停', 403)
   await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
   const token = randomBytes(32).toString('base64url')
   const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
