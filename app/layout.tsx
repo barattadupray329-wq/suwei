@@ -17,10 +17,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const requestHeaders = await headers()
   const hasRequestContext = requestHeaders.has('host')
   const session = hasRequestContext ? await auth.api.getSession({ headers: requestHeaders }) : null
-  let content = children
+  let shell: { storeName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[] } | null = null
   if (session?.user) {
-    const [access, storeName] = await Promise.all([getAccessContext(), getStoreName()])
-    content = <AppShell storeName={storeName} userName={session.user.name} role={access.role} permissions={access.permissions}>{children}</AppShell>
+    try {
+      const [access, storeName] = await Promise.all([getAccessContext(), getStoreName()])
+      shell = { storeName, role: access.role, permissions: access.permissions }
+    } catch {
+      // 失效、停用或孤立账号仍允许渲染登录页，由登录页显示中文恢复提示。
+      shell = null
+    }
   }
+  const content = shell && session?.user
+    ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions}>{children}</AppShell>
+    : children
   return <html lang="zh-CN" className="bg-background"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>{content}<Toaster richColors position="top-center" /></body></html>
 }

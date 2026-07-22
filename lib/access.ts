@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { accountProfiles, organizationMembers, shops } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
-import { canAccessStoreModule, permissionsForRole, type StorePermission } from '@/lib/tenant-policy'
+import { canAccessStoreModule, defaultAccountRoute, permissionsForRole, type StorePermission } from '@/lib/tenant-policy'
 
 export type ModulePermission = StorePermission
 
@@ -25,8 +25,16 @@ export async function getAccessContext(permission?: ModulePermission) {
   const [membership] = await db.select().from(organizationMembers).where(eq(organizationMembers.memberUserId, session.user.id))
   if (!membership?.active || membership.role !== 'employee') throw new Error('账号未加入店铺或已停用')
   const permissions = permissionsForRole('employee', membership.permissions.split(',').filter(Boolean))
+  if (!permissions.length) throw new Error('员工账号未分配任何功能权限')
   if (permission && !canAccessStoreModule('employee', permission, permissions)) throw new Error('没有该模块的操作权限')
   const [shop] = await db.select().from(shops).where(eq(shops.id, membership.shopId ?? membership.ownerId))
   if (!shop || shop.status !== 'active') throw new Error('所属店铺未启用或已暂停')
   return { userId: shop.id, shopId: shop.id, shopName: shop.name, actorId: session.user.id, actorName: session.user.name, role: 'employee' as const, permissions }
+}
+
+export async function getDefaultAccountRoute() {
+  const access = await getAccessContext()
+  const route = defaultAccountRoute(access.role, access.permissions)
+  if (!route) throw new Error('员工账号未分配任何功能权限')
+  return route
 }

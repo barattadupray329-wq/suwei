@@ -9,12 +9,12 @@ import { submitAdminApplication } from '@/app/actions/business'
 
 type Method = 'phone' | 'account'
 
-export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-up'; accessError?: string }) {
   const router = useRouter()
   const [method, setMethod] = useState<Method>('phone')
   const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(accessError)
   const [loading, setLoading] = useState(false)
   const [showApplication, setShowApplication] = useState(false)
   const [application, setApplication] = useState({ shopName: '', name: '', account: '', phone: '', password: '', confirmPassword: '' })

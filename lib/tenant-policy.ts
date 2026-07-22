@@ -12,6 +12,21 @@ export function canAccessStoreModule(role: AccountRole, permission: StorePermiss
   return permissionsForRole(role, employeePermissions).includes(permission)
 }
 
+const permissionRoutes: Record<StorePermission, string> = {
+  租赁操作: '/dashboard',
+  资金查看: '/finance',
+  合同管理: '/customer-portals',
+  账号管理: '/accounts',
+  系统设置: '/settings',
+}
+
+export function defaultAccountRoute(role: AccountRole, employeePermissions: string[] = []) {
+  if (role === 'super_admin') return '/accounts'
+  if (role === 'admin') return '/dashboard'
+  const [firstPermission] = permissionsForRole('employee', employeePermissions)
+  return firstPermission ? permissionRoutes[firstPermission] : null
+}
+
 export function resolveStoreId(input: { role: AccountRole; actorId: string; ownedStoreId?: string | null; memberStoreId?: string | null }) {
   if (input.role === 'super_admin') return null
   if (input.role === 'admin') return input.ownedStoreId ?? null

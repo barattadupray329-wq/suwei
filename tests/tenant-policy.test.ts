@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertSingleStoreMembership, canAccessStoreModule, isCustomerReadOnlyStatus, permissionsForRole, resolveStoreId } from '../lib/tenant-policy'
+import { assertSingleStoreMembership, canAccessStoreModule, defaultAccountRoute, isCustomerReadOnlyStatus, permissionsForRole, resolveStoreId } from '../lib/tenant-policy'
 
 describe('多店铺权限边界', () => {
   it('超级管理员只能管理账号，不能访问店铺业务', () => {
@@ -19,6 +19,13 @@ describe('多店铺权限边界', () => {
     expect(permissionsForRole('employee', ['租赁操作', '非法权限', '合同管理'])).toEqual(['租赁操作', '合同管理'])
     expect(canAccessStoreModule('employee', '资金查看', ['租赁操作'])).toBe(false)
     expect(resolveStoreId({ role: 'employee', actorId: 'staff', memberStoreId: 'shop-b' })).toBe('shop-b')
+  })
+
+  it('按角色和权限返回安全首页', () => {
+    expect(defaultAccountRoute('super_admin')).toBe('/accounts')
+    expect(defaultAccountRoute('admin')).toBe('/dashboard')
+    expect(defaultAccountRoute('employee', ['资金查看'])).toBe('/finance')
+    expect(defaultAccountRoute('employee', ['非法权限'])).toBeNull()
   })
 
   it('非管理员手机号不能跨店加入团队', () => {

@@ -31,6 +31,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenu, setMobileMenu] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
   const isManager = role === 'admin'
   const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
@@ -49,9 +50,17 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   }, [isManager, publicRoute])
 
   const safeSignOut = async () => {
-    await authClient.signOut()
-    router.push('/sign-in')
-    router.refresh()
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      const result = await authClient.signOut()
+      if (result.error) throw new Error('退出请求失败')
+      router.replace('/sign-in')
+      router.refresh()
+    } catch {
+      toast.error('退出登录失败，请检查网络后重试')
+      setSigningOut(false)
+    }
   }
 
   if (publicRoute || pathname.startsWith('/contracts/')) return children
@@ -67,7 +76,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5" /></span>
         <div className="min-w-0"><p className="truncate font-semibold">{storeName}</p><p className="text-xs text-muted-foreground">租赁业务管理中心</p></div>
       </div>
-      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="退出登录" title="退出登录" onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted"><LogOut className="size-5" /></button></div>
+      <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label={signingOut ? '正在退出登录' : '退出登录'} title={signingOut ? '正在退出登录' : '退出登录'} disabled={signingOut} onClick={safeSignOut} className="rounded-lg border p-2 hover:bg-muted disabled:cursor-wait disabled:opacity-50"><LogOut className="size-5" /></button></div>
     </header>
 
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭功能菜单" className="absolute inset-0 bg-foreground/30" onClick={() => setMobileMenu(false)} /><aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-card p-4 shadow-xl"><div className="flex items-center justify-between border-b pb-4"><div><p className="font-semibold">功能菜单</p><p className="text-xs text-muted-foreground">{userName} · {role === 'super_admin' ? '超级管理员' : role === 'admin' ? '管理员' : '员工账号'}</p></div><button type="button" aria-label="关闭功能菜单" onClick={() => setMobileMenu(false)} className="rounded-lg border p-2"><X className="size-5" /></button></div><div className="mt-4">{navigation(true)}</div></aside></div>}
