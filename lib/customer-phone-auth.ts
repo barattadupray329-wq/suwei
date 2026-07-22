@@ -4,7 +4,7 @@ import * as $OpenApi from '@alicloud/openapi-client'
 import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals } from '@/lib/db/schema'
+import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -75,6 +75,24 @@ async function sendSms(phone: string, code: string) {
   }
 }
 
+export async function getPhoneIdentities(rawPhone: string) {
+  const phone = requirePhone(rawPhone)
+  const [staff, customers] = await Promise.all([
+    db.select({ id: user.id }).from(user).innerJoin(accountProfiles, eq(accountProfiles.userId, user.id)).where(and(eq(user.phoneNumber, phone), eq(accountProfiles.active, true))).limit(1),
+    ensureEligibleCustomerProfiles(phone),
+  ])
+  return { phone, workspace: staff.length > 0, customer: customers.length > 0 }
+}
+
+export async function sendUnifiedPhoneOtp(rawPhone: string, code: string, requestIp: string) {
+  const phone = requirePhone(rawPhone)
+  const ipHash = digest(`${requestIp}.${otpSecret()}`)
+  const now = new Date()
+  await sendSms(phone, code)
+  await db.update(customerOtpChallenges).set({ consumedAt: now }).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt)))
+  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${otpSecret()}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
+}
+
 export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   const phone = requirePhone(rawPhone)
   const ipHash = digest(`${requestIp}.${otpSecret()}`)
@@ -120,14 +138,17 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   }
   const now = new Date()
   await db.update(customerOtpChallenges).set({ consumedAt: now }).where(eq(customerOtpChallenges.id, challenge.id))
-  const customers = await ensureEligibleCustomerProfiles(phone)
-  if (!customers.length) throw new CustomerOtpError('当前没有可查询的租赁合同，或查询权限已暂停', 403)
-  await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
-  const token = randomBytes(32).toString('base64url')
-  const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
-  await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
-  await db.insert(customerPhoneSessions).values({ phone, tokenHash: digest(token), expiresAt })
-  ;(await cookies()).set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
+  const identities = await getPhoneIdentities(phone)
+  if (!identities.workspace && !identities.customer) throw new CustomerOtpError('当前没有可使用的账号或在租信息', 403)
+  if (identities.customer) {
+    await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
+    const token = randomBytes(32).toString('base64url')
+    const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
+    await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
+    await db.insert(customerPhoneSessions).values({ phone, tokenHash: digest(token), expiresAt })
+    ;(await cookies()).set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
+  }
+  return identities
 }
 
 export async function logoutCustomerPhone() {

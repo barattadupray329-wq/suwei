@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, LoaderCircle, MessageSquareText, Phone, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, BriefcaseBusiness, LoaderCircle, MessageSquareText, Monitor, Phone, ShieldCheck } from 'lucide-react'
+import { authClient } from '@/lib/auth-client'
 
-export function CustomerPhoneLogin() {
+export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter()
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
@@ -13,6 +14,7 @@ export function CustomerPhoneLogin() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'success' | 'error'>('success')
   const [countdown, setCountdown] = useState(0)
+  const [identities, setIdentities] = useState<{ workspace: boolean; customer: boolean } | null>(null)
   const codeRef = useRef<HTMLInputElement>(null)
   const validPhone = /^1\d{10}$/.test(phone)
 
@@ -43,21 +45,43 @@ export function CustomerPhoneLogin() {
     }
   }
 
+  async function enterWorkspace() {
+    setPendingAction('verify')
+    setMessage('')
+    const result = await authClient.phoneNumber.verify({ phoneNumber: phone, code })
+    if (result.error) {
+      setPendingAction(null)
+      setMessage('验证码已失效，请重新获取')
+      setMessageType('error')
+      setIdentities(null)
+      return
+    }
+    await fetch('/api/customer-auth/logout', { method: 'POST' })
+    router.push('/dashboard')
+    router.refresh()
+  }
+
   async function verify() {
     if (!validPhone || code.length !== 6 || pendingAction) return
     setPendingAction('verify')
     setMessage('')
     try {
       const response = await fetch('/api/customer-auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }) })
-      const result = await response.json().catch(() => ({ message: '验证服务暂时繁忙，请稍后重试' })) as { message: string; retryAfter?: number }
-      if (!response.ok) {
+      const result = await response.json().catch(() => ({ message: '验证服务暂时繁忙，请稍后重试' })) as { message: string; retryAfter?: number; identities?: { workspace: boolean; customer: boolean } }
+      if (!response.ok || !result.identities) {
         setMessage(result.message)
         setMessageType('error')
         if (result.retryAfter) setCountdown(Number(result.retryAfter))
         return
       }
-      router.push('/customer')
-      router.refresh()
+      if (result.identities.workspace && result.identities.customer) {
+        setIdentities(result.identities)
+      } else if (result.identities.workspace) {
+        await enterWorkspace()
+      } else {
+        router.push('/customer')
+        router.refresh()
+      }
     } catch {
       setMessage('网络连接失败，请检查网络后重试')
       setMessageType('error')
@@ -66,19 +90,25 @@ export function CustomerPhoneLogin() {
     }
   }
 
+  if (identities) return <div className="mt-6 flex flex-col gap-3" role="group" aria-label="选择登录身份">
+    <div className="rounded-xl bg-primary/10 p-4"><h2 className="font-semibold text-primary">请选择要进入的身份</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">该手机号同时绑定了团队账号和在租信息。</p></div>
+    <button type="button" onClick={() => void enterWorkspace()} disabled={Boolean(pendingAction)} className="flex items-center gap-3 rounded-xl border bg-card p-4 text-left hover:bg-muted disabled:opacity-60"><BriefcaseBusiness className="size-5 text-primary" /><span><strong className="block">进入工作台</strong><span className="text-sm text-muted-foreground">管理合同、设备和业务数据</span></span></button>
+    <button type="button" onClick={() => { router.push('/customer'); router.refresh() }} className="flex items-center gap-3 rounded-xl border bg-card p-4 text-left hover:bg-muted"><Monitor className="size-5 text-primary" /><span><strong className="block">查看我的租赁</strong><span className="text-sm text-muted-foreground">仅查看本人当前在租信息</span></span></button>
+  </div>
+
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-4 bg-background p-4">
-      <div className="flex w-full max-w-md items-center justify-between">
+    <main className={embedded ? 'mt-6' : 'flex min-h-svh flex-col items-center justify-center gap-4 bg-background p-4'}>
+      <div className={embedded ? 'hidden' : 'flex w-full max-w-md items-center justify-between'}>
         <Link href="/" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />返回速维租赁官网</Link>
         <a href="tel:05972685521" className="flex items-center gap-2 text-sm font-semibold text-primary"><Phone className="size-4" />0597-2685521</a>
       </div>
-      <section className="w-full max-w-md overflow-hidden rounded-2xl border bg-card shadow-xl">
-        <header className="bg-primary p-6 text-primary-foreground">
+      <section className={embedded ? 'w-full' : 'w-full max-w-md overflow-hidden rounded-2xl border bg-card shadow-xl'}>
+        <header className={embedded ? 'hidden' : 'bg-primary p-6 text-primary-foreground'}>
           <span className="flex size-11 items-center justify-center rounded-xl bg-primary-foreground/15"><ShieldCheck className="size-6" /></span>
           <h1 className="mt-5 text-balance text-2xl font-bold">客户服务中心</h1>
           <p className="mt-2 text-sm leading-6 opacity-80">输入合同手机号和短信验证码，查看设备、合同、费用与服务进度。</p>
         </header>
-        <form className="flex flex-col gap-5 p-6" onSubmit={(event) => { event.preventDefault(); void verify() }}>
+        <form className={embedded ? 'flex flex-col gap-5' : 'flex flex-col gap-5 p-6'} onSubmit={(event) => { event.preventDefault(); void verify() }}>
           <label className="flex flex-col gap-2 text-sm font-medium">
             合同手机号
             <div className="flex gap-2">

@@ -22,7 +22,8 @@ const PERMISSIONS = ['租赁操作', '资金查看', '合同管理', '账号管�
 type Account = {
   id: string
   name: string
-  email: string
+  email: string | null
+  phone?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }

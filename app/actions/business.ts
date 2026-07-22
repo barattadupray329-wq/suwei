@@ -45,23 +45,26 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
 export async function getAccounts() {
   const context = await requireManager()
   const [owner, members, customers, applications] = await Promise.all([
-    db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
-    db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
+    db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
+    db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
     db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
     context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
 
-const applicationSchema = z.object({ name: accountNameSchema, email: z.string().trim().toLowerCase().email('请输入有效邮箱'), phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
+const loginAccountSchema = z.string().trim().toLowerCase().min(3, '账号至少需要 3 位').max(80, '账号最多 80 位').regex(/^[a-zA-Z0-9._@+-]+$/, '账号只能包含字母、数字及 . _ @ + -')
+const applicationSchema = z.object({ name: accountNameSchema, account: loginAccountSchema, phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
 export async function submitAdminApplication(input: z.infer<typeof applicationSchema>) {
   const value = applicationSchema.parse(input)
   if (value.password !== value.confirmPassword) throw new Error('两次输入的密码不一致')
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, value.email))
-  if (existingUser) throw new Error('该邮箱已存在，不能重复申请')
-  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.email), eq(adminApplications.status, 'pending')))
-  if (pending) throw new Error('该邮箱已有���审核申请')
-  await db.insert(adminApplications).values({ name: value.name, email: value.email, phone: value.phone, passwordHash: await hashPassword(value.password) })
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.username, value.account))
+  if (existingUser) throw new Error('该登录账号已存在，不能重复申请')
+  const [existingPhone] = await db.select({ id: user.id }).from(user).where(eq(user.phoneNumber, value.phone))
+  if (existingPhone) throw new Error('该手机号已绑定其他团队账号')
+  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.account), eq(adminApplications.status, 'pending')))
+  if (pending) throw new Error('该登录账号已有待审核申请')
+  await db.insert(adminApplications).values({ name: value.name, email: value.account, phone: value.phone, passwordHash: await hashPassword(value.password) })
   return { success: true }
 }
 
@@ -73,11 +76,13 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
   if (decision === 'reject') {
     await db.update(adminApplications).set({ status: 'rejected', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
   } else {
-    const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, application.email))
-    if (existingUser) throw new Error('该邮箱已存在，无法批准')
+    const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.username, application.email))
+    if (existingUser) throw new Error('该登录账号已存在，无法批准')
+    const [existingPhone] = await db.select({ id: user.id }).from(user).where(eq(user.phoneNumber, application.phone))
+    if (existingPhone) throw new Error('该手机号已绑定其他团队账号')
     const newUserId = randomUUID()
     await db.transaction(async (tx) => {
-      await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, createdAt: now, updatedAt: now })
+      await tx.insert(user).values({ id: newUserId, name: application.name, email: `${newUserId}@account.local`, emailVerified: false, username: application.email, displayUsername: application.email, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
@@ -86,19 +91,22 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
   revalidatePath('/accounts')
 }
 
-export async function addMember(input: { name: string; email: string; password: string; confirmPassword: string; permissions: string[] }) {
+export async function addMember(input: { name: string; account: string; phone: string; password: string; confirmPassword: string; permissions: string[] }) {
   const { userId: ownerId } = await requireManager()
   const name = accountNameSchema.parse(input.name)
-  const email = z.string().email('请输入有效的员工邮箱').parse(input.email.trim().toLowerCase())
+  const loginAccount = loginAccountSchema.parse(input.account)
+  const phone = z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号').parse(input.phone)
   const password = validatePasswordConfirmation({ newPassword: input.password, confirmPassword: input.confirmPassword })
   const permissions = validateAccountPermissions(input.permissions)
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, email))
-  if (existingUser) throw new Error('该邮箱已存在，请使用其他邮箱')
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.username, loginAccount))
+  if (existingUser) throw new Error('该登录账号已存在，请使用其他账号')
+  const [existingPhone] = await db.select({ id: user.id }).from(user).where(eq(user.phoneNumber, phone))
+  if (existingPhone) throw new Error('该手机号已绑定其他团队账号')
 
   const memberUserId = randomUUID()
   const now = new Date()
   await db.transaction(async (tx) => {
-    await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, createdAt: now, updatedAt: now })
+    await tx.insert(user).values({ id: memberUserId, name, email: `${memberUserId}@account.local`, emailVerified: false, username: loginAccount, displayUsername: loginAccount, phoneNumber: phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
     await tx.insert(account).values({
       id: randomUUID(),
       accountId: memberUserId,
