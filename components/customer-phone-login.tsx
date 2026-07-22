@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BriefcaseBusiness, LoaderCircle, MessageSquareText, Monitor, Phone, ShieldCheck } from 'lucide-react'
-import { authClient } from '@/lib/auth-client'
 
 export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter()
@@ -48,14 +47,6 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
   async function enterWorkspace() {
     setPendingAction('verify')
     setMessage('')
-    const result = await authClient.phoneNumber.verify({ phoneNumber: phone, code })
-    if (result.error) {
-      setPendingAction(null)
-      setMessage('验证码已失效，请重新获取')
-      setMessageType('error')
-      setIdentities(null)
-      return
-    }
     await fetch('/api/customer-auth/logout', { method: 'POST' })
     router.push('/dashboard')
     router.refresh()

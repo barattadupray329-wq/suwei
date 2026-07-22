@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { CustomerOtpError, getPhoneIdentities, requestCustomerOtp } from '@/lib/customer-phone-auth'
 import { isTrustedMutationRequest } from '@/lib/request-security'
-import { auth } from '@/lib/auth'
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +9,7 @@ export async function POST(request: Request) {
     const phone = String(body.phone ?? '')
     const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
     const identities = await getPhoneIdentities(phone)
-    if (identities.workspace) {
-      await auth.api.sendPhoneNumberOTP({ body: { phoneNumber: identities.phone }, headers: request.headers })
-      return NextResponse.json({ ok: true, message: '验证码已发送', retryAfter: 60, expiresIn: 300 })
-    }
+    if (!identities.workspace && !identities.customer) throw new CustomerOtpError('当前没有可使用的账号或在租信息', 403)
     const result = await requestCustomerOtp(phone, forwarded)
     return NextResponse.json({ ok: true, message: '如果该手机号存在可用身份，验证码将在稍后送达', retryAfter: result.retryAfter, expiresIn: result.expiresIn })
   } catch (error) {

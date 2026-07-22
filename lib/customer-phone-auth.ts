@@ -1,10 +1,10 @@
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import Dysmsapi20170525, * as $Dysmsapi20170525 from '@alicloud/dysmsapi20170525'
 import * as $OpenApi from '@alicloud/openapi-client'
 import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals, user } from '@/lib/db/schema'
+import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, rentalItems, rentals, session, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -108,8 +108,8 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   if (recentIp || recentPhone) throw new CustomerOtpError('请求过于频繁，请一分钟后再试', 429, SMS_RESEND_SECONDS)
   if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
-  const eligible = await ensureEligibleCustomerProfiles(phone)
-  if (!eligible.length) {
+  const identities = await getPhoneIdentities(phone)
+  if (!identities.workspace && !identities.customer) {
     const now = new Date()
     await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(randomBytes(32).toString('hex')), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), consumedAt: now, requestIpHash: ipHash })
     return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
@@ -140,13 +140,25 @@ export async function verifyCustomerOtp(rawPhone: string, code: string) {
   await db.update(customerOtpChallenges).set({ consumedAt: now }).where(eq(customerOtpChallenges.id, challenge.id))
   const identities = await getPhoneIdentities(phone)
   if (!identities.workspace && !identities.customer) throw new CustomerOtpError('当前没有可使用的账号或在租信息', 403)
+  const cookieStore = await cookies()
   if (identities.customer) {
     await db.update(customerPortals).set({ lastLoginAt: now, failedAttempts: 0, updatedAt: now }).where(and(eq(customerPortals.phone, phone), eq(customerPortals.status, 'active')))
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)
     await db.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, phone))
     await db.insert(customerPhoneSessions).values({ phone, tokenHash: digest(token), expiresAt })
-    ;(await cookies()).set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
+    cookieStore.set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt, priority: 'high' })
+  }
+  if (identities.workspace) {
+    const [workspaceUser] = await db.select({ id: user.id }).from(user).innerJoin(accountProfiles, eq(accountProfiles.userId, user.id)).where(and(eq(user.phoneNumber, phone), eq(accountProfiles.active, true))).limit(1)
+    if (workspaceUser) {
+      const token = randomBytes(32).toString('base64url')
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      await db.insert(session).values({ id: randomUUID(), token, userId: workspaceUser.id, expiresAt, createdAt: now, updatedAt: now })
+      const signature = createHmac('sha256', otpSecret()).update(token).digest('base64')
+      const cookieName = process.env.NODE_ENV === 'production' ? '__Secure-better-auth.session_token' : 'better-auth.session_token'
+      cookieStore.set(cookieName, `${token}.${signature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none', path: '/', expires: expiresAt, priority: 'high' })
+    }
   }
   return identities
 }

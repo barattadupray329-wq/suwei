@@ -1,7 +1,6 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { phoneNumber, username } from 'better-auth/plugins'
-import { sendUnifiedPhoneOtp } from '@/lib/customer-phone-auth'
+import { username } from 'better-auth/plugins/username'
 import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 
@@ -14,7 +13,6 @@ export const auth = betterAuth({
   emailAndPassword: { enabled: true, autoSignIn: true, disableSignUp: true },
   plugins: [
     username({ minUsernameLength: 3, maxUsernameLength: 80, usernameValidator: (value) => /^[a-zA-Z0-9._@+-]+$/.test(value) }),
-    phoneNumber({ sendOTP: ({ phoneNumber: value, code }, ctx) => sendUnifiedPhoneOtp(value, code, ctx?.request?.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'), expiresIn: 300, allowedAttempts: 5, phoneNumberValidator: (value) => /^1\d{10}$/.test(value) }),
   ],
   trustedOrigins: [
     'https://tuzhuzu.cn',
