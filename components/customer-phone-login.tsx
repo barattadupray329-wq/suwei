@@ -110,7 +110,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
         </header>
         <form className={embedded ? 'flex flex-col gap-5' : 'flex flex-col gap-5 p-6'} onSubmit={(event) => { event.preventDefault(); void verify() }}>
           <label className="flex flex-col gap-2 text-sm font-medium">
-            合同手机号
+            {embedded ? '登录手机号' : '合同手机号'}
             <div className="flex gap-2">
               <input inputMode="tel" autoComplete="tel" required pattern="1[0-9]{10}" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '').slice(0, 11)); setMessage('') }} className="h-12 min-w-0 flex-1 rounded-xl border bg-background px-4 text-base outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 11 位手机号" />
               <button type="button" onClick={() => void requestCode()} disabled={!validPhone || Boolean(pendingAction) || countdown > 0} className="flex h-12 min-w-28 items-center justify-center rounded-xl border border-primary px-3 text-sm font-semibold text-primary disabled:border-border disabled:text-muted-foreground disabled:opacity-70">
@@ -125,9 +125,9 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
           </label>
           {message && <p role={messageType === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl px-4 py-3 text-sm ${messageType === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>{message}</p>}
           <button type="submit" disabled={!validPhone || code.length !== 6 || Boolean(pendingAction)} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">
-            {pendingAction === 'verify' ? <LoaderCircle className="size-5 animate-spin" /> : <MessageSquareText className="size-5" />}{pendingAction === 'verify' ? '正在验证…' : '验证并查看租赁'}
+            {pendingAction === 'verify' ? <LoaderCircle className="size-5 animate-spin" /> : <MessageSquareText className="size-5" />}{pendingAction === 'verify' ? '正在验证…' : embedded ? '验证并登录' : '验证并查看租赁'}
           </button>
-          <p className="text-xs leading-5 text-muted-foreground">为保护客户隐私，无有效在租记录的手机号不会获得任何数据。请勿向他人提供验证码。</p>
+          <p className="text-xs leading-5 text-muted-foreground">{embedded ? '验证码仅用于本次登录。租赁客户只能查看本人当前在租信息，请勿向他人提供验证码。' : '为保护客户隐私，无有效在租记录的手机号不会获得任何数据。请勿向他人提供验证码。'}</p>
         </form>
       </section>
     </main>

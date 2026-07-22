@@ -81,12 +81,12 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
     const [existingPhone] = await db.select({ id: user.id }).from(user).where(eq(user.phoneNumber, application.phone))
     if (existingPhone) throw new Error('该手机号已绑定其他团队账号')
     const newUserId = randomUUID()
-    await db.transaction(async (tx) => {
+    { const tx = db
       await tx.insert(user).values({ id: newUserId, name: application.name, email: `${newUserId}@account.local`, emailVerified: false, username: application.email, displayUsername: application.email, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
-    })
+    }
   }
   revalidatePath('/accounts')
 }
@@ -105,7 +105,7 @@ export async function addMember(input: { name: string; account: string; phone: s
 
   const memberUserId = randomUUID()
   const now = new Date()
-  await db.transaction(async (tx) => {
+  { const tx = db
     await tx.insert(user).values({ id: memberUserId, name, email: `${memberUserId}@account.local`, emailVerified: false, username: loginAccount, displayUsername: loginAccount, phoneNumber: phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
     await tx.insert(account).values({
       id: randomUUID(),
@@ -118,7 +118,7 @@ export async function addMember(input: { name: string; account: string; phone: s
     })
     await tx.insert(accountProfiles).values({ userId: memberUserId, role: 'employee', active: true, createdAt: now, updatedAt: now })
     await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
-  })
+  }
   revalidatePath('/accounts')
 }
 
@@ -152,10 +152,10 @@ export async function updateCustomer(customerId: number, input: { name: string; 
   const name = accountNameSchema.parse(input.name)
   const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
-  await db.transaction(async (tx) => {
+  { const tx = db
     await tx.update(customerPortals).set({ customerName: name, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
     if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
-  })
+  }
   revalidatePath('/accounts')
 }
 
@@ -191,20 +191,20 @@ export async function resetMemberPassword(memberUserId: string, input: { newPass
   await requireOwnedMember(id, memberUserId)
   const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
-  if (!credential) throw new Error('该员工没有邮箱密码登录凭据')
-  await db.transaction(async (tx) => {
+  if (!credential) throw new Error('该员工没有账号密码登录凭据')
+  { const tx = db
     await tx.update(account).set({ password: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(account.id, credential.id))
     await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  }
 }
 
 export async function updateMember(memberUserId: string, input: { active: boolean; permissions: string[] }) {
   const { userId: id } = await requireManager()
   await requireOwnedMember(id, memberUserId)
   const validPermissions = validateAccountPermissions(input.permissions)
-  await db.transaction(async (tx) => {
+  { const tx = db
     await tx.update(organizationMembers).set({ active: input.active, permissions: validPermissions.join(','), updatedAt: new Date() }).where(and(eq(organizationMembers.ownerId, id), eq(organizationMembers.memberUserId, memberUserId)))
     if (!input.active) await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  }
   revalidatePath('/accounts')
 }

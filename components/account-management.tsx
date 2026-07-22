@@ -128,10 +128,11 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
         }}>
           <div>
             <h3 className="font-medium">基本资料</h3>
-            <p className="mt-1 text-sm text-muted-foreground">登录邮箱不可在此修改。</p>
+            <p className="mt-1 text-sm text-muted-foreground">登录账号和绑定手机号不可在此修改。</p>
           </div>
           <Field label="姓名" value={name} onChange={setName} autoComplete="name" />
-          <Field label="登录邮箱" value={owner.email} readOnly />
+          <Field label="登录账号" value={owner.email ?? '待迁移'} readOnly />
+          <Field label="绑定手机号" value={owner.phone ?? '未绑定'} readOnly />
           <button disabled={profilePending || name.trim() === owner.name} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
             {profilePending ? '正在保存…' : '保存资料'}
           </button>
@@ -182,7 +183,7 @@ function ApplicationSection({ applications }: { applications: Application[] }) {
 function AddMemberSection() {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
+  const [form, setForm] = useState({ name: '', account: '', phone: '', password: '', confirmPassword: '' })
   const [selected, setSelected] = useState<string[]>(['租赁操作'])
   const [showPassword, setShowPassword] = useState(false)
 
@@ -200,7 +201,7 @@ function AddMemberSection() {
         start(async () => {
           try {
             await addMember({ ...form, permissions: selected })
-            setForm({ name: '', email: '', password: '', confirmPassword: '' })
+            setForm({ name: '', account: '', phone: '', password: '', confirmPassword: '' })
             setSelected(['租赁操作'])
             toast.success('员工账号已创建，请安全告知员工临时密码')
             router.refresh()
@@ -211,12 +212,13 @@ function AddMemberSection() {
       }}>
         <div className="grid max-w-3xl gap-4 md:grid-cols-2">
           <Field label="员工姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入员工姓名" />
-          <Field label="登录邮箱" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} type="email" autoComplete="off" placeholder="name@example.com" />
+          <Field label="登录账号" value={form.account} onChange={(account) => setForm((value) => ({ ...value, account }))} autoComplete="off" placeholder="用户名或邮箱格式账号" />
+          <Field label="绑定手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="11 位手机号" />
           <PasswordField label="临时密码" value={form.password} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(password) => setForm((value) => ({ ...value, password }))} autoComplete="new-password" />
           <PasswordField label="确认临时密码" value={form.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(confirmPassword) => setForm((value) => ({ ...value, confirmPassword }))} autoComplete="new-password" />
         </div>
         <PermissionPicker selected={selected} onChange={setSelected} />
-        <button disabled={pending || !form.name || !form.email || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+        <button disabled={pending || !form.name || !form.account || form.phone.length !== 11 || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
           {pending ? '正在创建…' : '创建员工账号'}
         </button>
       </form>
@@ -270,7 +272,7 @@ function MemberCard({ member }: { member: Member }) {
             <h3 className="font-semibold">{member.name}</h3>
             <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${member.active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{member.active ? '正常' : '已停用'}</span>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{member.email}</p>
+          <p className="mt-1 text-sm text-muted-foreground">账号：{member.email ?? '待迁移'} · 手机：{member.phone ?? '未绑定'}</p>
           <p className="mt-2 text-xs text-muted-foreground">最近设置：{formatDate(member.updatedAt)}</p>
         </div>
         <button disabled={accessPending} onClick={() => saveAccess(!member.active)} className={`h-9 self-start rounded-lg px-3 text-sm font-medium disabled:opacity-50 ${member.active ? 'border text-foreground hover:bg-muted' : 'bg-primary text-primary-foreground'}`}>
