@@ -24,11 +24,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     event.preventDefault()
     setError('')
     setLoading(true)
-    const result = await authClient.signIn.username({ username: account.trim(), password })
-    setLoading(false)
-    if (result.error) return setError('账号或密码不正确')
-    router.push('/dashboard')
-    router.refresh()
+    try {
+      const result = await authClient.signIn.username({ username: account.trim(), password })
+      if (result.error) {
+        setError(result.error.status === 429 ? '登录尝试过于频繁，请稍后再试' : '账号或密码不正确')
+        return
+      }
+      // 交由服务端根据账号角色跳转，避免超级管理员误入店铺业务页。
+      router.push('/sign-in')
+      router.refresh()
+    } catch {
+      setError('登录服务暂时不可用，请检查网络后重试')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function submitApplication(event: React.FormEvent) {
