@@ -3,10 +3,14 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 
-const secret = process.env.BETTER_AUTH_SECRET
-if (!secret) throw new Error('BETTER_AUTH_SECRET 未配置')
+const configuredSecret = process.env.BETTER_AUTH_SECRET
+if (!configuredSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('BETTER_AUTH_SECRET 未配置')
+}
 
-const baseURL = process.env.BETTER_AUTH_URL ?? 'https://tuzhuzu.cn'
+// 仅供本地开发与 v0 Preview 使用；生产环境仍强制要求 Cloudflare Secret。
+const secret = configuredSecret ?? 'suwei-local-preview-secret-do-not-use-in-production'
+const baseURL = process.env.BETTER_AUTH_URL ?? (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : 'https://tuzhuzu.cn')
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: 'sqlite', schema }),
