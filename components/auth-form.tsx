@@ -1,81 +1,54 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
-import { authClient } from '@/lib/auth-client'
+import { KeyRound, LoaderCircle, LockKeyhole, MessageSquareText } from 'lucide-react'
 import { submitAdminApplication } from '@/app/actions/business'
 
 export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
   const router = useRouter()
-  const [email, setEmail] = useState('')
+  const codeRef = useRef<HTMLInputElement>(null)
+  const [tab, setTab] = useState<'phone' | 'password'>('phone')
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [identity, setIdentity] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [countdown, setCountdown] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [showApplication, setShowApplication] = useState(false)
-  const [application, setApplication] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '' })
-  const [applicationMessage, setApplicationMessage] = useState('')
+  const [error, setError] = useState('')
+  const [apply, setApply] = useState(false)
+  const [application, setApplication] = useState({ name: '', username: '', email: '', phone: '', password: '', confirmPassword: '' })
+  useEffect(() => { if (!countdown) return; const timer = window.setInterval(() => setCountdown(v => Math.max(0, v - 1)), 1000); return () => window.clearInterval(timer) }, [countdown])
 
-  async function submitApplication(event: React.FormEvent) {
-    event.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await submitAdminApplication(application)
-      setApplicationMessage('申请已提交。超级管理员审核通过后，才能使用该邮箱和密码登录。')
-      setApplication({ name: '', email: '', phone: '', password: '', confirmPassword: '' })
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '申请提交失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault()
-    setError('')
-    setLoading(true)
-    const result = await authClient.signIn.email({ email, password })
+  async function requestCode() {
+    setLoading(true); setError('')
+    const response = await fetch('/api/account-auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) })
+    const result = await response.json() as { message?: string; retryAfter?: number }
     setLoading(false)
-    if (result.error) {
-      setError(result.error.message ?? '邮箱或密码不正确')
-      return
-    }
-    router.push('/dashboard')
-    router.refresh()
+    if (!response.ok) return setError(result.message ?? '验证码发送失败')
+    setCountdown(result.retryAfter ?? 60); codeRef.current?.focus()
   }
-
-  return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <section className="flex w-full max-w-4xl overflow-hidden rounded-2xl border bg-card shadow-xl">
-        <div className="hidden w-1/2 flex-col justify-between bg-primary p-10 text-primary-foreground md:flex">
-          <div className="flex items-center gap-3 font-semibold"><span className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/15"><ShieldCheck /></span>速维租赁管理</div>
-          <div className="flex flex-col gap-4"><p className="text-balance text-3xl font-semibold">统一管理合同、设备、收款与客户服务</p><p className="leading-relaxed opacity-80">面向租赁团队的日常业务管理中心。</p></div>
-          <p className="text-sm opacity-70">数据加密传输 · 多设备随时访问</p>
-        </div>
-        <div className="w-full p-8 md:w-1/2 md:p-10">
-          <div className="mb-8 flex flex-col gap-2"><p className="text-sm font-semibold text-primary">SUWEI WEB</p><h1 className="text-balance text-3xl font-semibold">欢迎回来</h1><p className="text-muted-foreground">登录后进入业务工作台</p></div>
-          {showApplication ? (
-            <form onSubmit={submitApplication} className="flex flex-col gap-4">
-              <label className="flex flex-col gap-2 text-sm font-medium">姓名<input className="h-10 rounded-lg border bg-background px-3" value={application.name} onChange={(event) => setApplication((value) => ({ ...value, name: event.target.value }))} required /></label>
-              <label className="flex flex-col gap-2 text-sm font-medium">邮箱<input type="email" className="h-10 rounded-lg border bg-background px-3" value={application.email} onChange={(event) => setApplication((value) => ({ ...value, email: event.target.value }))} required /></label>
-              <label className="flex flex-col gap-2 text-sm font-medium">手机号<input inputMode="numeric" pattern="1[0-9]{10}" className="h-10 rounded-lg border bg-background px-3" value={application.phone} onChange={(event) => setApplication((value) => ({ ...value, phone: event.target.value.replace(/\D/g, '').slice(0, 11) }))} required /></label>
-              <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-2 text-sm font-medium">登录密码<input type="password" minLength={8} className="h-10 rounded-lg border bg-background px-3" value={application.password} onChange={(event) => setApplication((value) => ({ ...value, password: event.target.value }))} required /></label><label className="flex flex-col gap-2 text-sm font-medium">确认密码<input type="password" minLength={8} className="h-10 rounded-lg border bg-background px-3" value={application.confirmPassword} onChange={(event) => setApplication((value) => ({ ...value, confirmPassword: event.target.value }))} required /></label></div>
-              {error ? <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-              {applicationMessage ? <p role="status" className="rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">{applicationMessage}</p> : null}
-              <button disabled={loading} className="h-11 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-60">{loading ? '正在提交…' : '提交管理员申请'}</button>
-            </form>
-          ) : (
-            <form onSubmit={submit} className="flex flex-col gap-5">
-              <label className="flex flex-col gap-2 text-sm font-medium">邮箱<input type="email" className="h-11 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
-              <label className="flex flex-col gap-2 text-sm font-medium">密码<input type="password" className="h-11 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="current-password" /></label>
-              {error ? <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-              <button disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-60">{loading ? <><LoaderCircle className="size-4 animate-spin" />正在登录…</> : '登录工作台'}</button>
-            </form>
-          )}
-          <div className="mt-6 flex items-start gap-2 rounded-lg bg-muted p-3 text-sm text-muted-foreground"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-primary" /><div><p className="leading-6">员工账号只能由管理员创建。管理员申请审核通过前不能登录。</p><button type="button" onClick={() => { setShowApplication((value) => !value); setError(''); setApplicationMessage('') }} className="mt-2 font-medium text-primary hover:underline">{showApplication ? '返回登录' : '申请管理员账号'}</button></div></div>
-        </div>
-      </section>
-    </main>
-  )
+  async function login(event: React.FormEvent) {
+    event.preventDefault(); setLoading(true); setError('')
+    const response = tab === 'phone'
+      ? await fetch('/api/account-auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }) })
+      : await fetch('/api/account-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity, password }) })
+    const result = await response.json().catch(() => ({})) as { message?: string; destination?: string }
+    setLoading(false)
+    if (!response.ok) return setError(result.message ?? '登录失败，请检查后重试')
+    router.push(result.destination === 'customer' ? '/customer' : '/dashboard'); router.refresh()
+  }
+  async function submitApplication(event: React.FormEvent) {
+    event.preventDefault(); setLoading(true); setError('')
+    try { await submitAdminApplication(application); setApply(false); setError('申请已提交，请等待超级管理员审核') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '申请失败') }
+    finally { setLoading(false) }
+  }
+  const field = 'h-12 rounded-xl border border-border bg-muted/45 px-4 text-base outline-none focus:ring-2 focus:ring-ring'
+  return <main className="flex min-h-svh items-center justify-center bg-muted/40 p-3 sm:p-6"><section className="w-full max-w-lg rounded-2xl border bg-card p-6 shadow-xl sm:p-8">
+    <header className="flex flex-col gap-1"><p className="text-sm font-bold text-primary">SUWEI WEB</p><h1 className="text-balance text-3xl font-bold tracking-tight">登录速维租赁</h1><p className="text-muted-foreground">请选择适合您的登录方式</p></header>
+    {!apply ? <><div className="mt-6 flex rounded-xl bg-muted p-1"><button onClick={() => setTab('phone')} className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-lg text-sm ${tab === 'phone' ? 'bg-card font-medium shadow-sm' : 'text-muted-foreground'}`}><MessageSquareText className="size-4" />手机验证码</button><button onClick={() => setTab('password')} className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-lg text-sm ${tab === 'password' ? 'bg-card font-medium shadow-sm' : 'text-muted-foreground'}`}><KeyRound className="size-4" />账号密码</button></div>
+    <form onSubmit={login} className="mt-6 flex flex-col gap-5">{tab === 'phone' ? <><label className="flex flex-col gap-2 text-sm font-medium">登录手机号<span className="flex gap-2"><input className={`${field} min-w-0 flex-1`} value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} inputMode="tel" placeholder="请输入 11 位手机号" required /><button type="button" disabled={loading || countdown > 0 || phone.length !== 11} onClick={requestCode} className="rounded-xl border px-4 text-sm disabled:opacity-50">{countdown ? `${countdown} 秒` : '获取验证码'}</button></span></label><label className="flex flex-col gap-2 text-sm font-medium">短信验证码<input ref={codeRef} className={`${field} text-center tracking-[.35em]`} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="请输入 6 位验证码" required /><span className="text-xs font-normal text-muted-foreground">验证码 5 分钟内有效。未收到请在倒计时结束后重新获取。</span></label></> : <><label className="flex flex-col gap-2 text-sm font-medium">用户名或手机号<input className={field} value={identity} onChange={e => setIdentity(e.target.value)} autoComplete="username" required /></label><label className="flex flex-col gap-2 text-sm font-medium">密码<input className={field} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" minLength={8} required /></label></>}{error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}<button disabled={loading} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-medium text-primary-foreground disabled:opacity-50">{loading && <LoaderCircle className="size-4 animate-spin" />}{tab === 'phone' ? '验证并登录' : '登录工作台'}</button></form>
+    <p className="mt-5 text-xs leading-6 text-muted-foreground">验证码仅用于本次登录。租赁客户只能查看本人当前在租信息，请勿向他人提供验证码。</p><div className="mt-5 rounded-xl bg-muted p-4 text-sm text-muted-foreground"><p className="flex gap-2"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-primary" />员工账号由管理员创建；管理员申请审核通过后方可登录。</p><button onClick={() => setApply(true)} className="mt-3 font-medium text-primary">申请管理员账号</button></div></> : <form onSubmit={submitApplication} className="mt-6 flex flex-col gap-4">{(['name','username','phone','email'] as const).map(key => <label key={key} className="flex flex-col gap-2 text-sm font-medium">{{name:'姓名',username:'用户名',phone:'手机号',email:'邮箱'}[key]}<input className={field} type={key === 'email' ? 'email' : 'text'} value={application[key]} onChange={e => setApplication(v => ({...v,[key]:e.target.value}))} required /></label>)}<label className="flex flex-col gap-2 text-sm font-medium">密码<input className={field} type="password" minLength={8} value={application.password} onChange={e => setApplication(v => ({...v,password:e.target.value}))} required /></label><label className="flex flex-col gap-2 text-sm font-medium">确认密码<input className={field} type="password" minLength={8} value={application.confirmPassword} onChange={e => setApplication(v => ({...v,confirmPassword:e.target.value}))} required /></label>{error && <p className="text-sm text-destructive">{error}</p>}<button disabled={loading} className="h-12 rounded-xl bg-primary font-medium text-primary-foreground">提交管理员申请</button><button type="button" onClick={() => setApply(false)} className="text-sm text-primary">返回登录</button></form>}
+  </section></main>
 }

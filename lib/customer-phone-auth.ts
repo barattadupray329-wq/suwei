@@ -36,7 +36,7 @@ export function smsFailureMessage(code?: string) {
   return '验证码发送失败，请稍后重试'
 }
 
-async function sendSms(phone: string, code: string) {
+export async function sendSms(phone: string, code: string) {
   const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID
   const accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET
   const signName = process.env.ALIYUN_SMS_SIGN_NAME
