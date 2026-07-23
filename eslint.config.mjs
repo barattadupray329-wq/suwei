@@ -11,5 +11,5 @@ export default defineConfig([
       '@next/next/no-html-link-for-pages': 'warn',
     },
   },
-  globalIgnores(['.next/**', '.open-next/**', '.wrangler/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts']),
+  globalIgnores(['.next/**', '.open-next/**', '.wrangler/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts', 'worker-configuration.d.ts']),
 ])

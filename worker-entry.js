@@ -6,7 +6,7 @@ import openNextWorker, {
 
 export { BucketCachePurge, DOQueueHandler, DOShardedTagCache }
 
-export default {
+const worker = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
 
@@ -18,3 +18,5 @@ export default {
     return openNextWorker.fetch(request, env, ctx)
   },
 }
+
+export default worker
