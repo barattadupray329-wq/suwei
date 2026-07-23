@@ -125,7 +125,7 @@ function isUniqueConstraintError(error: unknown) {
   return (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') || /unique constraint|unique failed|constraint failed/i.test(message)
 }
 
-export async function createRental(input: RentalInput) {
+async function createRentalOrThrow(input: RentalInput) {
   const access = await getStoreAccessContext('租赁操作')
   const userId = access.userId
   const value = rentalSchema.parse(input)
@@ -165,8 +165,24 @@ export async function createRental(input: RentalInput) {
       return
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error
-      if (attempt === 1) throw new Error('编号刚被其他合同占用，请重新提交，系统会自动��成新编号')
+      if (attempt === 1) throw new Error('编号刚被其他合同占用，请重新提交，系统会自动生成新编号')
     }
+  }
+}
+
+export type CreateRentalResult = { ok: true } | { ok: false; error: string }
+
+export async function createRental(input: RentalInput): Promise<CreateRentalResult> {
+  try {
+    await createRentalOrThrow(input)
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof z.ZodError) return { ok: false, error: error.issues[0]?.message || '请检查合同必填信息' }
+    const message = error instanceof Error ? error.message : ''
+    if (/负责人|到期日期|编号刚被/.test(message)) return { ok: false, error: message }
+    if (/rental assignee must belong to the store/i.test(message)) return { ok: false, error: '负责人不属于当前店铺，请重新选择' }
+    if (/unique constraint|unique failed|constraint failed/i.test(message)) return { ok: false, error: '合同或设备编号冲突，请重新提交' }
+    return { ok: false, error: '合同保存失败，请稍后重试；若问题持续，请联系管理员' }
   }
 }
 

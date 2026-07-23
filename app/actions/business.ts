@@ -218,8 +218,11 @@ export async function updateMember(memberUserId: string, input: { active: boolea
   await requireOwnedMember(id, memberUserId)
   const validPermissions = validateAccountPermissions(input.permissions)
   await db.transaction(async (tx) => {
+    if (!input.active) {
+      await tx.update(rentals).set({ assignedEmployeeId: id }).where(and(eq(rentals.userId, id), eq(rentals.assignedEmployeeId, memberUserId)))
+      await tx.delete(session).where(eq(session.userId, memberUserId))
+    }
     await tx.update(organizationMembers).set({ active: input.active, permissions: validPermissions.join(','), updatedAt: new Date() }).where(and(eq(organizationMembers.ownerId, id), eq(organizationMembers.memberUserId, memberUserId)))
-    if (!input.active) await tx.delete(session).where(eq(session.userId, memberUserId))
   })
   revalidatePath('/accounts')
 }
