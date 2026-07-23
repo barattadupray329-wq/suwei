@@ -5,7 +5,7 @@ import { and, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
 
 async function getUserId() {
@@ -18,7 +18,7 @@ const itemSchema = z.object({
   cpu: z.string().optional(), motherboard: z.string().optional(), memory: z.string().optional(), storage: z.string().optional(), graphicsCard: z.string().optional(), powerSupply: z.string().optional(), caseModel: z.string().optional(), monitorInfo: z.string().optional(), screenSize: z.string().optional(), screenResolution: z.string().optional(), refreshRate: z.string().optional(), panelType: z.string().optional(), ports: z.string().optional(), batteryInfo: z.string().optional(), adapterInfo: z.string().optional(), accessories: z.string().optional(), colorGamut: z.string().optional(),
 })
 const rentalSchema = z.object({
-  contractNo: z.string().min(2), customerCompany: z.string().optional(), customerName: z.string().min(2), customerPhone: z.string().min(6), customerAddress: z.string().optional(), billingType: z.enum(['monthly', 'daily']).default('monthly'), duration: z.coerce.number().int().min(1).max(3650).default(1), startDate: z.string().min(1), endDate: z.string().min(1), deposit: z.coerce.number().nonnegative(), notes: z.string().optional(), items: z.array(itemSchema).min(1),
+  contractNo: z.string().min(2), customerCompany: z.string().optional(), customerName: z.string().min(2), customerPhone: z.string().min(6), customerAddress: z.string().optional(), billingType: z.enum(['monthly', 'daily']).default('monthly'), duration: z.coerce.number().int().min(1).max(3650).default(1), startDate: z.string().min(1), endDate: z.string().min(1), deposit: z.coerce.number().nonnegative(), notes: z.string().optional(), assigneeUserId: z.string().optional(), items: z.array(itemSchema).min(1),
 })
 export type RentalItemInput = z.infer<typeof itemSchema>
 export type RentalInput = z.infer<typeof rentalSchema>
@@ -36,14 +36,16 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   const date = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10)
   const stamp = compactDate(date)
   const contractPrefix = `HT${stamp}-`
-  const existingContracts = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), ilike(rentals.contractNo, `${contractPrefix}%`)))
-  const contractSequence = Math.max(0, ...existingContracts.map(({ contractNo }) => Number(contractNo.slice(contractPrefix.length)) || 0)) + 1
-  const allItems = await db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(and(eq(rentalItems.userId, userId), ilike(rentalItems.deviceCode, `%${stamp}-%`)))
-  const counters = new Map<string, number>()
-  for (const { deviceCode } of allItems) {
-    const match = deviceCode?.match(/^([A-Z]+)\d{8}-(\d+)/)
-    if (match) counters.set(match[1], Math.max(counters.get(match[1]) || 0, Number(match[2])))
-  }
+  const prefixes = [...new Set(items.map((item) => devicePrefix(item.deviceType)))]
+  const [contractRows, deviceRows] = await Promise.all([
+    db.select({ sequence: sql<number>`coalesce(max(cast(substr(${rentals.contractNo}, ${contractPrefix.length + 1}) as integer)), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), ilike(rentals.contractNo, `${contractPrefix}%`))),
+    Promise.all(prefixes.map(async (prefix) => {
+      const fullPrefix = `${prefix}${stamp}-`
+      const [row] = await db.select({ sequence: sql<number>`coalesce(max(cast(substr(${rentalItems.deviceCode}, ${fullPrefix.length + 1}) as integer)), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), ilike(rentalItems.deviceCode, `${fullPrefix}%`)))
+      return [prefix, Number(row?.sequence ?? 0)] as const
+    })),
+  ])
+  const counters = new Map(deviceRows)
   const deviceCodes = items.map((item) => {
     const prefix = devicePrefix(item.deviceType)
     const start = (counters.get(prefix) || 0) + 1
@@ -52,6 +54,7 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
     const first = `${prefix}${stamp}-${String(start).padStart(3, '0')}`
     return end === start ? first : `${first}～${prefix}${stamp}-${String(end).padStart(3, '0')}`
   })
+  const contractSequence = Number(contractRows[0]?.sequence ?? 0) + 1
   return { contractNo: `${contractPrefix}${String(contractSequence).padStart(3, '0')}`, deviceCodes }
 }
 
@@ -93,6 +96,24 @@ export async function getDashboard() {
   return summary
 }
 
+export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }
+
+export async function getRentalAssignees(): Promise<RentalAssignee[]> {
+  const access = await getAccessContext('租赁操作')
+  if (access.role === 'employee') return [{ id: access.actorId, name: access.actorName, role: 'employee' }]
+  const members = await db.select({ id: user.id, name: user.name }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, access.userId), eq(organizationMembers.active, true)))
+  return [{ id: access.actorId, name: access.actorName, role: 'admin' }, ...members.map((member) => ({ ...member, role: 'employee' as const }))]
+}
+
+async function resolveRentalAssignee(access: Awaited<ReturnType<typeof getAccessContext>>, requestedId?: string) {
+  if (access.role === 'employee') return { id: access.actorId, name: access.actorName }
+  const assigneeId = requestedId || access.actorId
+  if (assigneeId === access.actorId) return { id: access.actorId, name: access.actorName }
+  const [member] = await db.select({ id: user.id, name: user.name }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, access.userId), eq(organizationMembers.memberUserId, assigneeId), eq(organizationMembers.active, true)))
+  if (!member) throw new Error('维护负责人不属于当前店铺或账号已停用')
+  return member
+}
+
 function buildMonthlyBills(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, monthlyRent: number) {
   const result: Array<{ rentalId: number; billNo: string; periodStart: string; periodEnd: string; dueDate: string; amount: string; billType: string; status: string }> = []
   let periodStart = startDate
@@ -114,6 +135,7 @@ export async function createRental(input: RentalInput) {
   const access = await getAccessContext('租赁操作')
   const userId = access.userId
   const value = rentalSchema.parse(input)
+  const assignee = await resolveRentalAssignee(access, value.assigneeUserId)
   const expectedEndDate = rentalEndDate(value.startDate, value.duration, value.billingType)
   if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
   const numbers = await getNextRentalNumbers(value.startDate, value.items)
@@ -128,7 +150,7 @@ export async function createRental(input: RentalInput) {
   try {
     { const tx = db
     const first = value.items[0]
-    const [rental] = await tx.insert(rentals).values({ userId, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
+    const [rental] = await tx.insert(rentals).values({ userId, sourceUserId: access.actorId, sourceName: access.actorName, assigneeUserId: assignee.id, assigneeName: assignee.name, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
     await tx.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
     const bills = value.billingType === 'daily'
       ? [{ rentalId: rental.id, billNo: `${numbers.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
@@ -143,6 +165,17 @@ export async function createRental(input: RentalInput) {
     throw error
   }
   revalidatePath('/')
+}
+
+export async function updateRentalAssignee(rentalId: number, assigneeUserId: string) {
+  const access = await getAccessContext('合同管理')
+  if (access.role === 'employee') throw new Error('仅管理员可调整维护负责人')
+  const assignee = await resolveRentalAssignee(access, assigneeUserId)
+  const [rental] = await db.select({ id: rentals.id, contractNo: rentals.contractNo, assigneeName: rentals.assigneeName }).from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, access.userId)))
+  if (!rental) throw new Error('租赁合同不存在')
+  await db.update(rentals).set({ assigneeUserId: assignee.id, assigneeName: assignee.name, updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, access.userId)))
+  await db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '调整负责人', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo}：${rental.assigneeName || '未分配'} → ${assignee.name}`, metadata: { previousAssignee: rental.assigneeName, assigneeUserId: assignee.id, assigneeName: assignee.name } })
+  revalidatePath('/dashboard')
 }
 
 const renewalSchema = z.object({ rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), billingUnit: z.enum(['month', 'day']), duration: z.number().int().min(1).max(3650), unitPrice: z.number().positive('续租单价必须大于 0'), newEndDate: z.string().min(1), notes: z.string().optional() })
