@@ -92,12 +92,12 @@ export async function applyVerifiedPasswordChange(subject: Subject, code: string
   if (subject.type === 'user') {
     const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, subject.id), eq(account.providerId, 'credential'))).limit(1)
     if (!credential) throw new PasswordChangeError('当前账号没有密码登录凭据', 403)
-    await db.transaction(async (tx) => {
+    await (async (tx: typeof db) => {
       await tx.update(account).set({ password: hashBackendPassword(newPassword), updatedAt: now }).where(eq(account.id, credential.id))
       await tx.delete(session).where(eq(session.userId, subject.id))
     })
   } else {
-    await db.transaction(async (tx) => {
+    await (async (tx: typeof db) => {
       await tx.update(customerPortals).set({ passwordHash: hashPortalPassword(newPassword), sessionVersion: sql`${customerPortals.sessionVersion} + 1`, failedAttempts: 0, lockedUntil: null, updatedAt: now }).where(and(eq(customerPortals.phone, subject.phone), eq(customerPortals.status, 'active')))
       await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, subject.phone))
     })

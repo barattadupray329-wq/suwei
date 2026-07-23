@@ -36,13 +36,13 @@ export async function saveCloudSnapshot(userId: string, backupType = 'manual') {
 }
 
 export async function ensureDailyCloudSnapshot(userId: string) {
-  return db.transaction(async (tx) => {
+  return (async (tx: typeof db) => {
     const rows = await tx.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.backupType, `daily:${shanghaiDateKey()}`))).limit(1)
     if (rows[0]) return { created: false, snapshot: rows[0] }
     const payload = await buildBackup(userId)
     const [snapshot] = await tx.insert(backupSnapshots).values({ userId, backupType: `daily:${shanghaiDateKey()}`, schemaVersion: BACKUP_VERSION, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), payload }).returning()
     return { created: true, snapshot }
-  }).then(async (result) => { await pruneCloudSnapshots(userId); return result })
+  })(db).then(async (result) => { await pruneCloudSnapshots(userId); return result })
 }
 
 export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).limit(MAX_CLOUD_SNAPSHOTS) }
@@ -64,7 +64,7 @@ export async function restoreBackup(userId: string, rawPayload: unknown) {
   const payload = validateBackup(rawPayload, userId)
   await saveCloudSnapshot(userId, 'pre-restore')
   const deletionOrder = [paymentAllocations, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     for (const table of deletionOrder) await tx.delete(table).where(eq(table.userId, userId))
     for (const [name, table] of Object.entries(backupTables)) {
       const rows = payload.tables[name]

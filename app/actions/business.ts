@@ -79,7 +79,7 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
     const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, application.username), eq(user.phoneNumber, application.phone)))
     if (existingUser) throw new Error('该用户名或手机号已存在，无法批准')
     const newUserId = randomUUID()
-    await db.transaction(async (tx) => {
+    await (async (tx: typeof db) => {
       await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, username: application.username, displayUsername: application.username, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
@@ -102,7 +102,7 @@ export async function addMember(input: { name: string; username: string; phone: 
   const memberUserId = randomUUID()
   const email = `${memberUserId}@account.local`
   const now = new Date()
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
     await tx.insert(account).values({
       id: randomUUID(),
@@ -115,7 +115,7 @@ export async function addMember(input: { name: string; username: string; phone: 
     })
     await tx.insert(accountProfiles).values({ userId: memberUserId, role: 'employee', active: true, createdAt: now, updatedAt: now })
     await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
-  })
+  })(db)
   revalidatePath('/accounts')
 }
 
@@ -149,10 +149,10 @@ export async function updateCustomer(customerId: number, input: { name: string; 
   const name = accountNameSchema.parse(input.name)
   const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.update(customerPortals).set({ customerName: name, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
     if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
-  })
+  })(db)
   revalidatePath('/accounts')
 }
 
@@ -164,11 +164,11 @@ export async function updateOwnProfile(input: { name: string; username: string; 
   const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
   if (conflict && conflict.id !== actorId) throw new Error('用户名或手机号已被使用')
   const now = new Date()
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, actorId))
     await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, actorId))
     await tx.delete(session).where(eq(session.userId, actorId))
-  })
+  })(db)
   revalidatePath('/accounts')
   revalidatePath('/')
 }
@@ -193,11 +193,11 @@ export async function updateMemberProfile(memberUserId: string, input: { name: s
   const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
   if (conflict && conflict.id !== memberUserId) throw new Error('用户名或手机号已被使用')
   const now = new Date()
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, memberUserId))
     await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, memberUserId))
     await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  })(db)
   revalidatePath('/accounts')
 }
 
@@ -207,22 +207,22 @@ export async function resetMemberPassword(memberUserId: string, input: { newPass
   const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
   if (!credential) throw new Error('该员工没有账号密码登录凭据')
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.update(account).set({ password: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(account.id, credential.id))
     await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  })(db)
 }
 
 export async function updateMember(memberUserId: string, input: { active: boolean; permissions: string[] }) {
   const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const validPermissions = validateAccountPermissions(input.permissions)
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     if (!input.active) {
       await tx.update(rentals).set({ assignedEmployeeId: id }).where(and(eq(rentals.userId, id), eq(rentals.assignedEmployeeId, memberUserId)))
       await tx.delete(session).where(eq(session.userId, memberUserId))
     }
     await tx.update(organizationMembers).set({ active: input.active, permissions: validPermissions.join(','), updatedAt: new Date() }).where(and(eq(organizationMembers.ownerId, id), eq(organizationMembers.memberUserId, memberUserId)))
-  })
+  })(db)
   revalidatePath('/accounts')
 }
