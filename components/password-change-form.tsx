@@ -14,14 +14,14 @@ export function PasswordChangeForm({ compact = false, loginPath = '/login' }: { 
   const [countdown, setCountdown] = useState(0)
   const [pending, setPending] = useState(false)
 
-  useEffect(() => { fetch('/api/password-change/status').then(async (response) => response.ok ? await response.json() as { maskedPhone: string } : null).then((data) => setMaskedPhone(data?.maskedPhone ?? '')).catch(() => undefined) }, [])
+  useEffect(() => { fetch('/api/password-change').then(async (response) => response.ok ? await response.json() as { maskedPhone: string } : null).then((data) => setMaskedPhone(data?.maskedPhone ?? '')).catch(() => undefined) }, [])
   useEffect(() => { if (countdown <= 0) return; const timer = window.setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000); return () => window.clearInterval(timer) }, [countdown])
 
   async function sendCode() {
     if (pending || countdown > 0) return
     setPending(true)
     try {
-      const response = await fetch('/api/password-change/request', { method: 'POST' })
+      const response = await fetch('/api/password-change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request' }) })
       const result = await response.json() as { message: string; retryAfter?: number }
       if (!response.ok) throw Object.assign(new Error(result.message), { retryAfter: result.retryAfter })
       setCountdown(result.retryAfter ?? 60); toast.success(`验证码已发送至 ${maskedPhone}`)
@@ -37,7 +37,7 @@ export function PasswordChangeForm({ compact = false, loginPath = '/login' }: { 
     if (newPassword !== confirmPassword) return toast.error('两次输入的新密码不一致')
     setPending(true)
     try {
-      const response = await fetch('/api/password-change/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, newPassword, confirmPassword }) })
+      const response = await fetch('/api/password-change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm', code, newPassword, confirmPassword }) })
       const result = await response.json() as { message: string }
       if (!response.ok) throw new Error(result.message)
       toast.success(result.message)
