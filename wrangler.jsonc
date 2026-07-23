@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "suwei-web",
-  "main": ".open-next/worker.js",
+  "main": "worker-entry.js",
   "compatibility_date": "2026-07-23",
   "compatibility_flags": ["nodejs_compat"],
   "minify": true,
