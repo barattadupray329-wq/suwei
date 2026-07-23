@@ -24,7 +24,7 @@ export async function setPortalSession(portalId: number, version: number) {
   ;(await cookies()).set(COOKIE, `${payload}.${signature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 86400, path: '/' })
 }
 export async function clearPortalSession() { (await cookies()).delete(COOKIE) }
-async function sessionPortal() {
+export async function sessionPortal() {
   const value = (await cookies()).get(COOKIE)?.value
   if (!value) return null
   const [id, version, expires, signature] = value.split('.')

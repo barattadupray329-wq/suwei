@@ -90,6 +90,19 @@ export const customerOtpChallenges = sqliteTable('customer_otp_challenges', {
   createdAt: timestampMs('created_at').notNull().default(now),
 })
 
+export const passwordChangeChallenges = sqliteTable('password_change_challenges', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  subjectType: text('subject_type').notNull(),
+  subjectId: text('subject_id').notNull(),
+  phone: text('phone').notNull(),
+  codeHash: text('code_hash').notNull(),
+  expiresAt: timestampMs('expires_at').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  consumedAt: timestampMs('consumed_at'),
+  requestIpHash: text('request_ip_hash').notNull(),
+  createdAt: timestampMs('created_at').notNull().default(now),
+}, (table) => [index('password_change_subject_idx').on(table.subjectType, table.subjectId), index('password_change_phone_created_idx').on(table.phone, table.createdAt)])
+
 export const customerPhoneSessions = sqliteTable('customer_phone_sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   phone: text('phone').notNull(),

@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Phone, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { PasswordChangeForm } from '@/components/password-change-form'
 import {
   addCustomer,
   addMember,
-  changeOwnPassword,
   resetMemberPassword,
   reviewAdminApplication,
   updateCustomer,
@@ -97,10 +97,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
 function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | 'admin' }) {
   const router = useRouter()
   const [profilePending, startProfile] = useTransition()
-  const [passwordPending, startPassword] = useTransition()
   const [name, setName] = useState(owner.name)
-  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
-  const [showPassword, setShowPassword] = useState(false)
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card" aria-labelledby="my-account-title">
@@ -136,30 +133,9 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
           </button>
         </form>
 
-        <form className="flex flex-col gap-4 border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0" aria-busy={passwordPending} onSubmit={(event) => {
-          event.preventDefault()
-          startPassword(async () => {
-            try {
-              await changeOwnPassword(passwords)
-              setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' })
-              toast.success('密码已修改，其他设备已退出登录')
-              router.refresh()
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : '密码修改失败')
-            }
-          })
-        }}>
-          <div>
-            <h3 className="font-medium">修改密码</h3>
-            <p className="mt-1 text-sm text-muted-foreground">新密码至少 8 位，修改后其他设备将退出登录。</p>
-          </div>
-          <PasswordField label="当前密码" value={passwords.currentPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, currentPassword: value }))} autoComplete="current-password" />
-          <PasswordField label="新密码" value={passwords.newPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, newPassword: value }))} autoComplete="new-password" />
-          <PasswordField label="确认新密码" value={passwords.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, confirmPassword: value }))} autoComplete="new-password" />
-          <button disabled={passwordPending || !passwords.currentPassword || !passwords.newPassword || !passwords.confirmPassword} className="h-10 self-start rounded-lg border border-primary px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50">
-            {passwordPending ? '正在修改…' : '修改密码'}
-          </button>
-        </form>
+        <div className="border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <PasswordChangeForm compact />
+        </div>
       </div>
     </section>
   )

@@ -115,7 +115,7 @@ export async function logoutCustomerPhone() {
   cookieStore.delete(COOKIE)
 }
 
-async function sessionPhone() {
+export async function sessionPhone() {
   const token = (await cookies()).get(COOKIE)?.value
   if (!token) return null
   const [session] = await db.select().from(customerPhoneSessions).where(and(eq(customerPhoneSessions.tokenHash, digest(token)), gt(customerPhoneSessions.expiresAt, new Date())))
