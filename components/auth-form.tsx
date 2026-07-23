@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { KeyRound, LoaderCircle, LockKeyhole, MessageSquareText } from 'lucide-react'
 import { submitAdminApplication } from '@/app/actions/business'
 
-export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
+export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const router = useRouter()
   const codeRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<'phone' | 'password'>('phone')
@@ -16,7 +16,7 @@ export function AuthForm({ mode: _mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [countdown, setCountdown] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [apply, setApply] = useState(false)
+  const [apply, setApply] = useState(mode === 'sign-up')
   const [application, setApplication] = useState({ name: '', username: '', phone: '', password: '', confirmPassword: '' })
   useEffect(() => { if (!countdown) return; const timer = window.setInterval(() => setCountdown(v => Math.max(0, v - 1)), 1000); return () => window.clearInterval(timer) }, [countdown])
 

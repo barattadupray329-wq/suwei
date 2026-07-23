@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { headers } from 'next/headers'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, requireRentalAccess } from '@/lib/access'
