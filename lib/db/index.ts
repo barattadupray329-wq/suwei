@@ -1,9 +1,19 @@
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './schema'
-import { assertProductionDatabaseIdentity } from './identity'
 
-assertProductionDatabaseIdentity()
+function createDatabase() {
+  const { env } = getCloudflareContext()
+  if (!env.DB) throw new Error('Cloudflare D1 绑定 DB 未配置')
+  return drizzle(env.DB, { schema })
+}
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-export const db = drizzle(pool, { schema })
+type Database = ReturnType<typeof createDatabase>
+
+export const db = new Proxy({} as Database, {
+  get(_target, property) {
+    const database = createDatabase()
+    const value = Reflect.get(database, property, database)
+    return typeof value === 'function' ? value.bind(database) : value
+  },
+})

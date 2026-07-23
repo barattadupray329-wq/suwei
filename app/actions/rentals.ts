@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, like, inArray, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -35,9 +35,9 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   const date = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10)
   const stamp = compactDate(date)
   const contractPrefix = `HT${stamp}-`
-  const existingContracts = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), ilike(rentals.contractNo, `${contractPrefix}%`)))
+  const existingContracts = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), like(rentals.contractNo, `${contractPrefix}%`)))
   const contractSequence = Math.max(0, ...existingContracts.map(({ contractNo }) => Number(contractNo.slice(contractPrefix.length)) || 0)) + 1
-  const allItems = await db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(and(eq(rentalItems.userId, userId), ilike(rentalItems.deviceCode, `%${stamp}-%`)))
+  const allItems = await db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(and(eq(rentalItems.userId, userId), like(rentalItems.deviceCode, `%${stamp}-%`)))
   const counters = new Map<string, number>()
   for (const { deviceCode } of allItems) {
     const match = deviceCode?.match(/^([A-Z]+)\d{8}-(\d+)/)
@@ -57,7 +57,7 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
 export async function getRentals(query = '', status = '全部') {
   const userId = await getUserId()
   const filters = [eq(rentals.userId, userId)]
-  if (query) filters.push(or(ilike(rentals.contractNo, `%${query}%`), ilike(rentals.customerCompany, `%${query}%`), ilike(rentals.customerName, `%${query}%`), ilike(rentals.customerPhone, `%${query}%`), ilike(rentals.deviceName, `%${query}%`))!)
+  if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
   const rows = await db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
   if (!rows.length) return []
@@ -88,7 +88,13 @@ export async function getRentals(query = '', status = '全部') {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [summary] = await db.select({ total: sql<number>`count(*)::int`, active: sql<number>`count(*) filter (where ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失'))::int`, overdue: sql<number>`count(*) filter (where ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')))::int`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(greatest(${rentals.totalRent} - ${rentals.paidAmount}, 0)), 0)` }).from(rentals).where(eq(rentals.userId, userId))
+  const [summary] = await db.select({
+    total: sql<number>`count(*)`,
+    active: sql<number>`sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end)`,
+    overdue: sql<number>`sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < date('now') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end)`,
+    revenue: sql<string>`printf('%.2f', coalesce(sum(cast(${rentals.paidAmount} as real)), 0))`,
+    receivable: sql<string>`printf('%.2f', coalesce(sum(max(cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real), 0)), 0))`,
+  }).from(rentals).where(eq(rentals.userId, userId))
   return summary
 }
 

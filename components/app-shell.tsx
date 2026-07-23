@@ -43,7 +43,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
     if (sessionStorage.getItem(marker)) return
     const controller = new AbortController()
     void fetch('/api/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'daily' }), signal: controller.signal })
-      .then(async (response) => { if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || '自动备份失败'); sessionStorage.setItem(marker, 'done') })
+      .then(async (response) => { if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { error?: string } | null)?.error || '自动备份失败'); sessionStorage.setItem(marker, 'done') })
       .catch((error) => { if (error instanceof Error && error.name !== 'AbortError') toast.error('今日自动备份未完成，可前往备份中心手动创建') })
     return () => controller.abort()
   }, [isManager, publicRoute])
