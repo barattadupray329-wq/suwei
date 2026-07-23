@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAccessContext } from '@/lib/access'
+import { getStoreAccessContext } from '@/lib/access'
 import { backupChecksum, countBackupRecords, restoreBackup, validateBackup } from '@/lib/backup'
 import { safeError } from '@/lib/errors'
 import { contentLengthExceeds, isTrustedMutationRequest } from '@/lib/request-security'
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   try {
     if (!isTrustedMutationRequest(request)) return NextResponse.json({ error: '请求来源无效' }, { status: 403 })
     if (contentLengthExceeds(request, MAX_RESTORE_BYTES)) return NextResponse.json({ error: '备份文件过大，最大支持 10 MB' }, { status: 413 })
-    const { userId, role } = await getAccessContext('系统设置')
+    const { userId, role } = await getStoreAccessContext('系统设置')
     if (role === 'employee') return NextResponse.json({ error: '仅管理员可恢复数据' }, { status: 403 })
     const body = await request.json() as { mode?: 'preview' | 'restore'; payload?: unknown; confirmation?: string }
     const payload = validateBackup(body.payload, userId)

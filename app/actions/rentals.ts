@@ -3,17 +3,17 @@
 import { revalidatePath } from 'next/cache'
 import { and, desc, eq, like, inArray, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext, requireRentalAccess } from '@/lib/access'
+import { getStoreAccessContext, requireRentalAccess } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 
 async function getUserId() {
-  return (await getAccessContext('租赁操作')).userId
+  return (await getStoreAccessContext('租赁操作')).userId
 }
 
 async function getRentalScope() {
-  const access = await getAccessContext('租赁操作')
+  const access = await getStoreAccessContext('租赁操作')
   return { access, filters: [eq(rentals.userId, access.userId), ...(access.role === 'employee' ? [eq(rentals.assignedEmployeeId, access.actorId)] : [])] }
 }
 
@@ -46,6 +46,16 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   const userId = await getUserId()
   const state = await readRentalNumberState(userId, startDate)
   return buildRentalNumbers(state.date, items, state.contractNumbers, state.deviceCodes)
+}
+
+export async function getRentalAssignees() {
+  const access = await getStoreAccessContext('租赁操作')
+  const [owner, members] = await Promise.all([
+    db.select({ id: user.id, name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, access.userId)),
+    db.select({ id: user.id, name: user.name, phone: user.phoneNumber }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, access.userId), eq(organizationMembers.role, 'employee'), eq(organizationMembers.active, true))),
+  ])
+  const assignees = [...owner, ...members]
+  return access.role === 'employee' ? assignees.filter((item) => item.id === access.actorId) : assignees
 }
 
 export async function getRentals(query = '', status = '全部') {
@@ -116,9 +126,14 @@ function isUniqueConstraintError(error: unknown) {
 }
 
 export async function createRental(input: RentalInput) {
-  const access = await getAccessContext('租赁操作')
+  const access = await getStoreAccessContext('租赁操作')
   const userId = access.userId
   const value = rentalSchema.parse(input)
+  const assigneeId = access.role === 'employee' ? access.actorId : value.assignedEmployeeId || access.actorId
+  if (assigneeId !== access.actorId) {
+    const [member] = await db.select({ id: organizationMembers.memberUserId }).from(organizationMembers).where(and(eq(organizationMembers.ownerId, userId), eq(organizationMembers.memberUserId, assigneeId), eq(organizationMembers.role, 'employee'), eq(organizationMembers.active, true)))
+    if (!member) throw new Error('负责人必须是本店管理员或在职员工')
+  }
   const expectedEndDate = value.billingType === 'daily' ? addCalendarDays(value.startDate, value.duration - 1) : addCalendarDays(addCalendarMonths(value.startDate, value.duration), -1)
   if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
 
@@ -137,7 +152,7 @@ export async function createRental(input: RentalInput) {
     try {
       await db.transaction(async (tx) => {
         const first = normalizedItems[0]
-        const [rental] = await tx.insert(rentals).values({ userId, assignedEmployeeId: access.role === 'employee' ? access.actorId : value.assignedEmployeeId || null, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
+        const [rental] = await tx.insert(rentals).values({ userId, assignedEmployeeId: assigneeId, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
         await tx.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
         const bills = value.billingType === 'daily'
           ? [{ rentalId: rental.id, billNo: `${numbers.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
@@ -150,7 +165,7 @@ export async function createRental(input: RentalInput) {
       return
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error
-      if (attempt === 1) throw new Error('编号刚被其他合同占用，请重新提交，系统会自动生成新编号')
+      if (attempt === 1) throw new Error('编号刚被其他合同占用，请重新提交，系统会自动��成新编号')
     }
   }
 }
@@ -363,7 +378,7 @@ export async function changeStatus(id: number, status: string) {
 }
 
 export async function deleteTestRental(id: number) {
-  const access = await getAccessContext('租赁操作')
+  const access = await getStoreAccessContext('租赁操作')
   if (access.role === 'employee') throw new Error('只有管理员可以删除测试订单')
   await db.transaction(async (tx) => {
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))

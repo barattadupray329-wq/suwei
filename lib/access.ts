@@ -29,8 +29,14 @@ export async function getAccessContext(permission?: ModulePermission) {
   return { userId: membership.ownerId, actorId: session.user.id, actorName: session.user.name, role: 'employee' as const, permissions }
 }
 
-export async function requireRentalAccess(rentalId: number, permission: ModulePermission = '租赁操作') {
+export async function getStoreAccessContext(permission?: ModulePermission) {
   const access = await getAccessContext(permission)
+  if (access.role === 'super_admin') throw new Error('超级管理员不属于任何店铺，无法访问店铺业务数据')
+  return access
+}
+
+export async function requireRentalAccess(rentalId: number, permission: ModulePermission = '租赁操作') {
+  const access = await getStoreAccessContext(permission)
   const filters = [eq(rentals.id, rentalId), eq(rentals.userId, access.userId)]
   if (access.role === 'employee') filters.push(eq(rentals.assignedEmployeeId, access.actorId))
   const [rental] = await db.select({ id: rentals.id }).from(rentals).where(and(...filters))

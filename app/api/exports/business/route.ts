@@ -1,7 +1,7 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAccessContext } from '@/lib/access'
+import { getStoreAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, businessSettings, buyoutRecords, lossRecords, organizationMembers, paymentRecords, receivableBills, rentalEvents, rentalItems, rentals, renewalRecords, returnRecords, user } from '@/lib/db/schema'
 import { safeError } from '@/lib/errors'
@@ -12,7 +12,7 @@ const querySchema = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).opt
 
 export async function GET(request: NextRequest) {
   try {
-    const access = await getAccessContext('系统设置')
+    const access = await getStoreAccessContext('系统设置')
     if (access.role === 'employee') return NextResponse.json({ error: '仅管理员可以导出完整数据' }, { status: 403 })
     const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams))
     if (!parsed.success) return NextResponse.json({ error: '日期格式无效' }, { status: 400 })

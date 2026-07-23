@@ -1,8 +1,8 @@
-import { getAccessContext } from '@/lib/access'
+import { getStoreAccessContext } from '@/lib/access'
 import { listAuditLogs } from '@/lib/audit'
 
 export default async function AuditLogsPage() {
-  const access = await getAccessContext('系统设置')
+  const access = await getStoreAccessContext('系统设置')
   let logs: Awaited<ReturnType<typeof listAuditLogs>> = []
   let loadError = false
   try {

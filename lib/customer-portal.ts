@@ -2,7 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { cookies } from 'next/headers'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { accountLedger, businessSettings, buyoutRecords, customerPortals, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, businessSettings, buyoutRecords, customerPortals, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_portal_session'
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
@@ -57,7 +57,8 @@ export async function getCustomerPortalData(token: string) {
   const ids = contracts.map((contract) => contract.id)
   const empty = { items: [], bills: [], payments: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
   if (!ids.length) return { portal, settings: null, contracts: [], ...empty }
-  const [items, bills, payments, ledger, renewals, buyouts, returns, events, [settings]] = await Promise.all([
+  const assigneeIds = [...new Set(contracts.map((contract) => contract.assignedEmployeeId).filter((id): id is string => Boolean(id)))]
+  const [items, bills, payments, ledger, renewals, buyouts, returns, events, [settings], assignees] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, portal.userId), inArray(rentalItems.rentalId, ids))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, portal.userId), inArray(receivableBills.rentalId, ids))),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, portal.userId), inArray(paymentRecords.rentalId, ids))),
@@ -67,6 +68,8 @@ export async function getCustomerPortalData(token: string) {
     db.select().from(returnRecords).where(and(eq(returnRecords.userId, portal.userId), inArray(returnRecords.rentalId, ids))),
     db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, portal.userId), inArray(rentalEvents.rentalId, ids))),
     db.select().from(businessSettings).where(eq(businessSettings.userId, portal.userId)),
+    assigneeIds.length ? db.select({ id: user.id, name: user.name, phone: user.phoneNumber }).from(user).where(inArray(user.id, assigneeIds)) : Promise.resolve([]),
   ])
-  return { portal, settings, contracts, items, bills, payments, ledger, renewals, buyouts, returns, events }
+  const assigneeMap = new Map(assignees.map((assignee) => [assignee.id, assignee]))
+  return { portal, settings, contracts: contracts.map((contract) => ({ ...contract, assignee: contract.assignedEmployeeId ? assigneeMap.get(contract.assignedEmployeeId) ?? null : null })), items, bills, payments, ledger, renewals, buyouts, returns, events }
 }

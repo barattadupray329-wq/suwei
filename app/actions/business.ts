@@ -5,7 +5,7 @@ import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { and, asc, desc, eq, gte, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext, requireRentalAccess, type ModulePermission } from '@/lib/access'
+import { getAccessContext, getStoreAccessContext, requireRentalAccess, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
 import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
@@ -14,8 +14,9 @@ import { accountNameSchema, accountPhoneSchema, accountUsernameSchema, validateA
 
 const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数量、配置及外观，签收即视为验收合格。\n2. 租金与押金：承租方按约定时间支付租金及押金；押金不得直接抵扣租金。\n3. 使用与保管：承租方应合理使用设备，不得擅自拆机、转租或用于违法活动。\n4. 维修责任：正常使用产生的故障由出租方负责；人为损坏产生的费用由承租方承担。\n5. 丢失与损坏：设备丢失或无法修复时，承租方按双方确认价值承担赔偿。\n6. 续租与退租：续租须在到期前确认；退租以设备实际归还并验收之日为准。\n7. 违约与争议：违约方承担相应损失；争议应先协商，协商不成由出租方所在地有管辖权的人民法院处理。\n8. 通知送达：本合同记载的电话和地址为有效联系方式，变更应及时书面通知。`
 
-async function userId(permission?:ModulePermission) { return (await getAccessContext(permission)).userId }
+async function userId(permission?:ModulePermission) { return (await getStoreAccessContext(permission)).userId }
 async function requireManager() { const context=await getAccessContext('账号管理');if(context.role==='employee')throw new Error('仅管理员可管理员工账号');return context }
+async function requireStoreManager() { const context=await getStoreAccessContext('账号管理');if(context.role!=='admin')throw new Error('仅店铺管理员可管理员工和客户账号');return context }
 async function requireSuperAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='super_admin')throw new Error('仅超级管理员可执行此操作');return context }
 
 const websitePackageSchema = z.object({ name: z.string().trim().min(2).max(30), subtitle: z.string().trim().max(60), monthlyPrice: z.coerce.number().int().min(0).max(100000), cpuSpec: z.string().trim().max(60), memorySpec: z.string().trim().max(40), storageSpec: z.string().trim().max(60), graphicsSpec: z.string().trim().max(60), displaySpec: z.string().trim().max(80), audience: z.string().trim().max(100), badge: z.string().trim().max(12), active: z.boolean(), sortOrder: z.coerce.number().int().min(0).max(10000) })
@@ -46,8 +47,8 @@ export async function getAccounts() {
   const context = await requireManager()
   const [owner, members, customers, applications] = await Promise.all([
     db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
-    db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    context.role === 'admin' ? db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)) : Promise.resolve([]),
+    context.role === 'admin' ? db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)) : Promise.resolve([]),
     context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, username: adminApplications.username, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
@@ -89,7 +90,7 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
 }
 
 export async function addMember(input: { name: string; username: string; phone: string; password: string; confirmPassword: string; permissions: string[] }) {
-  const { userId: ownerId } = await requireManager()
+  const { userId: ownerId } = await requireStoreManager()
   const name = accountNameSchema.parse(input.name)
   const username = accountUsernameSchema.parse(input.username)
   const phone = accountPhoneSchema.parse(input.phone)
@@ -124,7 +125,7 @@ const customerSchema = z.object({
 })
 
 export async function addCustomer(input: z.input<typeof customerSchema>) {
-  const context = await requireManager()
+  const context = await requireStoreManager()
   const value = customerSchema.parse(input)
   const [existing] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.userId, context.userId), eq(customerPortals.phone, value.phone)))
   if (existing) throw new Error('该手机号已是本店客户，不能重复添加')
@@ -144,7 +145,7 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
 }
 
 export async function updateCustomer(customerId: number, input: { name: string; active: boolean }) {
-  const context = await requireManager()
+  const context = await requireStoreManager()
   const name = accountNameSchema.parse(input.name)
   const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
@@ -184,7 +185,7 @@ export async function changeOwnPassword(input: { currentPassword: string; newPas
 }
 
 export async function updateMemberProfile(memberUserId: string, input: { name: string; username: string; phone: string }) {
-  const { userId: id } = await requireManager()
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const name = accountNameSchema.parse(input.name)
   const username = accountUsernameSchema.parse(input.username)
@@ -201,7 +202,7 @@ export async function updateMemberProfile(memberUserId: string, input: { name: s
 }
 
 export async function resetMemberPassword(memberUserId: string, input: { newPassword: string; confirmPassword: string }) {
-  const { userId: id } = await requireManager()
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
@@ -213,7 +214,7 @@ export async function resetMemberPassword(memberUserId: string, input: { newPass
 }
 
 export async function updateMember(memberUserId: string, input: { active: boolean; permissions: string[] }) {
-  const { userId: id } = await requireManager()
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const validPermissions = validateAccountPermissions(input.permissions)
   await db.transaction(async (tx) => {
