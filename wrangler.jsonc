@@ -4,6 +4,7 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-07-23",
   "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
   "vars": {
     "BETTER_AUTH_URL": "https://tuzhuzu.cn"
   },
