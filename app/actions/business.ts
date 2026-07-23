@@ -1,21 +1,20 @@
 'use server'
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext, type ModulePermission } from '@/lib/access'
+import { getAccessContext, getStoreAccessContext, requireRentalAccess, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
 import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
-import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
+import { accountNameSchema, accountPhoneSchema, accountUsernameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
 const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数量、配置及外观，签收即视为验收合格。\n2. 租金与押金：承租方按约定时间支付租金及押金；押金不得直接抵扣租金。\n3. 使用与保管：承租方应合理使用设备，不得擅自拆机、转租或用于违法活动。\n4. 维修责任：正常使用产生的故障由出租方负责；人为损坏产生的费用由承租方承担。\n5. 丢失与损坏：设备丢失或无法修复时，承租方按双方确认价值承担赔偿。\n6. 续租与退租：续租须在到期前确认；退租以设备实际归还并验收之日为准。\n7. 违约与争议：违约方承担相应损失；争议应先协商，协商不成由出租方所在地有管辖权的人民法院处理。\n8. 通知送达：本合同记载的电话和地址为有效联系方式，变更应及时书面通知。`
 
-async function userId(permission?:ModulePermission) { return (await getAccessContext(permission)).userId }
+async function userId(permission?:ModulePermission) { return (await getStoreAccessContext(permission)).userId }
 async function requireManager() { const context=await getAccessContext('账号管理');if(context.role==='employee')throw new Error('仅管理员可管理员工账号');return context }
+async function requireStoreManager() { const context=await getStoreAccessContext('账号管理');if(context.role!=='admin')throw new Error('仅店铺管理员可管理员工和客户账号');return context }
 async function requireSuperAdmin() { const context=await getAccessContext('账号管理');if(context.role!=='super_admin')throw new Error('仅超级管理员可执行此操作');return context }
 
 const websitePackageSchema = z.object({ name: z.string().trim().min(2).max(30), subtitle: z.string().trim().max(60), monthlyPrice: z.coerce.number().int().min(0).max(100000), cpuSpec: z.string().trim().max(60), memorySpec: z.string().trim().max(40), storageSpec: z.string().trim().max(60), graphicsSpec: z.string().trim().max(60), displaySpec: z.string().trim().max(80), audience: z.string().trim().max(100), badge: z.string().trim().max(12), active: z.boolean(), sortOrder: z.coerce.number().int().min(0).max(10000) })
@@ -31,8 +30,8 @@ export async function getStoreName(){const id=await userId();const settings=awai
 const settingsSchema=z.object({storeName:z.string().trim().min(2,'店铺名称至少需要 2 个字').max(40,'店铺名称最多 40 个字'),lessorType:z.enum(['个人','企业']),lessorName:z.string().trim().max(100,'出租方名称最多 100 个字'),identityNo:z.string().optional(),contactName:z.string().optional(),phone:z.string().optional(),address:z.string().optional(),paymentInfo:z.string().optional(),contractTerms:z.string().min(20),themeMode:z.enum(['light','dark','system']),themeColor:z.enum(['green','blue','orange'])})
 export async function saveSettings(input:z.infer<typeof settingsSchema>){const id=await userId('系统设置');const v=settingsSchema.parse(input);await db.insert(businessSettings).values({...v,userId:id}).onConflictDoUpdate({target:businessSettings.userId,set:{...v,updatedAt:new Date()}});revalidatePath('/');revalidatePath('/settings')}
 
-export async function getContract(rentalId:number){const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId))).orderBy(asc(rentalItems.id));const [snapshot]=await db.select().from(contractSnapshots).where(and(eq(contractSnapshots.userId,id),eq(contractSnapshots.rentalId,rentalId)));const settings=await loadSettings(id);return{rental,items,settings,snapshot}}
-export async function saveContractSnapshot(rentalId:number,input:{customerType:'个人'|'企业';customerIdentityNo?:string;customerCompany?:string;customerCreditCode?:string;terms:string}){const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId)));const settings=await loadSettings(id);const values={userId:id,rentalId,customerType:input.customerType,customerIdentityNo:input.customerIdentityNo,customerCompany:input.customerCompany,customerCreditCode:input.customerCreditCode,lessorJson:JSON.stringify(settings),customerJson:JSON.stringify({name:rental.customerName,phone:rental.customerPhone,address:rental.customerAddress}),itemsJson:JSON.stringify(items),terms:input.terms};await db.insert(contractSnapshots).values(values).onConflictDoUpdate({target:contractSnapshots.rentalId,set:{...values,updatedAt:new Date()}});revalidatePath(`/contracts/${rentalId}`)}
+export async function getContract(rentalId:number){await requireRentalAccess(rentalId);const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId))).orderBy(asc(rentalItems.id));const [snapshot]=await db.select().from(contractSnapshots).where(and(eq(contractSnapshots.userId,id),eq(contractSnapshots.rentalId,rentalId)));const settings=await loadSettings(id);return{rental,items,settings,snapshot}}
+export async function saveContractSnapshot(rentalId:number,input:{customerType:'个人'|'企业';customerIdentityNo?:string;customerCompany?:string;customerCreditCode?:string;terms:string}){await requireRentalAccess(rentalId);const id=await userId('合同管理');const [rental]=await db.select().from(rentals).where(and(eq(rentals.userId,id),eq(rentals.id,rentalId)));if(!rental)throw new Error('合同不存在');const items=await db.select().from(rentalItems).where(and(eq(rentalItems.userId,id),eq(rentalItems.rentalId,rentalId)));const settings=await loadSettings(id);const values={userId:id,rentalId,customerType:input.customerType,customerIdentityNo:input.customerIdentityNo,customerCompany:input.customerCompany,customerCreditCode:input.customerCreditCode,lessorJson:JSON.stringify(settings),customerJson:JSON.stringify({name:rental.customerName,phone:rental.customerPhone,address:rental.customerAddress}),itemsJson:JSON.stringify(items),terms:input.terms};await db.insert(contractSnapshots).values(values).onConflictDoUpdate({target:contractSnapshots.rentalId,set:{...values,updatedAt:new Date()}});revalidatePath(`/contracts/${rentalId}`)}
 
 async function requireOwnedMember(ownerId: string, memberUserId: string) {
   const [member] = await db
@@ -45,23 +44,24 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
 export async function getAccounts() {
   const context = await requireManager()
   const [owner, members, customers, applications] = await Promise.all([
-    db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
-    db.select({ id: user.id, name: user.name, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
-    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
+    db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
+    context.role === 'admin' ? db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)) : Promise.resolve([]),
+    context.role === 'admin' ? db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)) : Promise.resolve([]),
+    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, username: adminApplications.username, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
 
-const applicationSchema = z.object({ name: accountNameSchema, email: z.string().trim().toLowerCase().email('请输入有效邮箱'), phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
+const applicationSchema = z.object({ name: accountNameSchema, username: accountUsernameSchema, phone: accountPhoneSchema, password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
 export async function submitAdminApplication(input: z.infer<typeof applicationSchema>) {
   const value = applicationSchema.parse(input)
   if (value.password !== value.confirmPassword) throw new Error('两次输入的密码不一致')
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, value.email))
-  if (existingUser) throw new Error('该邮箱已存在，不能重复申请')
-  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.email), eq(adminApplications.status, 'pending')))
-  if (pending) throw new Error('该邮箱已有���审核申请')
-  await db.insert(adminApplications).values({ name: value.name, email: value.email, phone: value.phone, passwordHash: await hashPassword(value.password) })
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, value.username), eq(user.phoneNumber, value.phone)))
+  if (existingUser) throw new Error('用户名或手机号已被使用')
+  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(or(eq(adminApplications.username, value.username), eq(adminApplications.phone, value.phone)), eq(adminApplications.status, 'pending')))
+  if (pending) throw new Error('该用户名或手机号已有待审核申请')
+  const internalEmail = `${randomUUID()}@account.local`
+  await db.insert(adminApplications).values({ name: value.name, username: value.username, email: internalEmail, phone: value.phone, passwordHash: await hashPassword(value.password) })
   return { success: true }
 }
 
@@ -73,32 +73,35 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
   if (decision === 'reject') {
     await db.update(adminApplications).set({ status: 'rejected', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
   } else {
-    const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, application.email))
-    if (existingUser) throw new Error('该邮箱已存在，无法批准')
+    if (!application.username) throw new Error('该申请缺少登录用户名，请拒绝后重新申请')
+    const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, application.username), eq(user.phoneNumber, application.phone)))
+    if (existingUser) throw new Error('该用户名或手机号已存在，无法批准')
     const newUserId = randomUUID()
-    await db.transaction(async (tx) => {
-      await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, createdAt: now, updatedAt: now })
+    await (async (tx: typeof db) => {
+      await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, username: application.username, displayUsername: application.username, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
-    })
+    })(db)
   }
   revalidatePath('/accounts')
 }
 
-export async function addMember(input: { name: string; email: string; password: string; confirmPassword: string; permissions: string[] }) {
-  const { userId: ownerId } = await requireManager()
+export async function addMember(input: { name: string; username: string; phone: string; password: string; confirmPassword: string; permissions: string[] }) {
+  const { userId: ownerId } = await requireStoreManager()
   const name = accountNameSchema.parse(input.name)
-  const email = z.string().email('请输入有效的员工邮箱').parse(input.email.trim().toLowerCase())
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
   const password = validatePasswordConfirmation({ newPassword: input.password, confirmPassword: input.confirmPassword })
   const permissions = validateAccountPermissions(input.permissions)
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, email))
-  if (existingUser) throw new Error('该邮箱已存在，请使用其他邮箱')
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (existingUser) throw new Error('用户名或手机号已被使用')
 
   const memberUserId = randomUUID()
+  const email = `${memberUserId}@account.local`
   const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, createdAt: now, updatedAt: now })
+  await (async (tx: typeof db) => {
+    await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
     await tx.insert(account).values({
       id: randomUUID(),
       accountId: memberUserId,
@@ -110,17 +113,17 @@ export async function addMember(input: { name: string; email: string; password: 
     })
     await tx.insert(accountProfiles).values({ userId: memberUserId, role: 'employee', active: true, createdAt: now, updatedAt: now })
     await tx.insert(organizationMembers).values({ ownerId, memberUserId, role: 'employee', active: true, permissions: permissions.join(','), updatedAt: now })
-  })
+  })(db)
   revalidatePath('/accounts')
 }
 
 const customerSchema = z.object({
   name: accountNameSchema,
-  phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
+  phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有��的 11 位手机号')),
 })
 
 export async function addCustomer(input: z.input<typeof customerSchema>) {
-  const context = await requireManager()
+  const context = await requireStoreManager()
   const value = customerSchema.parse(input)
   const [existing] = await db.select({ id: customerPortals.id }).from(customerPortals).where(and(eq(customerPortals.userId, context.userId), eq(customerPortals.phone, value.phone)))
   if (existing) throw new Error('该手机号已是本店客户，不能重复添加')
@@ -140,63 +143,73 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
 }
 
 export async function updateCustomer(customerId: number, input: { name: string; active: boolean }) {
-  const context = await requireManager()
+  const context = await requireStoreManager()
   const name = accountNameSchema.parse(input.name)
   const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
     await tx.update(customerPortals).set({ customerName: name, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
     if (!input.active) await tx.delete(customerPhoneSessions).where(eq(customerPhoneSessions.phone, customer.phone))
-  })
+  })(db)
   revalidatePath('/accounts')
 }
 
-export async function updateOwnName(name: string) {
-  const { userId: id } = await requireManager()
-  const validName = accountNameSchema.parse(name)
-  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, id))
+export async function updateOwnProfile(input: { name: string; username: string; phone: string }) {
+  const { actorId } = await requireManager()
+  const name = accountNameSchema.parse(input.name)
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
+  const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (conflict && conflict.id !== actorId) throw new Error('用户名或手机号已被使用')
+  const now = new Date()
+  await (async (tx: typeof db) => {
+    await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, actorId))
+    await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, actorId))
+    await tx.delete(session).where(eq(session.userId, actorId))
+  })(db)
   revalidatePath('/accounts')
   revalidatePath('/')
 }
 
-export async function changeOwnPassword(input: { currentPassword: string; newPassword: string; confirmPassword: string }) {
-  await requireManager()
-  const newPassword = validatePasswordConfirmation(input)
-  if (input.currentPassword === newPassword) throw new Error('新密码不能与当前密码相同')
-  try {
-    await auth.api.changePassword({ headers: await headers(), body: { currentPassword: input.currentPassword, newPassword, revokeOtherSessions: true } })
-  } catch {
-    throw new Error('当前密码不正确，修改未保存')
-  }
-}
-
-export async function updateMemberName(memberUserId: string, name: string) {
-  const { userId: id } = await requireManager()
+export async function updateMemberProfile(memberUserId: string, input: { name: string; username: string; phone: string }) {
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
-  const validName = accountNameSchema.parse(name)
-  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, memberUserId))
+  const name = accountNameSchema.parse(input.name)
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
+  const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (conflict && conflict.id !== memberUserId) throw new Error('用户名或手机号已被使用')
+  const now = new Date()
+  await (async (tx: typeof db) => {
+    await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, memberUserId))
+    await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, memberUserId))
+    await tx.delete(session).where(eq(session.userId, memberUserId))
+  })(db)
   revalidatePath('/accounts')
 }
 
 export async function resetMemberPassword(memberUserId: string, input: { newPassword: string; confirmPassword: string }) {
-  const { userId: id } = await requireManager()
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
-  if (!credential) throw new Error('该员工没有邮箱密码登录凭据')
-  await db.transaction(async (tx) => {
+  if (!credential) throw new Error('该员工没有账号密码登录凭据')
+  await (async (tx: typeof db) => {
     await tx.update(account).set({ password: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(account.id, credential.id))
     await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  })(db)
 }
 
 export async function updateMember(memberUserId: string, input: { active: boolean; permissions: string[] }) {
-  const { userId: id } = await requireManager()
+  const { userId: id } = await requireStoreManager()
   await requireOwnedMember(id, memberUserId)
   const validPermissions = validateAccountPermissions(input.permissions)
-  await db.transaction(async (tx) => {
+  await (async (tx: typeof db) => {
+    if (!input.active) {
+      await tx.update(rentals).set({ assignedEmployeeId: id }).where(and(eq(rentals.userId, id), eq(rentals.assignedEmployeeId, memberUserId)))
+      await tx.delete(session).where(eq(session.userId, memberUserId))
+    }
     await tx.update(organizationMembers).set({ active: input.active, permissions: validPermissions.join(','), updatedAt: new Date() }).where(and(eq(organizationMembers.ownerId, id), eq(organizationMembers.memberUserId, memberUserId)))
-    if (!input.active) await tx.delete(session).where(eq(session.userId, memberUserId))
-  })
+  })(db)
   revalidatePath('/accounts')
 }

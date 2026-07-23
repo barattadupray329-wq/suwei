@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Phone, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { PasswordChangeForm } from '@/components/password-change-form'
 import {
   addCustomer,
   addMember,
-  changeOwnPassword,
   resetMemberPassword,
   reviewAdminApplication,
   updateCustomer,
   updateMember,
-  updateMemberName,
-  updateOwnName,
+  updateMemberProfile,
+  updateOwnProfile,
 } from '@/app/actions/business'
 
 const PERMISSIONS = ['租赁操作', '资金查看', '合同管理', '账号管理', '系统设置']
@@ -22,7 +22,8 @@ const PERMISSIONS = ['租赁操作', '资金查看', '合同管理', '账号管�
 type Account = {
   id: string
   name: string
-  email: string
+  username: string | null
+  phone: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -33,7 +34,7 @@ type Member = Account & {
   permissions: string
 }
 
-type Application = { id: number; name: string; email: string; phone: string; status: string; createdAt: Date | string }
+type Application = { id: number; name: string; username: string | null; phone: string; status: string; createdAt: Date | string }
 type Customer = { id: number; name: string; phone: string; status: string; verifiedAt: Date | string | null; createdAt: Date | string; updatedAt: Date | string }
 
 export function AccountManagement({ data }: { data: { owner: Account[]; members: Member[]; customers: Customer[]; applications: Application[]; currentRole: 'super_admin' | 'admin' } }) {
@@ -97,10 +98,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
 function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | 'admin' }) {
   const router = useRouter()
   const [profilePending, startProfile] = useTransition()
-  const [passwordPending, startPassword] = useTransition()
-  const [name, setName] = useState(owner.name)
-  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
-  const [showPassword, setShowPassword] = useState(false)
+  const [profile, setProfile] = useState({ name: owner.name, username: owner.username ?? '', phone: owner.phone ?? '' })
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card" aria-labelledby="my-account-title">
@@ -108,7 +106,7 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><ShieldCheck className="size-5" /></span>
         <div>
           <h2 id="my-account-title" className="font-semibold">我的管理员账号</h2>
-          <p className="text-sm text-muted-foreground">修改姓名或使用当前密码更新登录密码。</p>
+          <p className="text-sm text-muted-foreground">维护姓名、登录用户名、手机号，并通过手机验证修改密码。</p>
         </div>
         <span className="ml-auto hidden rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary sm:inline-flex">{role === 'super_admin' ? '超级管理员' : '管理员'} · 正常</span>
       </div>
@@ -117,49 +115,30 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
           event.preventDefault()
           startProfile(async () => {
             try {
-              await updateOwnName(name)
-              toast.success('管理员姓名已更新')
+              await updateOwnProfile(profile)
+              toast.success('账号资料已更新，请重新登录')
+              router.push('/sign-in')
               router.refresh()
             } catch (error) {
-              toast.error(error instanceof Error ? error.message : '姓名保存失败')
+              toast.error(error instanceof Error ? error.message : '账号资料保存失败')
             }
           })
         }}>
           <div>
             <h3 className="font-medium">基本资料</h3>
-            <p className="mt-1 text-sm text-muted-foreground">登录邮箱不可在此修改。</p>
+            <p className="mt-1 text-sm text-muted-foreground">修改用户名或手机号后需要重新登录。</p>
           </div>
-          <Field label="姓名" value={name} onChange={setName} autoComplete="name" />
-          <Field label="登录邮箱" value={owner.email} readOnly />
-          <button disabled={profilePending || name.trim() === owner.name} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+          <Field label="姓名" value={profile.name} onChange={(name) => setProfile((value) => ({ ...value, name }))} autoComplete="name" />
+          <Field label="登录用户名" value={profile.username} onChange={(username) => setProfile((value) => ({ ...value, username: username.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32) }))} autoComplete="username" placeholder="3-32 位字母、数字或下划线" />
+          <Field label="登录手机号" value={profile.phone} onChange={(phone) => setProfile((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="tel" placeholder="请输入 11 位手机号" />
+          <button disabled={profilePending || !profile.name.trim() || profile.username.length < 3 || !/^1\d{10}$/.test(profile.phone)} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
             {profilePending ? '正在保存…' : '保存资料'}
           </button>
         </form>
 
-        <form className="flex flex-col gap-4 border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0" aria-busy={passwordPending} onSubmit={(event) => {
-          event.preventDefault()
-          startPassword(async () => {
-            try {
-              await changeOwnPassword(passwords)
-              setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' })
-              toast.success('密码已修改，其他设备已退出登录')
-              router.refresh()
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : '密码修改失败')
-            }
-          })
-        }}>
-          <div>
-            <h3 className="font-medium">修改密码</h3>
-            <p className="mt-1 text-sm text-muted-foreground">新密码至少 8 位，修改后其他设备将退出登录。</p>
-          </div>
-          <PasswordField label="当前密码" value={passwords.currentPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, currentPassword: value }))} autoComplete="current-password" />
-          <PasswordField label="新密码" value={passwords.newPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, newPassword: value }))} autoComplete="new-password" />
-          <PasswordField label="确认新密码" value={passwords.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setPasswords((state) => ({ ...state, confirmPassword: value }))} autoComplete="new-password" />
-          <button disabled={passwordPending || !passwords.currentPassword || !passwords.newPassword || !passwords.confirmPassword} className="h-10 self-start rounded-lg border border-primary px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50">
-            {passwordPending ? '正在修改…' : '修改密码'}
-          </button>
-        </form>
+        <div className="border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <PasswordChangeForm compact />
+        </div>
       </div>
     </section>
   )
@@ -175,13 +154,13 @@ function ApplicationSection({ applications }: { applications: Application[] }) {
     catch (error) { toast.error(error instanceof Error ? error.message : '申请处理失败') }
     finally { setPendingId(null) }
   }
-  return <section className="rounded-xl border bg-card p-5" aria-labelledby="applications-title"><div><h2 id="applications-title" className="font-semibold">管理员申请审核</h2><p className="text-sm text-muted-foreground">只有超级管理员可以批准管理员。审核前申请人不能登录。</p></div><div className="mt-4 grid gap-3">{applications.length ? applications.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{item.name}</p><p className="text-sm text-muted-foreground">{item.email} · {item.phone}</p><p className="mt-1 text-xs text-muted-foreground">申请时间：{formatDate(item.createdAt)}</p></div><div className="flex gap-2"><button disabled={pendingId === item.id} onClick={() => review(item.id, 'reject')} className="h-9 rounded-lg border px-3 text-sm font-medium disabled:opacity-50">拒绝</button><button disabled={pendingId === item.id} onClick={() => review(item.id, 'approve')} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">批准为管理员</button></div></article>) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">当前没有待审核的管理员申请。</p>}</div></section>
+  return <section className="rounded-xl border bg-card p-5" aria-labelledby="applications-title"><div><h2 id="applications-title" className="font-semibold">管理员申请审核</h2><p className="text-sm text-muted-foreground">只有超级管理员可以批准管理员。审核前申请人不能登录。</p></div><div className="mt-4 grid gap-3">{applications.length ? applications.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{item.name}</p><p className="text-sm text-muted-foreground">用户名：{item.username} · 手机号：{item.phone}</p><p className="mt-1 text-xs text-muted-foreground">申请时间：{formatDate(item.createdAt)}</p></div><div className="flex gap-2"><button disabled={pendingId === item.id} onClick={() => review(item.id, 'reject')} className="h-9 rounded-lg border px-3 text-sm font-medium disabled:opacity-50">拒绝</button><button disabled={pendingId === item.id} onClick={() => review(item.id, 'approve')} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">批准为管理员</button></div></article>) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">当前没有待审核的管理员申请。</p>}</div></section>
 }
 
 function AddMemberSection() {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
+  const [form, setForm] = useState({ name: '', username: '', phone: '', password: '', confirmPassword: '' })
   const [selected, setSelected] = useState<string[]>(['租赁操作'])
   const [showPassword, setShowPassword] = useState(false)
 
@@ -199,7 +178,7 @@ function AddMemberSection() {
         start(async () => {
           try {
             await addMember({ ...form, permissions: selected })
-            setForm({ name: '', email: '', password: '', confirmPassword: '' })
+            setForm({ name: '', username: '', phone: '', password: '', confirmPassword: '' })
             setSelected(['租赁操作'])
             toast.success('员工账号已创建，请安全告知员工临时密码')
             router.refresh()
@@ -210,12 +189,13 @@ function AddMemberSection() {
       }}>
         <div className="grid max-w-3xl gap-4 md:grid-cols-2">
           <Field label="员工姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入员工姓名" />
-          <Field label="登录邮箱" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} type="email" autoComplete="off" placeholder="name@example.com" />
+          <Field label="登录用户名" value={form.username} onChange={(username) => setForm((value) => ({ ...value, username }))} autoComplete="off" placeholder="3-32 位字母、数字或下划线" />
+          <Field label="登录手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="请输入 11 位手机号" />
           <PasswordField label="临时密码" value={form.password} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(password) => setForm((value) => ({ ...value, password }))} autoComplete="new-password" />
           <PasswordField label="确认临时密码" value={form.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(confirmPassword) => setForm((value) => ({ ...value, confirmPassword }))} autoComplete="new-password" />
         </div>
         <PermissionPicker selected={selected} onChange={setSelected} />
-        <button disabled={pending || !form.name || !form.email || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+        <button disabled={pending || !form.name || !form.username || !/^1\d{10}$/.test(form.phone) || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
           {pending ? '正在创建…' : '创建员工账号'}
         </button>
       </form>
@@ -241,10 +221,10 @@ function CustomerCard({ customer }: { customer: Customer }) {
 
 function MemberCard({ member }: { member: Member }) {
   const router = useRouter()
-  const [namePending, startName] = useTransition()
+  const [profilePending, startProfile] = useTransition()
   const [accessPending, startAccess] = useTransition()
   const [passwordPending, startPassword] = useTransition()
-  const [name, setName] = useState(member.name)
+  const [profile, setProfile] = useState({ name: member.name, username: member.username ?? '', phone: member.phone ?? '' })
   const [selected, setSelected] = useState(member.permissions.split(',').filter(Boolean))
   const [passwords, setPasswords] = useState({ newPassword: '', confirmPassword: '' })
   const [showReset, setShowReset] = useState(false)
@@ -269,7 +249,7 @@ function MemberCard({ member }: { member: Member }) {
             <h3 className="font-semibold">{member.name}</h3>
             <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${member.active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{member.active ? '正常' : '已停用'}</span>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{member.email}</p>
+          <p className="mt-1 text-sm text-muted-foreground">用户名：{member.username} · 手机号：{member.phone ? `${member.phone.slice(0, 3)}****${member.phone.slice(-4)}` : '未绑定'}</p>
           <p className="mt-2 text-xs text-muted-foreground">最近设置：{formatDate(member.updatedAt)}</p>
         </div>
         <button disabled={accessPending} onClick={() => saveAccess(!member.active)} className={`h-9 self-start rounded-lg px-3 text-sm font-medium disabled:opacity-50 ${member.active ? 'border text-foreground hover:bg-muted' : 'bg-primary text-primary-foreground'}`}>
@@ -281,22 +261,24 @@ function MemberCard({ member }: { member: Member }) {
         <div className="flex flex-col gap-4">
           <div>
             <h4 className="text-sm font-semibold">员工资料</h4>
-            <p className="mt-1 text-sm text-muted-foreground">修改员工在系统中显示的姓名。</p>
+            <p className="mt-1 text-sm text-muted-foreground">修改员工姓名、登录用户名和绑定手机号。</p>
           </div>
           <form className="flex flex-col gap-3" onSubmit={(event) => {
             event.preventDefault()
-            startName(async () => {
+            startProfile(async () => {
               try {
-                await updateMemberName(member.id, name)
-                toast.success('员工姓名已更新')
+                await updateMemberProfile(member.id, profile)
+                toast.success('员工账号资料已更新，原会话已失效')
                 router.refresh()
               } catch (error) {
-                toast.error(error instanceof Error ? error.message : '姓名保存失败')
+                toast.error(error instanceof Error ? error.message : '账号资料保存失败')
               }
             })
           }}>
-            <Field label="姓名" value={name} onChange={setName} autoComplete="off" />
-            <button disabled={namePending || name.trim() === member.name} className="h-9 self-start rounded-lg border px-3 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{namePending ? '正在保存…' : '保存姓名'}</button>
+            <Field label="姓名" value={profile.name} onChange={(name) => setProfile((value) => ({ ...value, name }))} autoComplete="off" />
+            <Field label="登录用户名" value={profile.username} onChange={(username) => setProfile((value) => ({ ...value, username: username.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32) }))} autoComplete="off" />
+            <Field label="登录手机号" value={profile.phone} onChange={(phone) => setProfile((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" />
+            <button disabled={profilePending || !profile.name.trim() || profile.username.length < 3 || !/^1\d{10}$/.test(profile.phone)} className="h-9 self-start rounded-lg border px-3 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{profilePending ? '正在保存…' : '保存账号资料'}</button>
           </form>
           <button onClick={() => setShowReset((value) => !value)} className="inline-flex w-fit items-center gap-2 text-sm font-medium text-primary hover:underline"><KeyRound className="size-4" />{showReset ? '取消重置密码' : '重置员工密码'}</button>
           {showReset ? (

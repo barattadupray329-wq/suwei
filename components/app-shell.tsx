@@ -3,9 +3,8 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Banknote, ClipboardList, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
-import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
 type ShellProps = {
@@ -31,22 +30,12 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenu, setMobileMenu] = useState(false)
-  const isManager = role === 'super_admin' || role === 'admin'
-  const can = (permission?: string) => role === 'super_admin' || !permission || permissions.includes(permission)
-  const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
+  const can = (permission?: string) => role !== 'super_admin' && (!permission || permissions.includes(permission))
+  const visibleItems = role === 'super_admin'
+    ? items.filter((item) => item.href === '/accounts' || item.superAdminOnly)
+    : items.filter((item) => !item.superAdminOnly && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
-
-  useEffect(() => {
-    if (!isManager || publicRoute) return
-    const marker = `suwei-daily-backup:${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())}`
-    if (sessionStorage.getItem(marker)) return
-    const controller = new AbortController()
-    void fetch('/api/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'daily' }), signal: controller.signal })
-      .then(async (response) => { if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { error?: string } | null)?.error || '自动备份失败'); sessionStorage.setItem(marker, 'done') })
-      .catch((error) => { if (error instanceof Error && error.name !== 'AbortError') toast.error('今日自动备份未完成，可前往备份中心手动创建') })
-    return () => controller.abort()
-  }, [isManager, publicRoute])
 
   const safeSignOut = async () => {
     await authClient.signOut()

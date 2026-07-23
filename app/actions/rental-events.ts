@@ -1,9 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext } from '@/lib/access'
+import { getAccessContext, requireRentalAccess } from '@/lib/access'
 import { db } from '@/lib/db'
 import { rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
@@ -34,7 +34,8 @@ function snapshot(item: Record<string, unknown>) { return Object.fromEntries(sna
 export async function changeRentalItem(input: RentalChangeInput) {
   const { userId, name } = await actor()
   const value = changeSchema.parse(input)
-  await db.transaction(async tx => {
+  await requireRentalAccess(value.rentalId)
+  await (async (tx: typeof db) => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
     if (!item) throw new Error('设备明细不存在')
     if (value.quantity < item.quantity) throw new Error('配置变更不能减少数量，请使用退租、丢失或买断流程')
@@ -50,14 +51,15 @@ export async function changeRentalItem(input: RentalChangeInput) {
     const paymentStatus = Number(rental.paidAmount)>=totalRent?'已结清':Number(rental.paidAmount)>0?'部分收款':'待收款'
     await tx.update(rentals).set({ deviceName:items.map(current=>current.deviceName).join('、'),deviceType:items.length===1?items[0].deviceType:'多设备',quantity,monthlyRent:String(monthlyRent),totalRent:String(totalRent),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'配置变更',eventDate:value.eventDate,beforeSnapshot:snapshot(item),afterSnapshot:after,reason:value.reason,feeAdjustment:String(value.feeAdjustment),operatorName:name,notes:value.notes})
-  })
+  })(db)
   revalidatePath('/')
 }
 
 export async function createRepairRecord(input: RepairInput) {
   const { userId, name } = await actor()
   const value = repairSchema.parse(input)
-  await db.transaction(async tx => {
+  await requireRentalAccess(value.rentalId)
+  await (async (tx: typeof db) => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
     if (!item) throw new Error('设备明细不存在')
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
@@ -66,11 +68,6 @@ export async function createRepairRecord(input: RepairInput) {
     const paymentStatus = Number(rental.paidAmount)>=totalRent?'已结清':Number(rental.paidAmount)>0?'部分收款':'待收款'
     await tx.update(rentals).set({totalRent:String(totalRent),paymentStatus,updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId)))
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes})
-  })
+  })(db)
   revalidatePath('/')
-}
-
-export async function getRentalEvents(rentalId:number) {
-  const { userId } = await actor()
-  return db.select().from(rentalEvents).where(and(eq(rentalEvents.userId,userId),eq(rentalEvents.rentalId,rentalId))).orderBy(desc(rentalEvents.eventDate),desc(rentalEvents.createdAt))
 }

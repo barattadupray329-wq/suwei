@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountNameSchema, accountPasswordSchema, validateAccountPermissions, validatePasswordConfirmation } from '../lib/account-validation'
+import { accountNameSchema, accountPasswordSchema, accountPhoneSchema, accountUsernameSchema, validateAccountPermissions, validatePasswordConfirmation } from '../lib/account-validation'
 
 describe('账号安全校验', () => {
   it('去重并接受有效权限', () => {
@@ -14,6 +14,13 @@ describe('账号安全校验', () => {
   it('拒绝无效姓名和弱密码', () => {
     expect(() => accountNameSchema.parse('A')).toThrow()
     expect(() => accountPasswordSchema.parse('1234567')).toThrow()
+  })
+
+  it('规范用户名并校验手机号', () => {
+    expect(accountUsernameSchema.parse('  Admin_123  ')).toBe('admin_123')
+    expect(accountPhoneSchema.parse('180 3980 8323')).toBe('18039808323')
+    expect(() => accountUsernameSchema.parse('中文账号')).toThrow('用户名需为 3-32 位字母、数字或下划线')
+    expect(() => accountPhoneSchema.parse('12345')).toThrow('请输入有效的 11 位手机号')
   })
 
   it('要求两次密码一致', () => {

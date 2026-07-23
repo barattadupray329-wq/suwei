@@ -1,11 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "suwei",
-  "main": ".open-next/worker.js",
+  "name": "suwei-web",
+  "main": "worker-entry.js",
   "compatibility_date": "2026-07-23",
   "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
   "vars": {
-    "BETTER_AUTH_URL": "https://tuzhuzu.cn"
+    "BETTER_AUTH_URL": "https://www.tuzhuzu.cn"
   },
   "assets": {
     "binding": "ASSETS",
