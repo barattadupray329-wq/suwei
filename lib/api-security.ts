@@ -10,9 +10,9 @@ export class ApiRequestError extends Error {
   }
 }
 
-export async function parseJson<T>(request: Request, schema: ZodType<T>): Promise<T> {
+export async function parseJson<T>(request: Request, schema: ZodType<T>, maxBytes = MAX_JSON_BYTES): Promise<T> {
   const declaredLength = Number(request.headers.get('content-length') ?? 0)
-  if (!Number.isFinite(declaredLength) || declaredLength < 0 || declaredLength > MAX_JSON_BYTES) {
+  if (!Number.isFinite(declaredLength) || declaredLength < 0 || declaredLength > maxBytes) {
     throw new ApiRequestError('请求内容过大', 413)
   }
 

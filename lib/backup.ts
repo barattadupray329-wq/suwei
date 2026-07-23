@@ -70,6 +70,6 @@ export async function restoreBackup(userId: string, rawPayload: unknown) {
       const rows = payload.tables[name]
       if (rows.length) await tx.insert(table).values(rows.map(hydrateBackupRow) as never)
     }
-  })
+  })(db)
   return { recordCount: countBackupRecords(payload), checksum: backupChecksum(payload) }
 }

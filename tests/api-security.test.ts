@@ -20,6 +20,11 @@ describe('API 请求安全', () => {
     await expect(parseJson(jsonRequest('{}', { 'content-length': '20000' }), phoneSchema)).rejects.toMatchObject({ status: 413 })
   })
 
+  it('允许受控接口配置更大的请求体上限', async () => {
+    const request = jsonRequest('{"phone":"13800138000"}', { 'content-length': '20000' })
+    await expect(parseJson(request, phoneSchema, 30000)).resolves.toEqual({ phone: '13800138000' })
+  })
+
   it('规范化登录账号并限制密码', async () => {
     await expect(parseJson(jsonRequest('{"identity":" Admin ","password":"password123"}'), passwordLoginSchema)).resolves.toEqual({ identity: 'admin', password: 'password123' })
   })

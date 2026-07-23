@@ -84,7 +84,7 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
       await tx.insert(account).values({ id: randomUUID(), accountId: newUserId, providerId: 'credential', userId: newUserId, password: application.passwordHash, createdAt: now, updatedAt: now })
       await tx.insert(accountProfiles).values({ userId: newUserId, role: 'admin', phone: application.phone, active: true, createdAt: now, updatedAt: now })
       await tx.update(adminApplications).set({ status: 'approved', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
-    })
+    })(db)
   }
   revalidatePath('/accounts')
 }
