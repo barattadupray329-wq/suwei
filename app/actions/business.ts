@@ -10,7 +10,7 @@ import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
 import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
-import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
+import { accountNameSchema, accountPhoneSchema, accountUsernameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
 const DEFAULT_TERMS = `1. 交付与验收：承租方签收设备时应核对数量、配置及外观，签收即视为验收合格。\n2. 租金与押金：承租方按约定时间支付租金及押金；押金不得直接抵扣租金。\n3. 使用与保管：承租方应合理使用设备，不得擅自拆机、转租或用于违法活动。\n4. 维修责任：正常使用产生的故障由出租方负责；人为损坏产生的费用由承租方承担。\n5. 丢失与损坏：设备丢失或无法修复时，承租方按双方确认价值承担赔偿。\n6. 续租与退租：续租须在到期前确认；退租以设备实际归还并验收之日为准。\n7. 违约与争议：违约方承担相应损失；争议应先协商，协商不成由出租方所在地有管辖权的人民法院处理。\n8. 通知送达：本合同记载的电话和地址为有效联系方式，变更应及时书面通知。`
 
@@ -45,23 +45,24 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
 export async function getAccounts() {
   const context = await requireManager()
   const [owner, members, customers, applications] = await Promise.all([
-    db.select({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
-    db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, email: user.email, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
+    db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
+    db.select({ id: user.id, name: user.name, username: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
     db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
-    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
+    context.role === 'super_admin' ? db.select({ id: adminApplications.id, name: adminApplications.name, username: adminApplications.username, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
 }
 
-const applicationSchema = z.object({ name: accountNameSchema, username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/, '用户名需为 3-32 位字母、数字或下划线'), email: z.string().trim().toLowerCase().email('请输入有效邮箱'), phone: z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号'), password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
+const applicationSchema = z.object({ name: accountNameSchema, username: accountUsernameSchema, phone: accountPhoneSchema, password: z.string().min(8, '密码至少需要 8 位').max(128), confirmPassword: z.string() })
 export async function submitAdminApplication(input: z.infer<typeof applicationSchema>) {
   const value = applicationSchema.parse(input)
   if (value.password !== value.confirmPassword) throw new Error('两次输入的密码不一致')
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.email, value.email), eq(user.username, value.username), eq(user.phoneNumber, value.phone)))
-  if (existingUser) throw new Error('邮箱、用户名或手机号已被使用')
-  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(eq(adminApplications.email, value.email), eq(adminApplications.status, 'pending')))
-  if (pending) throw new Error('该邮箱已有���审核申请')
-  await db.insert(adminApplications).values({ name: value.name, username: value.username, email: value.email, phone: value.phone, passwordHash: await hashPassword(value.password) })
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, value.username), eq(user.phoneNumber, value.phone)))
+  if (existingUser) throw new Error('用户名或手机号已被使用')
+  const [pending] = await db.select({ id: adminApplications.id }).from(adminApplications).where(and(or(eq(adminApplications.username, value.username), eq(adminApplications.phone, value.phone)), eq(adminApplications.status, 'pending')))
+  if (pending) throw new Error('该用户名或手机号已有待审核申请')
+  const internalEmail = `${randomUUID()}@account.local`
+  await db.insert(adminApplications).values({ name: value.name, username: value.username, email: internalEmail, phone: value.phone, passwordHash: await hashPassword(value.password) })
   return { success: true }
 }
 
@@ -73,8 +74,9 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
   if (decision === 'reject') {
     await db.update(adminApplications).set({ status: 'rejected', reviewedBy: context.actorId, reviewedAt: now, updatedAt: now }).where(eq(adminApplications.id, applicationId))
   } else {
-    const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, application.email))
-    if (existingUser) throw new Error('该邮箱已存在，无法批准')
+    if (!application.username) throw new Error('该申请缺少登录用户名，请拒绝后重新申请')
+    const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, application.username), eq(user.phoneNumber, application.phone)))
+    if (existingUser) throw new Error('该用户名或手机号已存在，无法批准')
     const newUserId = randomUUID()
     await db.transaction(async (tx) => {
       await tx.insert(user).values({ id: newUserId, name: application.name, email: application.email, emailVerified: true, username: application.username, displayUsername: application.username, phoneNumber: application.phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
@@ -86,18 +88,18 @@ export async function reviewAdminApplication(applicationId: number, decision: 'a
   revalidatePath('/accounts')
 }
 
-export async function addMember(input: { name: string; username: string; phone: string; email: string; password: string; confirmPassword: string; permissions: string[] }) {
+export async function addMember(input: { name: string; username: string; phone: string; password: string; confirmPassword: string; permissions: string[] }) {
   const { userId: ownerId } = await requireManager()
   const name = accountNameSchema.parse(input.name)
-  const username = z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/, '用户名需为 3-32 位字母、数字或下划线').parse(input.username)
-  const phone = z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号').parse(input.phone)
-  const email = z.string().email('请输入有效的员工邮箱').parse(input.email.trim().toLowerCase())
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
   const password = validatePasswordConfirmation({ newPassword: input.password, confirmPassword: input.confirmPassword })
   const permissions = validateAccountPermissions(input.permissions)
-  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.email, email), eq(user.username, username), eq(user.phoneNumber, phone)))
-  if (existingUser) throw new Error('邮箱、用户名或手机号已被使用')
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (existingUser) throw new Error('用户名或手机号已被使用')
 
   const memberUserId = randomUUID()
+  const email = `${memberUserId}@account.local`
   const now = new Date()
   await db.transaction(async (tx) => {
     await tx.insert(user).values({ id: memberUserId, name, email, emailVerified: true, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, createdAt: now, updatedAt: now })
@@ -153,10 +155,19 @@ export async function updateCustomer(customerId: number, input: { name: string; 
   revalidatePath('/accounts')
 }
 
-export async function updateOwnName(name: string) {
-  const { userId: id } = await requireManager()
-  const validName = accountNameSchema.parse(name)
-  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, id))
+export async function updateOwnProfile(input: { name: string; username: string; phone: string }) {
+  const { actorId } = await requireManager()
+  const name = accountNameSchema.parse(input.name)
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
+  const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (conflict && conflict.id !== actorId) throw new Error('用户名或手机号已被使用')
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, actorId))
+    await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, actorId))
+    await tx.delete(session).where(eq(session.userId, actorId))
+  })
   revalidatePath('/accounts')
   revalidatePath('/')
 }
@@ -172,11 +183,20 @@ export async function changeOwnPassword(input: { currentPassword: string; newPas
   }
 }
 
-export async function updateMemberName(memberUserId: string, name: string) {
+export async function updateMemberProfile(memberUserId: string, input: { name: string; username: string; phone: string }) {
   const { userId: id } = await requireManager()
   await requireOwnedMember(id, memberUserId)
-  const validName = accountNameSchema.parse(name)
-  await db.update(user).set({ name: validName, updatedAt: new Date() }).where(eq(user.id, memberUserId))
+  const name = accountNameSchema.parse(input.name)
+  const username = accountUsernameSchema.parse(input.username)
+  const phone = accountPhoneSchema.parse(input.phone)
+  const [conflict] = await db.select({ id: user.id }).from(user).where(or(eq(user.username, username), eq(user.phoneNumber, phone)))
+  if (conflict && conflict.id !== memberUserId) throw new Error('用户名或手机号已被使用')
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx.update(user).set({ name, username, displayUsername: username, phoneNumber: phone, phoneNumberVerified: true, updatedAt: now }).where(eq(user.id, memberUserId))
+    await tx.update(accountProfiles).set({ phone, updatedAt: now }).where(eq(accountProfiles.userId, memberUserId))
+    await tx.delete(session).where(eq(session.userId, memberUserId))
+  })
   revalidatePath('/accounts')
 }
 
@@ -185,7 +205,7 @@ export async function resetMemberPassword(memberUserId: string, input: { newPass
   await requireOwnedMember(id, memberUserId)
   const newPassword = validatePasswordConfirmation(input)
   const [credential] = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, memberUserId), eq(account.providerId, 'credential')))
-  if (!credential) throw new Error('该员工没有邮箱密码登录凭据')
+  if (!credential) throw new Error('该员工没有账号密码登录凭据')
   await db.transaction(async (tx) => {
     await tx.update(account).set({ password: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(account.id, credential.id))
     await tx.delete(session).where(eq(session.userId, memberUserId))
