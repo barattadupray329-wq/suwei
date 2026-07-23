@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext } from '@/lib/access'
+import { getAccessContext, requireRentalAccess } from '@/lib/access'
 import { db } from '@/lib/db'
 import { rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
@@ -34,6 +34,7 @@ function snapshot(item: Record<string, unknown>) { return Object.fromEntries(sna
 export async function changeRentalItem(input: RentalChangeInput) {
   const { userId, name } = await actor()
   const value = changeSchema.parse(input)
+  await requireRentalAccess(value.rentalId)
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
     if (!item) throw new Error('设备明细不存在')
@@ -57,6 +58,7 @@ export async function changeRentalItem(input: RentalChangeInput) {
 export async function createRepairRecord(input: RepairInput) {
   const { userId, name } = await actor()
   const value = repairSchema.parse(input)
+  await requireRentalAccess(value.rentalId)
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
     if (!item) throw new Error('设备明细不存在')
@@ -71,6 +73,7 @@ export async function createRepairRecord(input: RepairInput) {
 }
 
 export async function getRentalEvents(rentalId:number) {
+  await requireRentalAccess(rentalId)
   const { userId } = await actor()
   return db.select().from(rentalEvents).where(and(eq(rentalEvents.userId,userId),eq(rentalEvents.rentalId,rentalId))).orderBy(desc(rentalEvents.eventDate),desc(rentalEvents.createdAt))
 }

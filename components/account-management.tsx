@@ -181,7 +181,7 @@ function ApplicationSection({ applications }: { applications: Application[] }) {
 function AddMemberSection() {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
+  const [form, setForm] = useState({ name: '', username: '', phone: '', email: '', password: '', confirmPassword: '' })
   const [selected, setSelected] = useState<string[]>(['租赁操作'])
   const [showPassword, setShowPassword] = useState(false)
 
@@ -199,7 +199,7 @@ function AddMemberSection() {
         start(async () => {
           try {
             await addMember({ ...form, permissions: selected })
-            setForm({ name: '', email: '', password: '', confirmPassword: '' })
+            setForm({ name: '', username: '', phone: '', email: '', password: '', confirmPassword: '' })
             setSelected(['租赁操作'])
             toast.success('员工账号已创建，请安全告知员工临时密码')
             router.refresh()
@@ -210,12 +210,14 @@ function AddMemberSection() {
       }}>
         <div className="grid max-w-3xl gap-4 md:grid-cols-2">
           <Field label="员工姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入员工姓名" />
-          <Field label="登录邮箱" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} type="email" autoComplete="off" placeholder="name@example.com" />
+          <Field label="登录用户名" value={form.username} onChange={(username) => setForm((value) => ({ ...value, username }))} autoComplete="off" placeholder="3-32 位字母、数字或下划线" />
+          <Field label="登录手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="请输入 11 位手机号" />
+          <Field label="联系邮箱" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} type="email" autoComplete="off" placeholder="name@example.com" />
           <PasswordField label="临时密码" value={form.password} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(password) => setForm((value) => ({ ...value, password }))} autoComplete="new-password" />
           <PasswordField label="确认临时密码" value={form.confirmPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(confirmPassword) => setForm((value) => ({ ...value, confirmPassword }))} autoComplete="new-password" />
         </div>
         <PermissionPicker selected={selected} onChange={setSelected} />
-        <button disabled={pending || !form.name || !form.email || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+        <button disabled={pending || !form.name || !form.username || !/^1\d{10}$/.test(form.phone) || !form.email || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
           {pending ? '正在创建…' : '创建员工账号'}
         </button>
       </form>

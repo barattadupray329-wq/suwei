@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { getAccessContext } from '@/lib/access'
+import { getAccessContext, requireRentalAccess } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, lossRecords, receivableBills, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
@@ -31,6 +31,7 @@ async function updateRentalStatus(tx: Parameters<Parameters<typeof db.transactio
 export async function returnRentalItem(input: ReturnInput) {
   const { userId, name } = await actor()
   const value = operationSchema.extend({ condition: z.enum(['完好','轻微磨损','损坏']), deductionAmount: z.number().nonnegative(), depositRefund: z.number().nonnegative() }).parse(input)
+  await requireRentalAccess(value.rentalId)
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
@@ -62,6 +63,7 @@ export type ExchangeInput = z.infer<typeof exchangeSchema>
 export async function exchangeRentalItem(input: ExchangeInput) {
   const { userId, name } = await actor()
   const value = exchangeSchema.parse(input)
+  await requireRentalAccess(value.rentalId)
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, value.rentalId), eq(rentalItems.id, value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
@@ -79,6 +81,7 @@ export async function exchangeRentalItem(input: ExchangeInput) {
 export async function reportLostItem(input: LossInput) {
   const { userId, name } = await actor()
   const value = operationSchema.extend({ unitCompensation: z.number().positive() }).parse(input)
+  await requireRentalAccess(value.rentalId)
   await db.transaction(async tx => {
     const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId)))
     if (!item) throw new Error('设备不存在')
