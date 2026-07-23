@@ -1,13 +1,11 @@
 'use server'
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { and, asc, desc, eq, gte, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, getStoreAccessContext, requireRentalAccess, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
 import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, accountPhoneSchema, accountUsernameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
@@ -121,7 +119,7 @@ export async function addMember(input: { name: string; username: string; phone: 
 
 const customerSchema = z.object({
   name: accountNameSchema,
-  phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
+  phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有��的 11 位手机号')),
 })
 
 export async function addCustomer(input: z.input<typeof customerSchema>) {
@@ -171,17 +169,6 @@ export async function updateOwnProfile(input: { name: string; username: string; 
   })(db)
   revalidatePath('/accounts')
   revalidatePath('/')
-}
-
-export async function changeOwnPassword(input: { currentPassword: string; newPassword: string; confirmPassword: string }) {
-  await requireManager()
-  const newPassword = validatePasswordConfirmation(input)
-  if (input.currentPassword === newPassword) throw new Error('新密码不能与当前密码相同')
-  try {
-    await auth.api.changePassword({ headers: await headers(), body: { currentPassword: input.currentPassword, newPassword, revokeOtherSessions: true } })
-  } catch {
-    throw new Error('当前密码不正确，修改未保存')
-  }
 }
 
 export async function updateMemberProfile(memberUserId: string, input: { name: string; username: string; phone: string }) {

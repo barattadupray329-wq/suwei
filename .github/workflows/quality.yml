@@ -1,0 +1,61 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm exec eslint . --max-warnings=0
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build Next.js
+        run: pnpm build
+
+      - name: Build Cloudflare Worker
+        run: pnpm build:cloudflare
+
+      - name: Validate Worker bundle
+        run: pnpm exec wrangler deploy --dry-run
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, requireRentalAccess } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -70,10 +70,4 @@ export async function createRepairRecord(input: RepairInput) {
     await tx.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes})
   })(db)
   revalidatePath('/')
-}
-
-export async function getRentalEvents(rentalId:number) {
-  await requireRentalAccess(rentalId)
-  const { userId } = await actor()
-  return db.select().from(rentalEvents).where(and(eq(rentalEvents.userId,userId),eq(rentalEvents.rentalId,rentalId))).orderBy(desc(rentalEvents.eventDate),desc(rentalEvents.createdAt))
 }

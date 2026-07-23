@@ -42,12 +42,6 @@ async function readRentalNumberState(userId: string, startDate: string) {
   }
 }
 
-export async function getNextRentalNumbers(startDate: string, items: Array<Pick<RentalItemInput, 'deviceType' | 'quantity'>>) {
-  const userId = await getUserId()
-  const state = await readRentalNumberState(userId, startDate)
-  return buildRentalNumbers(state.date, items, state.contractNumbers, state.deviceCodes)
-}
-
 export async function getRentalAssignees() {
   const access = await getStoreAccessContext('租赁操作')
   const [owner, members] = await Promise.all([
@@ -393,7 +387,7 @@ export async function getCustomerHistory(phone: string) {
 
 export async function changeStatus(id: number, status: string) {
   const access = await requireRentalAccess(id)
-  if (!['在租', '逾期', '丢失', '已关闭'].includes(status)) throw new Error('无效状态')
+  if (!['在租', '逾期', '���失', '已关闭'].includes(status)) throw new Error('无效状态')
   if (status === '已关闭' && access.role === 'employee') throw new Error('只有管理员可以关闭订单')
   const [rental] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
   if (!rental) throw new Error('订单不存在')

@@ -28,12 +28,14 @@ pnpm exec wrangler d1 execute suwei-db --local --file=migrations/0004_website_pa
 ## 质量检查
 
 ```bash
-pnpm test
-pnpm lint
+pnpm check
 pnpm build
 pnpm build:cloudflare
 pnpm exec wrangler deploy --dry-run
+pnpm audit --prod --audit-level moderate
 ```
+
+GitHub Pull Request 会自动运行同一套类型检查、零警告 Lint、测试、双构建、Worker dry-run 和生产依赖安全审计。业务导出为 JSON 完整备份，租机明细导出为 CSV。
 
 ## 数据库迁移
 
