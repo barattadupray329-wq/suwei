@@ -1,57 +1,44 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg
-*.egg-info/
+# Dependencies and builds
+node_modules/
+.next/
+.open-next/
 dist/
 build/
-*.spec
 
-# Virtual Environment
-venv/
-env/
-ENV/
-
-# IDE
+# Environment and local tooling
+.env*
+!.env.example
+.vercel/
+.wrangler/
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
+# Logs and coverage
+*.log
+coverage/
+htmlcov/
+
+# Local databases and business data
+*.db
+*.sqlite
+*.sqlite3
+*.xls
+*.xlsx
+*.csv
+data/
+exports/
+downloads/
+test_data_temp/
+租赁数据/
+租金明细导出/
+
+# Generated files
+worker-configuration.d.ts
+*.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db
-
-# Data（用户隐私与运行日志不提交）
-data/
-*.log
-
-# JSON 数据默认不提交，但保留 Web 项目所需配置
-*.json
-!package.json
-!package-lock.json
-!vercel.json
-!components.json
-!tsconfig.json
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Backup files
-*.bak
-*.backup
-.vercel
-
-# Cloudflare/OpenNext generated files
-.open-next/
-.wrangler/
-worker-configuration.d.ts

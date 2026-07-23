@@ -1,8 +1,0 @@
-name = "suwei"
-compatibility_date = "2026-07-22"
-pages_build_output_dir = "."
-
-[[d1_databases]]
-binding = "DB"
-database_name = "suwei-db"
-database_id = "你的数据库ID"
