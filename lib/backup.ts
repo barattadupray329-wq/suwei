@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { MAX_CLOUD_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
 import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
@@ -36,9 +36,7 @@ export async function saveCloudSnapshot(userId: string, backupType = 'manual') {
 }
 
 export async function ensureDailyCloudSnapshot(userId: string) {
-  const lockKey = `suwei-daily-backup:${userId}:${shanghaiDateKey()}`
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`)
     const rows = await tx.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.backupType, `daily:${shanghaiDateKey()}`))).limit(1)
     if (rows[0]) return { created: false, snapshot: rows[0] }
     const payload = await buildBackup(userId)

@@ -50,3 +50,8 @@ htmlcov/
 *.bak
 *.backup
 .vercel
+
+# Cloudflare/OpenNext generated files
+.open-next/
+.wrangler/
+worker-configuration.d.ts
