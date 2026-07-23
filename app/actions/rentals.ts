@@ -150,17 +150,26 @@ async function createRentalOrThrow(input: RentalInput) {
     const totalRent = normalizedItems.reduce((sum, item) => sum + item.totalRent, 0)
 
     try {
-      await db.transaction(async (tx) => {
-        const first = normalizedItems[0]
-        const [rental] = await tx.insert(rentals).values({ userId, assignedEmployeeId: assigneeId, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
-        await tx.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
+      const first = normalizedItems[0]
+      let rentalId: number | null = null
+      try {
+        const [rental] = await db.insert(rentals).values({ userId, assignedEmployeeId: assigneeId, contractNo: numbers.contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: value.items.map((item) => item.deviceName).join('、'), deviceType: value.items.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }).returning({ id: rentals.id })
+        rentalId = rental.id
+        await db.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId: rental.id, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) })))
         const bills = value.billingType === 'daily'
           ? [{ rentalId: rental.id, billNo: `${numbers.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
           : buildMonthlyBills(rental.id, numbers.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
         const allBills = value.deposit > 0 ? [...bills, { rentalId: rental.id, billNo: `${numbers.contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
-        if (allBills.length) await tx.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))
-        await tx.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rental.id), summary: `创建合同 ${numbers.contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity } })
-      })
+        if (allBills.length) await db.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))
+        await db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rental.id), summary: `创建合同 ${numbers.contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity } })
+      } catch (error) {
+        if (rentalId !== null) {
+          await db.delete(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rentalId)))
+          await db.delete(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, rentalId)))
+          await db.delete(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId)))
+        }
+        throw error
+      }
       revalidatePath('/')
       return
     } catch (error) {
