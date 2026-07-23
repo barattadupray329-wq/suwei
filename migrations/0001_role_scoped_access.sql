@@ -1,11 +1,10 @@
 -- Additive-only migration for unified login and role-scoped rental access.
 -- Existing rental records remain unassigned until an administrator assigns them.
 
-ALTER TABLE rentals ADD COLUMN assignedEmployeeId TEXT REFERENCES user(id) ON DELETE SET NULL;
+-- The current baseline already contains these columns. Keep this migration
+-- additive and repeatable for databases bootstrapped from migrations/0000.
 CREATE INDEX IF NOT EXISTS rentals_assigned_employee_idx ON rentals(assignedEmployeeId);
 CREATE INDEX IF NOT EXISTS rentals_customer_phone_idx ON rentals(customerPhone);
-
-ALTER TABLE admin_applications ADD COLUMN username TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS admin_applications_username_unique ON admin_applications(username) WHERE username IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS admin_applications_phone_unique ON admin_applications(phone);
 
