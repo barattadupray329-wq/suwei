@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { KeyRound, LoaderCircle, LockKeyhole, MessageSquareText, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, MessageSquareText, ShieldCheck } from 'lucide-react'
 import { authClient } from '@/lib/auth-client'
 import { CustomerPhoneLogin } from '@/components/customer-phone-login'
 import { submitAdminApplication } from '@/app/actions/business'
@@ -14,6 +14,12 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
   const [method, setMethod] = useState<Method>('phone')
   const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [resetMode, setResetMode] = useState(false)
+  const [reset, setReset] = useState({ account: '', code: '', newPassword: '', confirmPassword: '', phoneMask: '' })
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [message, setMessage] = useState('')
   const [error, setError] = useState(accessError)
   const [loading, setLoading] = useState(false)
   const [showApplication, setShowApplication] = useState(false)
@@ -38,6 +44,28 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
     } finally {
       setLoading(false)
     }
+  }
+
+  async function requestResetCode() {
+    if (!reset.account.trim() || countdown > 0) return
+    setError(''); setMessage(''); setLoading(true)
+    try {
+      const response = await fetch('/api/account-password/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: reset.account }) })
+      const payload = await response.json() as { message?: string; phoneMask?: string; retryAfter?: number }
+      if (!response.ok) throw new Error(payload.message || '验证码发送失败')
+      setReset((value) => ({ ...value, phoneMask: payload.phoneMask || '' })); setMessage(payload.message || '验证码已发送'); setCountdown(60)
+      const timer = window.setInterval(() => setCountdown((value) => { if (value <= 1) { window.clearInterval(timer); return 0 } return value - 1 }), 1000)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '验证码发送失败') } finally { setLoading(false) }
+  }
+
+  async function submitPasswordReset(event: React.FormEvent) {
+    event.preventDefault(); setError(''); setMessage(''); setLoading(true)
+    try {
+      const response = await fetch('/api/account-password/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reset) })
+      const payload = await response.json() as { message?: string }
+      if (!response.ok) throw new Error(payload.message || '密码修改失败')
+      setResetMode(false); setAccount(reset.account); setPassword(''); setReset({ account: '', code: '', newPassword: '', confirmPassword: '', phoneMask: '' }); setMessage(payload.message || '密码已修改，请重新登录')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '密码修改失败') } finally { setLoading(false) }
   }
 
   async function submitApplication(event: React.FormEvent) {
@@ -67,10 +95,11 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
             <button type="button" role="tab" aria-selected={method === 'phone'} onClick={() => { setMethod('phone'); setError('') }} className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium ${method === 'phone' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}><MessageSquareText className="size-4" />手机验证码</button>
             <button type="button" role="tab" aria-selected={method === 'account'} onClick={() => { setMethod('account'); setError('') }} className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium ${method === 'account' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}><KeyRound className="size-4" />账号密码</button>
           </div>
-          {method === 'phone' ? <CustomerPhoneLogin embedded /> : <form onSubmit={submitPassword} className="mt-6 flex flex-col gap-5">
+          {method === 'phone' ? <CustomerPhoneLogin embedded /> : resetMode ? <form onSubmit={submitPasswordReset} className="mt-6 flex flex-col gap-4"><div><h2 className="font-semibold">短信验证修改密码</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">验证码将发送至账号绑定手机号，修改后所有设备需重新登录。</p></div><label className="flex flex-col gap-2 text-sm font-medium">登录账号<input className="h-11 rounded-lg border bg-background px-3" value={reset.account} onChange={(event) => setReset((value) => ({ ...value, account: event.target.value }))} required autoComplete="username" /></label><label className="flex flex-col gap-2 text-sm font-medium">短信验证码<span className="flex gap-2"><input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} className="h-11 min-w-0 flex-1 rounded-lg border bg-background px-3" value={reset.code} onChange={(event) => setReset((value) => ({ ...value, code: event.target.value.replace(/\D/g, '').slice(0, 6) }))} required placeholder="6 位验证码" /><button type="button" disabled={loading || countdown > 0 || !reset.account.trim()} onClick={requestResetCode} className="h-11 shrink-0 rounded-lg border px-4 text-sm font-medium disabled:opacity-50">{countdown > 0 ? `${countdown} 秒` : '获取验证码'}</button></span>{reset.phoneMask ? <span className="text-xs font-normal text-muted-foreground">已发送至 {reset.phoneMask}</span> : null}</label><label className="flex flex-col gap-2 text-sm font-medium">新密码<span className="relative"><input type={showNewPassword ? 'text' : 'password'} minLength={8} autoComplete="new-password" className="h-11 w-full rounded-lg border bg-background px-3 pr-11" value={reset.newPassword} onChange={(event) => setReset((value) => ({ ...value, newPassword: event.target.value }))} required /><button type="button" onClick={() => setShowNewPassword((value) => !value)} aria-label={showNewPassword ? '隐藏新密码' : '显示新密码'} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground">{showNewPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span></label><label className="flex flex-col gap-2 text-sm font-medium">确认新密码<input type={showNewPassword ? 'text' : 'password'} minLength={8} autoComplete="new-password" className="h-11 rounded-lg border bg-background px-3" value={reset.confirmPassword} onChange={(event) => setReset((value) => ({ ...value, confirmPassword: event.target.value }))} required /></label>{error ? <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}{message ? <p role="status" className="rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">{message}</p> : null}<button disabled={loading || reset.code.length !== 6} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-60">{loading ? <LoaderCircle className="size-4 animate-spin" /> : <KeyRound className="size-4" />}{loading ? '正在修改…' : '确认修改密码'}</button><button type="button" onClick={() => { setResetMode(false); setError(''); setMessage('') }} className="h-10 text-sm font-medium text-muted-foreground hover:text-foreground">返回账号登录</button></form> : <form onSubmit={submitPassword} className="mt-6 flex flex-col gap-5">
             <label className="flex flex-col gap-2 text-sm font-medium">账号<input className="h-11 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-ring" value={account} onChange={(event) => setAccount(event.target.value)} required autoComplete="username" placeholder="用户名或邮箱格式账号" /></label>
-            <label className="flex flex-col gap-2 text-sm font-medium">密码<input type="password" className="h-11 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-ring" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="current-password" /></label>
-            {error ? <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+            <label className="flex flex-col gap-2 text-sm font-medium">密码<span className="relative"><input type={showPassword ? 'text' : 'password'} className="h-11 w-full rounded-lg border bg-background px-3 pr-11 outline-none focus:ring-2 focus:ring-ring" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? '隐藏密码' : '显示密码'} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground hover:text-foreground">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span></label>
+            <div className="flex justify-end"><button type="button" onClick={() => { setResetMode(true); setReset((value) => ({ ...value, account: account.trim() })); setError(''); setMessage('') }} className="text-sm font-medium text-primary hover:underline">修改或忘记密码</button></div>
+            {error ? <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}{message ? <p role="status" className="rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">{message}</p> : null}
             <button disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-60">{loading ? <LoaderCircle className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />}{loading ? '正在登录…' : '登录工作台'}</button>
             <p className="text-xs leading-5 text-muted-foreground">租赁客户没有账号密码，请使用手机号验证码登录。</p>
           </form>}

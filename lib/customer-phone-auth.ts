@@ -16,7 +16,7 @@ function otpSecret() {
 }
 export const normalizeCustomerPhone = (value: string) => value.replace(/\D/g, '')
 
-function requirePhone(value: string) {
+export function requirePhone(value: string) {
   const phone = normalizeCustomerPhone(value)
   if (!/^1\d{10}$/.test(phone)) throw new CustomerOtpError('请输入正确的中国大陆手机号', 400)
   return phone
@@ -98,6 +98,55 @@ export async function sendUnifiedPhoneOtp(rawPhone: string, code: string, reques
   await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${otpSecret()}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
 }
 
+async function createInactiveOtpChallenge(phone: string, ipHash: string) {
+  const now = new Date()
+  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(randomBytes(32).toString('hex')), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), consumedAt: now, requestIpHash: ipHash })
+  return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
+}
+
+async function createAndSendOtpChallenge(phone: string, ipHash: string) {
+  const code = String(randomInt(100000, 1000000))
+  await sendSms(phone, code)
+  const now = new Date()
+  await db.update(customerOtpChallenges).set({ consumedAt: now }).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt)))
+  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${otpSecret()}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
+  return { sent: true, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
+}
+
+export async function requestStaffPasswordOtp(rawPhone: string, requestIp: string, eligible: boolean) {
+  const phone = requirePhone(rawPhone)
+  const ipHash = digest(`${requestIp}.${otpSecret()}`)
+  const oneMinuteAgo = new Date(Date.now() - 60000)
+  const oneHourAgo = new Date(Date.now() - 60 * 60000)
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60000)
+  const [[recentIp], [recentPhone], [hourlyPhone], [dailyIp]] = await Promise.all([
+    db.select({ id: customerOtpChallenges.id }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.requestIpHash, ipHash), gt(customerOtpChallenges.createdAt, oneMinuteAgo))).limit(1),
+    db.select({ id: customerOtpChallenges.id }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), gt(customerOtpChallenges.createdAt, oneMinuteAgo))).limit(1),
+    db.select({ value: count() }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), gt(customerOtpChallenges.createdAt, oneHourAgo))),
+    db.select({ value: count() }).from(customerOtpChallenges).where(and(eq(customerOtpChallenges.requestIpHash, ipHash), gt(customerOtpChallenges.createdAt, oneDayAgo))),
+  ])
+  if (recentIp || recentPhone) throw new CustomerOtpError('请求过于频繁，请一分钟后再试', 429, SMS_RESEND_SECONDS)
+  if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
+  return eligible ? createAndSendOtpChallenge(phone, ipHash) : createInactiveOtpChallenge(phone, ipHash)
+}
+
+export async function verifyStaffPasswordOtp(rawPhone: string, code: string) {
+  const phone = requirePhone(rawPhone)
+  if (!/^\d{6}$/.test(code)) throw new CustomerOtpError('请输入 6 位验证码', 400)
+  const [challenge] = await db.select().from(customerOtpChallenges).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt), gt(customerOtpChallenges.expiresAt, new Date()))).orderBy(desc(customerOtpChallenges.createdAt)).limit(1)
+  if (!challenge) throw new CustomerOtpError('验证码已过期，请重新获取', 400)
+  if (challenge.attempts >= 5) throw new CustomerOtpError('尝试次数过多，请重新获取验证码', 429, SMS_RESEND_SECONDS)
+  const expected = Buffer.from(challenge.codeHash, 'hex')
+  const actual = Buffer.from(digest(`${phone}.${code}.${otpSecret()}`), 'hex')
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    const attempts = challenge.attempts + 1
+    await db.update(customerOtpChallenges).set({ attempts, consumedAt: attempts >= 5 ? new Date() : null }).where(eq(customerOtpChallenges.id, challenge.id))
+    throw new CustomerOtpError(attempts >= 5 ? '尝试次数过多，请重新获取验证码' : '验证码不正确，请重新输入', attempts >= 5 ? 429 : 400, attempts >= 5 ? SMS_RESEND_SECONDS : undefined)
+  }
+  await db.update(customerOtpChallenges).set({ consumedAt: new Date() }).where(eq(customerOtpChallenges.id, challenge.id))
+  return phone
+}
+
 export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   const phone = requirePhone(rawPhone)
   const ipHash = digest(`${requestIp}.${otpSecret()}`)
@@ -114,18 +163,8 @@ export async function requestCustomerOtp(rawPhone: string, requestIp: string) {
   if (Number(hourlyPhone?.value ?? 0) >= 5 || Number(dailyIp?.value ?? 0) >= 30) throw new CustomerOtpError('验证码请求次数已达上限，请稍后再试', 429, 60 * 60)
 
   const identities = await getPhoneIdentities(phone)
-  if (!identities.workspace && !identities.customer) {
-    const now = new Date()
-    await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(randomBytes(32).toString('hex')), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), consumedAt: now, requestIpHash: ipHash })
-    return { sent: false, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
-  }
-
-  const code = String(randomInt(100000, 1000000))
-  await sendSms(phone, code)
-  const now = new Date()
-  await db.update(customerOtpChallenges).set({ consumedAt: now }).where(and(eq(customerOtpChallenges.phone, phone), isNull(customerOtpChallenges.consumedAt)))
-  await db.insert(customerOtpChallenges).values({ phone, codeHash: digest(`${phone}.${code}.${otpSecret()}`), expiresAt: new Date(now.getTime() + SMS_EXPIRES_SECONDS * 1000), requestIpHash: ipHash })
-  return { sent: true, retryAfter: SMS_RESEND_SECONDS, expiresIn: SMS_EXPIRES_SECONDS }
+  if (!identities.workspace && !identities.customer) return createInactiveOtpChallenge(phone, ipHash)
+  return createAndSendOtpChallenge(phone, ipHash)
 }
 
 export async function verifyCustomerOtp(rawPhone: string, code: string) {

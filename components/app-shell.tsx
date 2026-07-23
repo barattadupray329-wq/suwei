@@ -34,7 +34,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const [signingOut, setSigningOut] = useState(false)
   const isManager = role === 'admin'
   const can = (permission?: string) => !permission || permissions.includes(permission)
-  const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && can(item.permission))
+  const visibleItems = items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && (item.href !== '/accounts' || role !== 'employee') && can(item.permission))
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
 

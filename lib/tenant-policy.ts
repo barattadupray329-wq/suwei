@@ -5,7 +5,7 @@ export type AccountRole = 'super_admin' | 'admin' | 'employee'
 export function permissionsForRole(role: AccountRole, employeePermissions: string[] = []): StorePermission[] {
   if (role === 'super_admin') return ['账号管理']
   if (role === 'admin') return [...STORE_PERMISSIONS]
-  return employeePermissions.filter((permission): permission is StorePermission => STORE_PERMISSIONS.includes(permission as StorePermission))
+  return employeePermissions.filter((permission): permission is StorePermission => permission !== '账号管理' && STORE_PERMISSIONS.includes(permission as StorePermission))
 }
 
 export function canAccessStoreModule(role: AccountRole, permission: StorePermission, employeePermissions: string[] = []) {

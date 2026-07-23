@@ -12,7 +12,7 @@ export function validateAccountPermissions(permissions: string[]) {
   if (unique.some((permission) => !ACCOUNT_PERMISSIONS.includes(permission as AccountPermission))) {
     throw new Error('包含无效的账号权限')
   }
-  return unique as AccountPermission[]
+  return unique.filter((permission) => permission !== '账号管理') as AccountPermission[]
 }
 
 export function validatePasswordConfirmation(input: { newPassword: string; confirmPassword: string }) {
