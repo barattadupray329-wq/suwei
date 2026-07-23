@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "minify": true,
   "vars": {
-    "BETTER_AUTH_URL": "https://tuzhuzu.cn"
+    "BETTER_AUTH_URL": "https://www.tuzhuzu.cn"
   },
   "assets": {
     "binding": "ASSETS",
