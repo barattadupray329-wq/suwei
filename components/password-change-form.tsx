@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { KeyRound, LoaderCircle, MessageSquareText } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { confirmPasswordChange, getPasswordChangeStatus, sendPasswordChangeCode } from '@/app/actions/password-change'
 
 export function PasswordChangeForm({ compact = false, loginPath = '/login' }: { compact?: boolean; loginPath?: string }) {
   const router = useRouter()
@@ -14,16 +15,14 @@ export function PasswordChangeForm({ compact = false, loginPath = '/login' }: { 
   const [countdown, setCountdown] = useState(0)
   const [pending, setPending] = useState(false)
 
-  useEffect(() => { fetch('/api/password-change').then(async (response) => response.ok ? await response.json() as { maskedPhone: string } : null).then((data) => setMaskedPhone(data?.maskedPhone ?? '')).catch(() => undefined) }, [])
+  useEffect(() => { getPasswordChangeStatus().then((data) => setMaskedPhone(data?.maskedPhone ?? '')).catch(() => undefined) }, [])
   useEffect(() => { if (countdown <= 0) return; const timer = window.setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000); return () => window.clearInterval(timer) }, [countdown])
 
   async function sendCode() {
     if (pending || countdown > 0) return
     setPending(true)
     try {
-      const response = await fetch('/api/password-change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request' }) })
-      const result = await response.json() as { message: string; retryAfter?: number }
-      if (!response.ok) throw Object.assign(new Error(result.message), { retryAfter: result.retryAfter })
+      const result = await sendPasswordChangeCode()
       setCountdown(result.retryAfter ?? 60); toast.success(`验证码已发送至 ${maskedPhone}`)
     } catch (error) {
       const retryAfter = typeof error === 'object' && error && 'retryAfter' in error ? Number(error.retryAfter) : 0
@@ -37,10 +36,8 @@ export function PasswordChangeForm({ compact = false, loginPath = '/login' }: { 
     if (newPassword !== confirmPassword) return toast.error('两次输入的新密码不一致')
     setPending(true)
     try {
-      const response = await fetch('/api/password-change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm', code, newPassword, confirmPassword }) })
-      const result = await response.json() as { message: string }
-      if (!response.ok) throw new Error(result.message)
-      toast.success(result.message)
+      await confirmPasswordChange({ code, newPassword, confirmPassword })
+      toast.success('密码修改成功，请重新登录')
       router.push(loginPath); router.refresh()
     } catch (error) { toast.error(error instanceof Error ? error.message : '密码修改失败') }
     finally { setPending(false) }
