@@ -1,0 +1,29 @@
+# 创建客户表
+npx wrangler d1 execute suwei-db --remote --command "CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)"
+
+# 创建租赁信息表
+npx wrangler d1 execute suwei-db --remote --command "CREATE TABLE IF NOT EXISTS rentals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_id INTEGER NOT NULL,
+  item_name TEXT NOT NULL,
+  rental_start TEXT NOT NULL,
+  rental_end TEXT NOT NULL,
+  status TEXT DEFAULT 'active',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (customer_id) REFERENCES customers(id)
+)"
+
+# 创建登录账号表
+npx wrangler d1 execute suwei-db --remote --command "CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  role TEXT DEFAULT 'user',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)"
