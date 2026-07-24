@@ -18,8 +18,6 @@
     "d1:verify": "wrangler d1 execute suwei-db --remote --command \"SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name\""
   },
   "dependencies": {
-    "@alicloud/dysmsapi20170525": "^4.6.0",
-    "@alicloud/openapi-client": "^0.4.15",
     "better-auth": "^1.6.25",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
