@@ -83,7 +83,7 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
   }
 
   return <main className="flex min-h-svh items-center justify-center bg-background p-4 sm:p-6 lg:p-10">
-    <section className="flex w-full max-w-6xl overflow-hidden rounded-2xl border bg-card shadow-xl md:h-[calc(100svh-3rem)] md:min-h-[640px] md:max-h-[965px] lg:h-[calc(100svh-5rem)]">
+    <section className="flex w-full max-w-6xl overflow-hidden rounded-xl border bg-card shadow-xl md:h-[calc(100svh-3rem)] md:min-h-[640px] md:max-h-[965px] lg:h-[calc(100svh-5rem)]">
       <aside className="hidden w-3/5 flex-col justify-between bg-primary p-10 text-primary-foreground md:flex lg:p-14">
         <div className="flex items-center gap-3 font-semibold"><span className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/15"><ShieldCheck /></span>速维租赁统一服务</div>
         <div className="flex max-w-xl flex-col gap-5"><p className="text-balance text-3xl font-semibold lg:text-4xl">一个入口，安全连接工作与租赁服务</p><p className="max-w-lg leading-relaxed opacity-80">团队成员进入业务工作台，租赁客户查看本人当前在租信息。</p></div>

@@ -101,7 +101,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
         <Link href="/" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />返回速维租赁官网</Link>
         <a href="tel:05972685521" className="flex items-center gap-2 text-sm font-semibold text-primary"><Phone className="size-4" />0597-2685521</a>
       </div>
-      <section className={embedded ? 'w-full' : 'w-full max-w-md overflow-hidden rounded-2xl border bg-card shadow-xl'}>
+      <section className={embedded ? 'w-full' : 'w-full max-w-md overflow-hidden rounded-xl border bg-card shadow-xl'}>
         <header className={embedded ? 'hidden' : 'bg-primary p-6 text-primary-foreground'}>
           <span className="flex size-11 items-center justify-center rounded-xl bg-primary-foreground/15"><ShieldCheck className="size-6" /></span>
           <h1 className="mt-5 text-balance text-2xl font-bold">客户服务中心</h1>

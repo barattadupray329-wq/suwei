@@ -4,7 +4,7 @@ import type { PublicBusiness } from '@/lib/public-business'
 
 export function LegalDocument({ title, updated, business, children }: { title: string; updated: string; business: PublicBusiness; children: React.ReactNode }) {
   return <main className="min-h-svh bg-background px-4 py-8 md:py-12">
-    <article className="mx-auto flex max-w-3xl flex-col gap-6 rounded-2xl border bg-card p-5 shadow-sm md:p-8">
+    <article className="mx-auto flex max-w-3xl flex-col gap-6 rounded-xl border bg-card p-5 shadow-sm md:p-8">
       <Link href="/customer-login" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />返回客户服务中心</Link>
       <header className="flex flex-col gap-2 border-b pb-6"><p className="text-sm font-medium text-primary">{business.storeName}</p><h1 className="text-3xl font-bold text-balance">{title}</h1><p className="text-sm text-muted-foreground">更新日期：{updated}</p></header>
       {!business.configured ? <aside className="flex gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm leading-6 text-destructive"><AlertTriangle className="mt-0.5 size-5 shrink-0" /><p>经营主体或联系电话尚未在业务设置中补齐。正式上线前必须由管理员填写真实、准确的信息。</p></aside> : null}

@@ -42,7 +42,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
   const owner = data.owner[0]
   return (
     <main className="min-h-svh bg-background p-4 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
         <Link href={data.currentRole === 'super_admin' ? '/' : '/dashboard'} className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="size-4" />
           {data.currentRole === 'super_admin' ? '返回官网首页' : '返回经营总览'}
