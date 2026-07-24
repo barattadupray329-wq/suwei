@@ -18,15 +18,13 @@
     "d1:verify": "wrangler d1 execute suwei-db --remote --command \"SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name\""
   },
   "dependencies": {
-    "@alicloud/dysmsapi20170525": "^4.6.0",
-    "@alicloud/openapi-client": "^0.4.15",
-    "better-auth": "^1.6.23",
+    "better-auth": "^1.6.25",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
     "next": "^16.2.11",
     "qrcode": "^1.5.4",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "sonner": "^2.0.7",
     "zod": "^4.4.3"
   },
@@ -42,11 +40,11 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.11",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "postcss": "^8.5.19",
+    "postcss": "^8.5.22",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.113.0"
+    "wrangler": "^4.114.0"
   },
   "pnpm": {
     "overrides": {

@@ -13,7 +13,7 @@ export async function getAccessContext(permission?: ModulePermission) {
   const [profile] = await db.select().from(accountProfiles).where(eq(accountProfiles.userId, session.user.id))
   if (!profile?.active) throw new Error('账号未授权或已停用')
   if (profile.role === 'super_admin') {
-    if (permission && !canAccessStoreModule('super_admin', permission)) throw new Error('超级管理员不能访问店铺业务数据')
+    if (permission && !canAccessStoreModule('super_admin', permission)) throw new Error('平台主管不能访问店铺业务数据')
     return { userId: session.user.id, shopId: null, shopName: '平台管理', actorId: session.user.id, actorName: session.user.name, role: 'super_admin' as const, permissions: permissionsForRole('super_admin') }
   }
   if (profile.role === 'admin') {
@@ -25,7 +25,7 @@ export async function getAccessContext(permission?: ModulePermission) {
   const [membership] = await db.select().from(organizationMembers).where(eq(organizationMembers.memberUserId, session.user.id))
   if (!membership?.active || membership.role !== 'employee') throw new Error('账号未加入店铺或已停用')
   const permissions = permissionsForRole('employee', membership.permissions.split(',').filter(Boolean))
-  if (!permissions.length) throw new Error('员工账号未分配任何功能权限')
+  if (!permissions.length) throw new Error('客户经理账号未分配任何功能权限')
   if (permission && !canAccessStoreModule('employee', permission, permissions)) throw new Error('没有该模块的操作权限')
   const [shop] = await db.select().from(shops).where(eq(shops.id, membership.shopId ?? membership.ownerId))
   if (!shop || shop.status !== 'active') throw new Error('所属店铺未启用或已暂停')
@@ -35,6 +35,6 @@ export async function getAccessContext(permission?: ModulePermission) {
 export async function getDefaultAccountRoute() {
   const access = await getAccessContext()
   const route = defaultAccountRoute(access.role, access.permissions)
-  if (!route) throw new Error('员工账号未分配任何功能权限')
+  if (!route) throw new Error('客户经理账号未分配任何功能权限')
   return route
 }

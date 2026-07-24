@@ -1,7 +1,6 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
-import Dysmsapi20170525, * as $Dysmsapi20170525 from '@alicloud/dysmsapi20170525'
-import * as $OpenApi from '@alicloud/openapi-client'
 import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { sendAliyunSms } from '@/lib/aliyun-sms'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
@@ -58,13 +57,12 @@ async function sendSms(phone: string, code: string) {
   const templateCode = process.env.ALIYUN_SMS_TEMPLATE_CODE
   if (!accessKeyId || !accessKeySecret || !signName || !templateCode) throw new CustomerOtpError('短信服务暂不可用，请联系客服', 503)
   try {
-    const client = new Dysmsapi20170525(new $OpenApi.Config({ accessKeyId, accessKeySecret, endpoint: 'dysmsapi.aliyuncs.com', connectTimeout: 5000, readTimeout: 10000 }))
-    const response = await client.sendSms(new $Dysmsapi20170525.SendSmsRequest({ phoneNumbers: phone, signName, templateCode, templateParam: JSON.stringify({ code }) }))
-    if (response.body?.code !== 'OK') {
-      console.error('[sms] Aliyun rejected OTP request', { code: response.body?.code, requestId: response.body?.requestId, phone: maskCustomerPhone(phone) })
-      throw new CustomerOtpError(smsFailureMessage(response.body?.code), response.body?.code === 'isv.BUSINESS_LIMIT_CONTROL' ? 429 : 502, SMS_RESEND_SECONDS)
+    const response = await sendAliyunSms({ accessKeyId, accessKeySecret, phone, signName, templateCode, templateParams: { code } })
+    if (response.code !== 'OK') {
+      console.error('[sms] Aliyun rejected OTP request', { code: response.code, requestId: response.requestId, phone: maskCustomerPhone(phone) })
+      throw new CustomerOtpError(smsFailureMessage(response.code), response.code === 'isv.BUSINESS_LIMIT_CONTROL' ? 429 : 502, SMS_RESEND_SECONDS)
     }
-    console.info('[sms] OTP accepted by Aliyun', { requestId: response.body?.requestId, phone: maskCustomerPhone(phone) })
+    console.info('[sms] OTP accepted by Aliyun', { requestId: response.requestId, phone: maskCustomerPhone(phone) })
   } catch (error) {
     if (error instanceof CustomerOtpError) throw error
     console.error('[sms] Aliyun OTP request failed', { name: error instanceof Error ? error.name : 'UnknownError', phone: maskCustomerPhone(phone) })

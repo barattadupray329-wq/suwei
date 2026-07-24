@@ -3,12 +3,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, shops, user, websitePackages } from '@/lib/db/schema'
+import { account, accountProfiles, adminApplications, auditLogs, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, shops, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
@@ -23,7 +23,28 @@ export async function getWebsitePackagesForAdmin(){const context=await requireSu
 export async function saveWebsitePackage(input:z.infer<typeof websitePackageSchema>&{id?:number}){const context=await requireSuperAdmin();const value=websitePackageSchema.parse(input);const now=new Date();if(input.id){await db.update(websitePackages).set({...value,updatedAt:now}).where(and(eq(websitePackages.id,input.id),eq(websitePackages.userId,context.userId)))}else{await db.insert(websitePackages).values({...value,userId:context.userId,createdAt:now,updatedAt:now})}revalidatePath('/');revalidatePath('/website-packages')}
 export async function deleteWebsitePackage(id:number){const context=await requireSuperAdmin();await db.delete(websitePackages).where(and(eq(websitePackages.id,id),eq(websitePackages.userId,context.userId)));revalidatePath('/');revalidatePath('/website-packages')}
 
-export async function getFinanceData(from?:string,to?:string){const id=await userId('资金查看');const filters=[eq(paymentRecords.userId,id)];if(from)filters.push(gte(paymentRecords.paymentDate,from));if(to)filters.push(lte(paymentRecords.paymentDate,to));const rows=await db.select({id:paymentRecords.id,rentalId:paymentRecords.rentalId,amount:paymentRecords.amount,paymentDate:paymentRecords.paymentDate,paymentMethod:paymentRecords.paymentMethod,feeType:paymentRecords.feeType,notes:paymentRecords.notes,operatorName:paymentRecords.operatorName,contractNo:rentals.contractNo,customerCompany:rentals.customerCompany,customerName:rentals.customerName,customerPhone:rentals.customerPhone,deviceName:rentals.deviceName,renewalRecordId:paymentRecords.renewalRecordId}).from(paymentRecords).innerJoin(rentals,and(eq(rentals.id,paymentRecords.rentalId),eq(rentals.userId,id))).where(and(...filters)).orderBy(desc(paymentRecords.paymentDate),desc(paymentRecords.id));const now=new Date();const day=now.toISOString().slice(0,10);const month=day.slice(0,7);const year=day.slice(0,4);const all=await db.select({date:paymentRecords.paymentDate,amount:paymentRecords.amount,feeType:paymentRecords.feeType}).from(paymentRecords).where(eq(paymentRecords.userId,id));const sum=(test:(d:string)=>boolean)=>all.filter(x=>test(x.date)).reduce((s,x)=>s+Number(x.amount),0);return{rows,summary:{today:sum(d=>d===day),month:sum(d=>d.startsWith(month)),year:sum(d=>d.startsWith(year)),all:sum(()=>true)},types:Object.entries(all.reduce<Record<string,number>>((a,x)=>(a[x.feeType]=(a[x.feeType]||0)+Number(x.amount),a),{}))}}
+export async function getFinanceData(input: { query?: string; type?: string; method?: string; from?: string; to?: string; page?: number; pageSize?: number } = {}) {
+  const id = await userId('资金查看')
+  const page = Math.max(1, Math.min(500000, Math.trunc(input.page || 1)))
+  const pageSize = Math.max(1, Math.min(100, Math.trunc(input.pageSize || 20)))
+  const filters = [eq(paymentRecords.userId, id)]
+  if (input.from) filters.push(gte(paymentRecords.paymentDate, input.from))
+  if (input.to) filters.push(lte(paymentRecords.paymentDate, input.to))
+  if (input.type && input.type !== '全部') filters.push(eq(paymentRecords.feeType, input.type))
+  if (input.method && input.method !== '全部') filters.push(eq(paymentRecords.paymentMethod, input.method))
+  if (input.query) { const pattern = `%${input.query.slice(0, 80)}%`; filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern))!) }
+  const where = and(...filters)
+  const joined = db.select({ id: paymentRecords.id, rentalId: paymentRecords.rentalId, amount: paymentRecords.amount, paymentDate: paymentRecords.paymentDate, paymentMethod: paymentRecords.paymentMethod, feeType: paymentRecords.feeType, notes: paymentRecords.notes, operatorName: paymentRecords.operatorName, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, renewalRecordId: paymentRecords.renewalRecordId }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id)))
+  const now = new Date(); const day = now.toISOString().slice(0, 10); const month = day.slice(0, 7); const year = day.slice(0, 4)
+  const [rows, [countRow], [summary], types] = await Promise.all([
+    joined.where(where).orderBy(desc(paymentRecords.paymentDate), desc(paymentRecords.id)).limit(pageSize).offset((page - 1) * pageSize),
+    db.select({ count: sql<number>`count(*)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
+    db.select({ today: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} = ${day} then cast(${paymentRecords.amount} as real) else 0 end),0)`, month: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${month + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, year: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${year + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, all: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).where(eq(paymentRecords.userId, id)),
+    db.select({ type: paymentRecords.feeType, amount: sql<number>`sum(cast(${paymentRecords.amount} as real))` }).from(paymentRecords).where(eq(paymentRecords.userId, id)).groupBy(paymentRecords.feeType),
+  ])
+  const total = Number(countRow?.count ?? 0)
+  return { rows, summary: { today: Number(summary?.today ?? 0), month: Number(summary?.month ?? 0), year: Number(summary?.year ?? 0), all: Number(summary?.all ?? 0) }, types: types.map((row) => [row.type, Number(row.amount)] as [string, number]), total, page, pageCount: Math.max(1, Math.ceil(total / pageSize)) }
+}
 
 async function loadSettings(id:string){const [row]=await db.select().from(businessSettings).where(eq(businessSettings.userId,id));return row??{userId:id,storeName:'速维租赁管理',lessorType:'企业',lessorName:'',identityNo:'',contactName:'',phone:'',address:'',paymentInfo:'',contractTerms:DEFAULT_TERMS,themeMode:'system',themeColor:'green'}}
 export async function getSettings(){const id=await userId('系统设置');return loadSettings(id)}
@@ -47,7 +68,7 @@ export async function getAccounts() {
   const [owner, members, customers, applications] = await Promise.all([
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, customerLevel: customerPortals.customerLevel, levelNote: customerPortals.levelNote, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt, orderCount: sql<number>`(select count(*) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')`, latestOrderAt: sql<Date | null>`(select max(rentals.createdAt) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')` }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
     context.role === 'super_admin' ? db.select({ id: adminApplications.id, shopName: adminApplications.shopName, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
@@ -124,10 +145,21 @@ export async function addMember(input: { name: string; account: string; phone: s
   revalidatePath('/accounts')
 }
 
+const CUSTOMER_LEVELS = {
+  silver: { label: '银牌', discount: 1, suggestion: '原价' },
+  gold: { label: '金牌', discount: 0.95, suggestion: '95 折' },
+  diamond: { label: '钻石', discount: 0.9, suggestion: '9 折' },
+  king: { label: '王者', discount: 0.85, suggestion: '85 折' },
+} as const
+export type CustomerLevel = keyof typeof CUSTOMER_LEVELS
+const customerLevelSchema = z.enum(['silver', 'gold', 'diamond', 'king'])
+
 const customerSchema = z.object({
   name: accountNameSchema,
   phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
   assigneeUserId: z.string().min(1, '请选择客户负责人'),
+  customerLevel: customerLevelSchema.default('silver'),
+  levelNote: z.string().trim().max(200, '等级备注最多 200 字').default(''),
 })
 
 async function requireShopAssignee(ownerId: string, assigneeUserId: string) {
@@ -149,6 +181,8 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
     userId: context.userId,
     phone: value.phone,
     customerName: value.name,
+    customerLevel: value.customerLevel,
+    levelNote: value.levelNote || null,
     assigneeUserId: value.assigneeUserId,
     accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
     passwordHash: legacySecret,
@@ -159,14 +193,17 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
   revalidatePath('/accounts')
 }
 
-export async function updateCustomer(customerId: number, input: { name: string; active: boolean; assigneeUserId: string }) {
+export async function updateCustomer(customerId: number, input: { name: string; active: boolean; assigneeUserId: string; customerLevel: CustomerLevel; levelNote?: string }) {
   const context = await requireManager()
   const name = accountNameSchema.parse(input.name)
+  const customerLevel = customerLevelSchema.parse(input.customerLevel)
+  const levelNote = z.string().trim().max(200).parse(input.levelNote ?? '')
   await requireShopAssignee(context.userId, input.assigneeUserId)
-  const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+  const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone, customerName: customerPortals.customerName, customerLevel: customerPortals.customerLevel }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
   { const tx = db
-    await tx.update(customerPortals).set({ customerName: name, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    await tx.update(customerPortals).set({ customerName: name, customerLevel, levelNote: levelNote || null, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    if (customer.customerLevel !== customerLevel) await tx.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '调整客户等级', resourceType: '合作客户', resourceId: String(customerId), summary: `${customer.customerName}：${CUSTOMER_LEVELS[customer.customerLevel as CustomerLevel]?.label ?? '银牌'}调整为${CUSTOMER_LEVELS[customerLevel].label}`, metadata: { from: customer.customerLevel, to: customerLevel, note: levelNote } })
     if (!input.active) await tx.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, context.userId), eq(customerPhoneSessions.phone, customer.phone)))
   }
   revalidatePath('/accounts')

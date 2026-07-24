@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { auditLogs } from '@/lib/db/schema'
 
@@ -17,6 +17,13 @@ export async function writeAuditLog(context: AuditContext, entry: { action: stri
   })
 }
 
-export async function listAuditLogs(userId: string, limit = 100) {
-  return db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt)).limit(Math.min(200, Math.max(1, limit)))
+export async function listAuditLogs(userId: string, page = 1, pageSize = 20) {
+  const safePage = Math.max(1, Math.min(500000, Math.trunc(page)))
+  const safeSize = Math.max(1, Math.min(100, Math.trunc(pageSize)))
+  const [[countRow], rows] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(eq(auditLogs.userId, userId)),
+    db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(safeSize).offset((safePage - 1) * safeSize),
+  ])
+  const total = Number(countRow?.count ?? 0)
+  return { rows, total, page: safePage, pageCount: Math.max(1, Math.ceil(total / safeSize)) }
 }

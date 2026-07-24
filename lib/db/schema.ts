@@ -7,7 +7,7 @@ export const account = sqliteTable('account', { id: text('id').primaryKey(), acc
 export const verification = sqliteTable('verification', { id: text('id').primaryKey(), identifier: text('identifier').notNull(), value: text('value').notNull(), expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }).notNull(), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).default(sql`(unixepoch() * 1000)`) })
 
 export const rentals = sqliteTable('rentals', {
-  id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), sourceUserId: text('sourceUserId'), sourceName: text('sourceName'), assigneeUserId: text('assigneeUserId'), assigneeName: text('assigneeName'), contractNo: text('contractNo').notNull(), customerCompany: text('customer_company'), customerName: text('customerName').notNull(), customerPhone: text('customerPhone').notNull(), customerAddress: text('customerAddress'), deviceName: text('deviceName').notNull(), deviceType: text('deviceType').notNull().default('台式机'), deviceConfig: text('deviceConfig'), deviceCode: text('deviceCode'), cpu: text('cpu'), motherboard: text('motherboard'), memory: text('memory'), storage: text('storage'), graphicsCard: text('graphicsCard'), powerSupply: text('powerSupply'), caseModel: text('caseModel'), monitorInfo: text('monitorInfo'), screenSize: text('screenSize'), screenResolution: text('screenResolution'), refreshRate: text('refreshRate'), panelType: text('panelType'), ports: text('ports'), batteryInfo: text('batteryInfo'), adapterInfo: text('adapterInfo'), accessories: text('accessories'), colorGamut: text('colorGamut'), quantity: integer('quantity').notNull().default(1), startDate: text('startDate').notNull(), endDate: text('endDate').notNull(), monthlyRent: text('monthlyRent').notNull().default('0'), totalRent: text('totalRent').notNull().default('0'), deposit: text('deposit').notNull().default('0'), paidAmount: text('paidAmount').notNull().default('0'), paymentStatus: text('paymentStatus').notNull().default('待收款'), status: text('status').notNull().default('在租'), notes: text('notes'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`) }, (table) => [unique().on(table.userId, table.contractNo)])
+  id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), sourceUserId: text('sourceUserId'), sourceName: text('sourceName'), assignedEmployeeId: text('assignedEmployeeId'), assigneeUserId: text('assigneeUserId'), assigneeName: text('assigneeName'), orderType: text('orderType').notNull().default('official'), lifecycleStatus: text('lifecycleStatus').notNull().default('active'), confirmedAt: integer('confirmedAt', { mode: 'timestamp_ms' }), confirmedBy: text('confirmedBy'), deletedAt: integer('deletedAt', { mode: 'timestamp_ms' }), deletedBy: text('deletedBy'), deleteReason: text('deleteReason'), contractNo: text('contractNo').notNull(), customerCompany: text('customer_company'), customerName: text('customerName').notNull(), customerPhone: text('customerPhone').notNull(), customerAddress: text('customerAddress'), deviceName: text('deviceName').notNull(), deviceType: text('deviceType').notNull().default('台式机'), deviceConfig: text('deviceConfig'), deviceCode: text('deviceCode'), cpu: text('cpu'), motherboard: text('motherboard'), memory: text('memory'), storage: text('storage'), graphicsCard: text('graphicsCard'), powerSupply: text('powerSupply'), caseModel: text('caseModel'), monitorInfo: text('monitorInfo'), screenSize: text('screenSize'), screenResolution: text('screenResolution'), refreshRate: text('refreshRate'), panelType: text('panelType'), ports: text('ports'), batteryInfo: text('batteryInfo'), adapterInfo: text('adapterInfo'), accessories: text('accessories'), colorGamut: text('colorGamut'), quantity: integer('quantity').notNull().default(1), startDate: text('startDate').notNull(), startDateReason: text('startDateReason'), endDate: text('endDate').notNull(), monthlyRent: text('monthlyRent').notNull().default('0'), totalRent: text('totalRent').notNull().default('0'), deposit: text('deposit').notNull().default('0'), paidAmount: text('paidAmount').notNull().default('0'), paymentStatus: text('paymentStatus').notNull().default('待收款'), status: text('status').notNull().default('在租'), notes: text('notes'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`) }, (table) => [unique().on(table.userId, table.contractNo)])
 
 export const rentalItems = sqliteTable('rental_items', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(),
@@ -73,7 +73,7 @@ export const auditLogs = sqliteTable('audit_logs', {
 })
 
 export const customerPortals = sqliteTable('customer_portals', {
-  id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), phone: text('phone').notNull(), customerName: text('customerName').notNull(), assigneeUserId: text('assigneeUserId'), accessTokenHash: text('accessTokenHash').notNull().unique(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('active'), failedAttempts: integer('failedAttempts').notNull().default(0), lockedUntil: integer('lockedUntil', { mode: 'timestamp_ms' }), sessionVersion: integer('sessionVersion').notNull().default(1), lastLoginAt: integer('lastLoginAt', { mode: 'timestamp_ms' }), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), phone: text('phone').notNull(), customerName: text('customerName').notNull(), customerLevel: text('customerLevel').notNull().default('silver'), levelNote: text('levelNote'), assigneeUserId: text('assigneeUserId'), accessTokenHash: text('accessTokenHash').notNull().unique(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('active'), failedAttempts: integer('failedAttempts').notNull().default(0), lockedUntil: integer('lockedUntil', { mode: 'timestamp_ms' }), sessionVersion: integer('sessionVersion').notNull().default(1), lastLoginAt: integer('lastLoginAt', { mode: 'timestamp_ms' }), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [unique().on(table.userId, table.phone)])
 
 export const customerOtpChallenges = sqliteTable('customer_otp_challenges', {
@@ -95,6 +95,25 @@ export const customerPhoneSessions = sqliteTable('customer_phone_sessions', {
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+})
+
+export const smsDeliveryLogs = sqliteTable('sms_delivery_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  rentalId: integer('rental_id'),
+  scene: text('scene').notNull(),
+  templateCode: text('template_code').notNull(),
+  maskedPhone: text('masked_phone').notNull(),
+  idempotencyKey: text('idempotency_key').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  providerRequestId: text('provider_request_id'),
+  providerCode: text('provider_code'),
+  errorMessage: text('error_message'),
+  triggerType: text('trigger_type').notNull(),
+  actorUserId: text('actor_user_id'),
+  sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
 
 export type Rental = typeof rentals.$inferSelect

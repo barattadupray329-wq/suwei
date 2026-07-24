@@ -1,12 +1,17 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": ".open-next/worker.js",
+	"main": "worker.ts",
+	"triggers": {
+		"crons": ["0 1 * * *"]
+	},
 	"name": "suwei-web",
 	"compatibility_date": "2026-07-22",
 	"workers_dev": true,
 	"preview_urls": true,
 	"vars": {
-		"BETTER_AUTH_URL": "https://tuzhuzu.cn"
+		"BETTER_AUTH_URL": "https://tuzhuzu.cn",
+		"ALIYUN_SMS_RENTAL_CREATED_TEMPLATE_CODE": "SMS_510980016",
+		"ALIYUN_SMS_REMINDER_TEMPLATE_CODE": "SMS_510885024"
 	},
 	"compatibility_flags": [
 		"nodejs_compat",
