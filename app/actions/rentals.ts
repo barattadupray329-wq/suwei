@@ -10,7 +10,7 @@ import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-c
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
-import { availableQuantity } from '@/lib/rental-lifecycle'
+import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -327,19 +327,21 @@ export async function buyoutRentalItem(rentalId: number, rentalItemId: number, q
   const userId = await getUserId()
   if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('买断数量必须为正整数')
   if (unitPrice <= 0 || !buyoutDate) throw new Error('请填写有效的买断单价和日期')
-  { const tx = db
-    const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
-    if (!item) throw new Error('设备明细不存在')
-    const remaining = availableQuantity(item)
-    if (quantity > remaining) throw new Error(`最多可买断 ${remaining} 台`)
-    const amount = quantity * unitPrice
-    await tx.update(rentalItems).set({ boughtOutQuantity: item.boughtOutQuantity + quantity, buyoutAmount: String(Number(item.buyoutAmount) + amount), updatedAt: new Date() }).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.userId, userId)))
-    await tx.insert(buyoutRecords).values({ userId, rentalId, rentalItemId, quantity, unitPrice: String(unitPrice), amount: String(amount), buyoutDate, notes })
-    const allItems = await tx.select().from(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
-    const bought = allItems.reduce((sum, row) => sum + (row.id === item.id ? item.boughtOutQuantity + quantity : row.boughtOutQuantity), 0)
-    const total = allItems.reduce((sum, row) => sum + row.quantity, 0)
-    await tx.update(rentals).set({ status: bought >= total ? '买断' : '部分买断', updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
-  }
+  const [[item], allItems] = await Promise.all([
+    db.select().from(rentalItems).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId))),
+  ])
+  if (!item) throw new Error('设备明细不存在')
+  const remaining = availableQuantity(item)
+  if (quantity > remaining) throw new Error(`最多可买断 ${remaining} 台`)
+  const amount = quantity * unitPrice
+  const nextBought = item.boughtOutQuantity + quantity
+  const nextItems = allItems.map(row => row.id === item.id ? { ...row, boughtOutQuantity: nextBought } : row)
+  await db.batch([
+    db.update(rentalItems).set({ boughtOutQuantity: nextBought, buyoutAmount: String(Number(item.buyoutAmount) + amount), updatedAt: new Date() }).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.userId, userId))),
+    db.insert(buyoutRecords).values({ userId, rentalId, rentalItemId, quantity, unitPrice: String(unitPrice), amount: String(amount), buyoutDate, notes }),
+    db.update(rentals).set({ status: rentalLifecycleStatus(nextItems), updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
+  ])
   revalidatePath('/')
 }
 
@@ -367,11 +369,12 @@ export async function changeStatus(id: number, status: string) {
   if (status === '已关闭' && access.role === 'employee') throw new Error('只有管理员可以关闭订单')
   const [rental] = await db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
   if (!rental) throw new Error('订单不存在')
-  { const tx = db
-    await tx.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId)))
-    if (status === '已关闭') await tx.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' })
-    await tx.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '变更状态', resourceType: '租赁合同', resourceId: String(id), summary: `合同状态变更为 ${status}`, metadata: { status } })
-  }
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+    db.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
+    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '变更状态', resourceType: '租赁合同', resourceId: String(id), summary: `合同状态变更为 ${status}`, metadata: { status } }),
+  ]
+  if (status === '已关闭') statements.push(db.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' }))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
 }
 
