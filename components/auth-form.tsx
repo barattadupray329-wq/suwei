@@ -6,6 +6,7 @@ import { Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, MessageSquareText, Sh
 import { authClient } from '@/lib/auth-client'
 import { CustomerPhoneLogin } from '@/components/customer-phone-login'
 import { submitAdminApplication } from '@/app/actions/business'
+import { userErrorMessage } from '@/lib/errors'
 
 type Method = 'phone' | 'account'
 
@@ -55,7 +56,7 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
       if (!response.ok) throw new Error(payload.message || '验证码发送失败')
       setMessage(payload.message || '验证码已发送'); setCountdown(60)
       const timer = window.setInterval(() => setCountdown((value) => { if (value <= 1) { window.clearInterval(timer); return 0 } return value - 1 }), 1000)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '验证码发送失败') } finally { setLoading(false) }
+    } catch (cause) { setError(userErrorMessage(cause, '验证码发送失败，请稍后重试')) } finally { setLoading(false) }
   }
 
   async function submitPasswordReset(event: React.FormEvent) {
@@ -65,7 +66,7 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
       const payload = await response.json() as { message?: string }
       if (!response.ok) throw new Error(payload.message || '密码修改失败')
       setResetMode(false); setAccount(reset.account); setPassword(''); setReset({ account: '', phone: '', code: '', newPassword: '', confirmPassword: '' }); setMessage(payload.message || '密码已修改，请重新登录')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '密码修改失败') } finally { setLoading(false) }
+    } catch (cause) { setError(userErrorMessage(cause, '密码修改失败，请稍后重试')) } finally { setLoading(false) }
   }
 
   async function submitApplication(event: React.FormEvent) {
@@ -77,7 +78,7 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
       setApplicationMessage('申请已提交。审核通过后可使用账号密码或绑定手机号登录。')
       setApplication({ shopName: '', name: '', account: '', phone: '', password: '', confirmPassword: '' })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '申请提交失败')
+      setError(userErrorMessage(cause, '申请提交失败，请稍后重试'))
     } finally { setLoading(false) }
   }
 

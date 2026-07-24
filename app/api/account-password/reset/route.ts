@@ -6,6 +6,7 @@ import { account, accountProfiles, auditLogs, organizationMembers, session, user
 import { CustomerOtpError, verifyStaffPasswordOtp } from '@/lib/customer-phone-auth'
 import { validatePasswordConfirmation } from '@/lib/account-validation'
 import { isTrustedMutationRequest } from '@/lib/request-security'
+import { safeError } from '@/lib/errors'
 
 export async function POST(request: Request) {
   try {
@@ -23,8 +24,8 @@ export async function POST(request: Request) {
     if (ownerId) await db.insert(auditLogs).values({ userId: ownerId, actorUserId: profile.id, actorName: profile.name, action: '短信验证修改密码', resourceType: '账号', resourceId: profile.id, summary: `${profile.name}通过绑定手机号验证修改登录密码`, metadata: { phone: submittedPhone.slice(0, 3) + '****' + submittedPhone.slice(-4) } })
     return NextResponse.json({ ok: true, message: '密码已修改，请使用新密码重新登录' })
   } catch (error) {
-    const status = error instanceof CustomerOtpError ? error.status : 400
-    const message = error instanceof Error ? error.message : '密码修改失败'
-    return NextResponse.json({ ok: false, message }, { status })
+    if (error instanceof CustomerOtpError) return NextResponse.json({ ok: false, message: error.message }, { status: error.status })
+    const safe = safeError(error, '密码修改失败，请稍后重试')
+    return NextResponse.json({ ok: false, message: safe.message }, { status: safe.status })
   }
 }

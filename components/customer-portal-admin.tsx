@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { ArrowLeft, Ban, CheckCircle2, Clock3, Copy, ExternalLink, LogOut, QrCode, Search, ShieldCheck, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { revokeCustomerSessions, setCustomerPortalStatus } from '@/app/actions/customer-portals'
+import { userErrorMessage } from '@/lib/errors'
 
 export function CustomerPortalAdmin({ customers }: { customers: any[] }) {
   const [pending, start] = useTransition()
@@ -27,8 +28,8 @@ export function CustomerPortalAdmin({ customers }: { customers: any[] }) {
     paused: customers.filter((customer) => customer.portal?.status === 'paused').length,
   }
   const copyLink = async () => { await navigator.clipboard.writeText(queryUrl); toast.success('客户查询链接已复制') }
-  const changeStatus = (customer: any, next: 'active'|'paused') => start(async () => { try { await setCustomerPortalStatus(customer.phone, next); toast.success(next === 'paused' ? '已暂停该客户查询，现有会话已注销' : '已恢复客户查询') } catch (error) { toast.error(error instanceof Error ? error.message : '操作失败') } })
-  const revoke = (customer: any) => start(async () => { try { await revokeCustomerSessions(customer.phone); toast.success('客户当前登录会话已注销') } catch (error) { toast.error(error instanceof Error ? error.message : '操作失败') } })
+  const changeStatus = (customer: any, next: 'active'|'paused') => start(async () => { try { await setCustomerPortalStatus(customer.phone, next); toast.success(next === 'paused' ? '已暂停该客户查询，现有会话已注销' : '已恢复客户查询') } catch (error) { toast.error(userErrorMessage(error)) } })
+  const revoke = (customer: any) => start(async () => { try { await revokeCustomerSessions(customer.phone); toast.success('客户当前登录会话已注销') } catch (error) { toast.error(userErrorMessage(error)) } })
 
   return <main className="min-h-svh bg-background p-4 md:p-6"><div className="mx-auto flex max-w-6xl flex-col gap-6">
     <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-sm font-medium text-primary">客户服务</p><h1 className="mt-1 text-2xl font-bold text-balance">客户查询与访问管理</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">客户使用合同手机号和短信验证码即可自助查询，无需手动开户。您可以在这里管理访问状态和登录会话。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={copyLink} className="inline-flex h-10 items-center gap-2 rounded-xl border bg-card px-4 text-sm font-medium hover:bg-muted"><Copy className="size-4"/>复制查询链接</button><button type="button" onClick={() => setShowQr(true)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"><QrCode className="size-4"/>通用查询码</button><Link href="/dashboard" className="inline-flex h-10 items-center gap-2 rounded-xl border bg-card px-4 text-sm font-medium hover:bg-muted"><ArrowLeft className="size-4"/>返回总览</Link></div></header>

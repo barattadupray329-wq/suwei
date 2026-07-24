@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CalendarRange, Cloud, Download, FileSpreadsheet, HardDriveDownload, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+import { userErrorMessage } from '@/lib/errors'
 
 type BackupCenterProps = {
   storeName: string
@@ -35,12 +36,12 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
 
   async function createCloudBackup() {
     setBusyAction('working')
-    try { const response = await fetch('/api/backups', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'manual'}) }); const body=await response.json() as ApiError; if(!response.ok)throw new Error(body.error); await loadSnapshots(); toast.success('云端恢复快照已创建') } catch(error){toast.error(error instanceof Error?error.message:'备份失败')} finally{setBusyAction(null)}
+    try { const response = await fetch('/api/backups', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'manual'}) }); const body=await response.json() as ApiError; if(!response.ok)throw new Error(body.error); await loadSnapshots(); toast.success('云端恢复快照已创建') } catch(error){toast.error(userErrorMessage(error,'备份失败，请稍后重试'))} finally{setBusyAction(null)}
   }
   async function inspectBackup(file: File) {
-    try { const payload=JSON.parse(await file.text()); const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'preview',payload})}); const body=await response.json() as RestoreResponse; if(!response.ok)throw new Error(body.error); if (!body.summary) throw new Error('备份预检结果无效'); setRestorePayload(payload);setPreview(body.summary);setConfirmation('');toast.success('备份预检通过') } catch(error){setRestorePayload(null);setPreview(null);toast.error(error instanceof Error?error.message:'备份文件无效')}
+    try { const payload=JSON.parse(await file.text()); const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'preview',payload})}); const body=await response.json() as RestoreResponse; if(!response.ok)throw new Error(body.error); if (!body.summary) throw new Error('备份预检结果无效'); setRestorePayload(payload);setPreview(body.summary);setConfirmation('');toast.success('备份预检通过') } catch(error){setRestorePayload(null);setPreview(null);toast.error(userErrorMessage(error,'备份文件无效，请重新选择'))}
   }
-  async function confirmRestore(){if(!restorePayload)return;setRestoring(true);try{const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'restore',payload:restorePayload,confirmation})});const body=await response.json() as RestoreResponse;if(!response.ok)throw new Error(body.error);if (!body.restored) throw new Error('恢复结果无效');toast.success(`已恢复 ${body.restored.recordCount} 条记录`);setPreview(null);setRestorePayload(null);setConfirmation('');await loadSnapshots()}catch(error){const raw=error instanceof Error?error.message:'';toast.error(raw.includes('toISOString')?'备份中的时间字段格式不正确，恢复已停止，现有数据未被修改':raw||'恢复失败，现有数据未被修改')}finally{setRestoring(false)}}
+  async function confirmRestore(){if(!restorePayload)return;setRestoring(true);try{const response=await fetch('/api/backups/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'restore',payload:restorePayload,confirmation})});const body=await response.json() as RestoreResponse;if(!response.ok)throw new Error(body.error);if (!body.restored) throw new Error('恢复结果无效');toast.success(`已恢复 ${body.restored.recordCount} 条记录`);setPreview(null);setRestorePayload(null);setConfirmation('');await loadSnapshots()}catch(error){const raw=error instanceof Error?error.message:'';toast.error(raw.includes('toISOString')?'备份中的时间字段格式不正确，恢复已停止，现有数据未被修改':userErrorMessage(error,'恢复失败，现有数据未被修改'))}finally{setRestoring(false)}}
 
   async function downloadFile(endpoint: string, filename: string, success: string) {
     setBusyAction('working')
@@ -61,7 +62,7 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
       URL.revokeObjectURL(url)
       toast.success(success)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导出失败')
+      toast.error(userErrorMessage(error, '导出失败，请稍后重试'))
     } finally {
       setBusyAction(null)
     }
@@ -90,7 +91,7 @@ export function BackupCenter({ storeName, version, counts, lastUpdated }: Backup
       URL.revokeObjectURL(url)
       toast.success('业务数据归档已下载')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导出失败')
+      toast.error(userErrorMessage(error, '导出失败，请稍后重试'))
     } finally {
       setBusyAction(null)
     }
