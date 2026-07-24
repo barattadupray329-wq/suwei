@@ -4,8 +4,8 @@ import { username } from 'better-auth/plugins/username'
 import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 
-const authSecret = process.env.BETTER_AUTH_SECRET
-if (!authSecret) throw new Error('BETTER_AUTH_SECRET 未配置')
+const authSecret = process.env.BETTER_AUTH_SECRET ?? (process.env.NODE_ENV === 'development' ? crypto.randomUUID() : undefined)
+if (!authSecret) throw new Error('生产环境必须配置 BETTER_AUTH_SECRET')
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: 'sqlite', schema }),
