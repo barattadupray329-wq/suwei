@@ -51,7 +51,6 @@ htmlcov/
 *.backup
 .vercel
 
-# Cloudflare/OpenNext generated files
+# Cloudflare/OpenNext generated build files
 .open-next/
 .wrangler/
-worker-configuration.d.ts
