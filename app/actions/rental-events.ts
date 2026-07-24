@@ -5,7 +5,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
+import { accountLedger, auditLogs, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -72,6 +72,54 @@ export async function createRepairRecord(input: RepairInput) {
     db.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes}),
   ])
   revalidatePath('/')
+}
+
+const contractChangeSchema = z.object({
+  rentalId: z.number().int().positive(),
+  changeType: z.enum(['客户资料变更', '租期调整']),
+  effectiveDate: z.string().min(1),
+  reason: z.string().trim().min(2, '请填写变更原因'),
+  customerName: z.string().trim().min(2).optional(),
+  customerPhone: z.string().trim().min(6).optional(),
+  endDate: z.string().optional(),
+  feeAdjustment: z.coerce.number(),
+  feeNote: z.string().trim().min(2, '请说明费用差额的处理依据'),
+  customerConfirmed: z.boolean(),
+})
+export type ContractChangeInput = z.infer<typeof contractChangeSchema>
+
+export async function changeRentalContract(input: ContractChangeInput) {
+  const context = await getAccessContext('租赁操作')
+  const value = contractChangeSchema.parse(input)
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId)))
+  if (!rental) throw new Error('租赁合同不存在')
+  if (value.changeType === '客户资料变更' && (!value.customerName || !value.customerPhone)) throw new Error('请填写新的联系人姓名和电话')
+  if (value.changeType === '租期调整' && (!value.endDate || value.endDate < rental.startDate)) throw new Error('请选择有效的新到期日期')
+
+  const beforeSnapshot = value.changeType === '客户资料变更'
+    ? { customerName: rental.customerName, customerPhone: rental.customerPhone }
+    : { endDate: rental.endDate }
+  const afterSnapshot = value.changeType === '客户资料变更'
+    ? { customerName: value.customerName, customerPhone: value.customerPhone }
+    : { endDate: value.endDate }
+  const nextTotal = Number(rental.totalRent) + value.feeAdjustment
+  if (nextTotal < 0) throw new Error('调整后合同金额不能小于 0')
+  const paymentStatus = Number(rental.paidAmount) >= nextTotal ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款'
+  const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const eventNote = `${value.feeNote}；客户${value.customerConfirmed ? '已确认' : '未确认'}`
+  const rentalPatch = value.changeType === '客户资料变更'
+    ? { customerName: value.customerName!, customerPhone: value.customerPhone!, totalRent: String(nextTotal), paymentStatus, updatedAt: new Date() }
+    : { endDate: value.endDate!, totalRent: String(nextTotal), paymentStatus, updatedAt: new Date() }
+  const statements = [
+    db.update(rentals).set(rentalPatch).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId))),
+    ...(value.changeType === '租期调整' ? [db.update(rentalItems).set({ endDate: value.endDate!, updatedAt: new Date() }).where(and(eq(rentalItems.userId, context.userId), eq(rentalItems.rentalId, value.rentalId)))] : []),
+    db.insert(rentalEvents).values({ id: eventId, userId: context.userId, rentalId: value.rentalId, eventType: value.changeType, eventDate: value.effectiveDate, beforeSnapshot, afterSnapshot, reason: value.reason, feeAdjustment: String(value.feeAdjustment), operatorName: context.actorName, notes: eventNote }),
+    ...(value.feeAdjustment !== 0 ? [db.insert(accountLedger).values({ userId: context.userId, rentalId: value.rentalId, entryType: '变更调整', amount: String(value.feeAdjustment), entryDate: value.effectiveDate, operatorName: context.actorName, notes: `${value.changeType}：${value.reason}；${value.feeNote}` })] : []),
+    db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '租赁变更', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 办理${value.changeType}`, metadata: { eventId, beforeSnapshot, afterSnapshot, feeAdjustment: value.feeAdjustment, customerConfirmed: value.customerConfirmed } }),
+  ]
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/dashboard')
+  revalidatePath('/finance')
 }
 
 export async function getRentalEvents(rentalId:number) {

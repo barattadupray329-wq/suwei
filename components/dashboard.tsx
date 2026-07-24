@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   BellRing,
   CheckSquare,
+  ClipboardPenLine,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -50,8 +51,10 @@ import {
 } from "@/app/actions/operations";
 import { sendRentalCreatedNotice, sendRentalReminders } from "@/app/actions/sms-reminders";
 import {
+  changeRentalContract,
   changeRentalItem,
   createRepairRecord,
+  type ContractChangeInput,
   type RentalChangeInput,
   type RepairInput,
 } from "@/app/actions/rental-events";
@@ -324,8 +327,9 @@ export function Dashboard({
     | "change"
     | "repair"
     | "deposit"
-    | "exchange"
-    | "delete-confirm"
+  | "exchange"
+  | "change-guide"
+  | "delete-confirm"
     | null
   >(linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
@@ -921,6 +925,7 @@ canViewFinance={canViewFinance}
               )
             }
             onDelete={() => setDialog("delete-confirm")}
+            onRentalChange={() => setDialog("change-guide")}
             onPayment={(target) => {
               setPaymentTarget(target);
               setDialog("payment");
@@ -940,6 +945,21 @@ canViewFinance={canViewFinance}
             onStatus={(s) =>
               run(() => changeStatus(selected.id, s), "状态已更新")
             }
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "change-guide"}
+        title="办理租赁变更"
+        wide
+        onClose={() => setDialog("detail")}
+      >
+        {selected && (
+          <RentalChangeGuide
+            rental={selected}
+            pending={pending}
+            onNavigate={(target) => setDialog(target)}
+            submit={(value) => run(() => changeRentalContract(value), "租赁变更已登记")}
           />
         )}
       </Dialog>
@@ -1879,6 +1899,57 @@ function RentalForm({
   );
 }
 
+type ChangeScenario = "客户资料变更" | "租期调整";
+
+function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
+  rental: Rental;
+  pending: boolean;
+  onNavigate: (target: "return" | "exchange" | "change" | "renew" | "delete-confirm") => void;
+  submit: (value: ContractChangeInput) => void;
+}) {
+  const [scenario, setScenario] = useState<ChangeScenario | null>(null);
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reason, setReason] = useState("");
+  const [feeAdjustment, setFeeAdjustment] = useState("0");
+  const [feeNote, setFeeNote] = useState("双方协商确认，按实际差额调整");
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
+  const [customerName, setCustomerName] = useState(rental.customerName);
+  const [customerPhone, setCustomerPhone] = useState(rental.customerPhone);
+  const [endDate, setEndDate] = useState(rental.endDate);
+  const routes = [
+    { title: "客户少要或全部不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
+    { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
+    { title: "只调整设备配置或租金", detail: "保留配置调整前后快照，并人工确认费用差额。", action: () => onNavigate("change") },
+    { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
+  ];
+  if (!scenario) return <div className="flex flex-col gap-5">
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史账目，不要直接覆盖或删除正式业务记录。</p></div>
+    <div className="grid gap-3 sm:grid-cols-2">
+      {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
+      <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改所有设备的有效到期日，并单独登记账务差额。</span></button>
+      <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
+    </div>
+    <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
+  </div>;
+  const submitChange = (event: FormEvent) => {
+    event.preventDefault();
+    submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
+  };
+  return <form onSubmit={submitChange} className="flex flex-col gap-5">
+    <div className="flex items-start justify-between gap-3 rounded-xl bg-muted p-4"><div><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div><button type="button" onClick={() => setScenario(null)} className="shrink-0 text-sm font-medium text-primary">更换情境</button></div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} />}
+      <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
+      <Field label="费用差额（补收填正数，减免/退款填负数）" type="number" value={feeAdjustment} onChange={setFeeAdjustment} />
+    </div>
+    <label className="flex flex-col gap-2 text-sm font-medium"><span>变更原因 <span className="text-destructive">*</span></span><textarea required value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：客户临时调整项目人员安排" /></label>
+    <label className="flex flex-col gap-2 text-sm font-medium"><span>费用处理说明 <span className="text-destructive">*</span></span><textarea required value={feeNote} onChange={(e) => setFeeNote(e.target.value)} className="min-h-20 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" /></label>
+    <label className="flex items-start gap-3 rounded-xl border p-4 text-sm"><input type="checkbox" checked={customerConfirmed} onChange={(e) => setCustomerConfirmed(e.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">客户已确认本次变更</strong><span className="mt-1 block text-muted-foreground">未确认也可登记，但变更记录会明确标注“客户未确认”。</span></span></label>
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6"><strong>提交后：</strong>生成不可删除的变更记录；费用差额进入独立账务流水；原合同签订资料不被覆盖。</div>
+    <div className="flex justify-end"><button type="submit" disabled={pending} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在登记…" : "确认并登记变更"}</button></div>
+  </form>;
+}
+
 function Detail({
   rental,
   role,
@@ -1888,6 +1959,7 @@ function Detail({
   onSendNotice,
   onAssignee,
   onDelete,
+  onRentalChange,
   onPayment,
   onRenew,
   onBuyout,
@@ -1909,6 +1981,7 @@ function Detail({
   onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
+  onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
   onBuyout: () => void;
@@ -2160,6 +2233,7 @@ function Detail({
         </div>
       )}
   <div className="flex flex-wrap gap-2">
+  <button type="button" onClick={onRentalChange} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"><ClipboardPenLine className="size-4" />办理租赁变更</button>
   <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
   <button
   onClick={onHistory}
