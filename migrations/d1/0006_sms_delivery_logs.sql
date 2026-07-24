@@ -1,4 +1,4 @@
-CREATE TABLE `sms_delivery_logs` (
+CREATE TABLE IF NOT EXISTS `sms_delivery_logs` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
   `user_id` text NOT NULL,
   `rental_id` integer,
@@ -17,6 +17,6 @@ CREATE TABLE `sms_delivery_logs` (
   `updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `sms_delivery_logs_idempotency_key_unique` ON `sms_delivery_logs` (`idempotency_key`);
+CREATE UNIQUE INDEX IF NOT EXISTS `sms_delivery_logs_idempotency_key_unique` ON `sms_delivery_logs` (`idempotency_key`);
 --> statement-breakpoint
-CREATE INDEX `sms_delivery_logs_user_rental_idx` ON `sms_delivery_logs` (`user_id`, `rental_id`, `created_at`);
+CREATE INDEX IF NOT EXISTS `sms_delivery_logs_user_rental_idx` ON `sms_delivery_logs` (`user_id`, `rental_id`, `created_at`);
