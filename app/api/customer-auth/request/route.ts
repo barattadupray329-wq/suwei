@@ -5,7 +5,8 @@ import { isTrustedMutationRequest } from '@/lib/request-security'
 export async function POST(request: Request) {
   try {
     if (!isTrustedMutationRequest(request)) return NextResponse.json({ ok: false, message: '请求来源无效' }, { status: 403 })
-    const body = await request.json() as { phone?: unknown }
+    const body = await request.json() as { phone?: unknown; consent?: unknown }
+    if (body.consent !== true) return NextResponse.json({ ok: false, message: '请先阅读并同意用户协议和隐私政策' }, { status: 400 })
     const phone = String(body.phone ?? '')
     const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
     const identities = await getPhoneIdentities(phone)

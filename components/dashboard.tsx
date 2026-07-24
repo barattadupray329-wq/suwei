@@ -48,7 +48,7 @@ import {
   type LossInput,
   type ReturnInput,
 } from "@/app/actions/operations";
-import { sendRentalReminders } from "@/app/actions/sms-reminders";
+import { sendRentalCreatedNotice, sendRentalReminders } from "@/app/actions/sms-reminders";
 import {
   changeRentalItem,
   createRepairRecord,
@@ -882,7 +882,19 @@ export function Dashboard({
           pending={pending}
           currentActorName={currentActorName}
           assignees={assignees}
-          submit={(value) => run(() => createRental(value), "租赁合同已创建")}
+          submit={(value, sendNow) => start(async () => {
+                  const created = await createRental(value);
+                  if (!created.ok) {
+                    toast.error(created.message);
+                    return;
+                  }
+                  if (sendNow && created.data) {
+                    const notice = await sendRentalCreatedNotice(created.data);
+                    notice.ok ? toast.success("合同已创建，初始租赁通知已发送") : toast.error(`合同已创建，但短信未发送：${notice.message}`);
+                  } else toast.success("租赁合同已创建，可稍后发送初始通知");
+                  setDialog(null);
+                  router.refresh();
+                })}
         />
       </Dialog>
       <Dialog
@@ -897,8 +909,12 @@ export function Dashboard({
             role={role}
             assignees={assignees}
             canManageContracts={canManageContracts}
-            canViewFinance={canViewFinance}
-            onAssignee={(assigneeId) =>
+canViewFinance={canViewFinance}
+  onSendNotice={() => start(async () => {
+    const result = await sendRentalCreatedNotice(selected.id);
+    result.ok ? toast.success("初始租赁通知已发送") : toast.error(result.message);
+  })}
+  onAssignee={(assigneeId) =>
               run(
                 () => updateRentalAssignee(selected.id, assigneeId),
                 "维护负责人已更新",
@@ -1284,13 +1300,14 @@ function RentalForm({
 }: {
   form: RentalInput;
   setForm: React.Dispatch<React.SetStateAction<RentalInput>>;
-  submit: (form: RentalInput) => void;
+  submit: (form: RentalInput, sendNow: boolean) => void;
   pending: boolean;
   currentActorName: string;
   assignees: RentalAssignee[];
 }) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
+  const [sendNoticeNow, setSendNoticeNow] = useState(false);
   const [numbersLoading, setNumbersLoading] = useState(false);
   const billingType = form.billingType || "monthly";
   const duration = Math.max(1, form.duration || 1);
@@ -1423,7 +1440,7 @@ function RentalForm({
     }
     setError("");
     setForm(normalizedForm);
-    submit(normalizedForm);
+    submit(normalizedForm, sendNoticeNow);
   };
   const steps = ["客户与合同", "设备明细", "租期与费用"];
   return (
@@ -1800,6 +1817,10 @@ function RentalForm({
               />
             </div>
           </FormSection>
+          <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
+            <input type="checkbox" checked={sendNoticeNow} onChange={(event) => setSendNoticeNow(event.target.checked)} className="mt-1 size-4 accent-primary" />
+            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">默认不发送。未勾选时可在合同详情中稍后发送；阿里云模板尚未审核配置时，合同仍会正常保存并提示短信未发送。</span></span>
+          </label>
           <FormSection
             title="业务备注"
             description="填写交付要求、软件环境或其他约定"
@@ -1864,6 +1885,7 @@ function Detail({
   assignees,
   canManageContracts,
   canViewFinance,
+  onSendNotice,
   onAssignee,
   onDelete,
   onPayment,
@@ -1884,6 +1906,7 @@ function Detail({
   assignees: RentalAssignee[];
   canManageContracts: boolean;
   canViewFinance: boolean;
+  onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
   onPayment: (target: number | "all" | null) => void;
@@ -2136,9 +2159,10 @@ function Detail({
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={onHistory}
+  <div className="flex flex-wrap gap-2">
+  <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
+  <button
+  onClick={onHistory}
           className="rounded-lg border px-4 py-2 text-sm font-medium"
         >
           客户历史

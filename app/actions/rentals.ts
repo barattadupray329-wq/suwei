@@ -137,10 +137,10 @@ async function createRentalOperation(input: RentalInput) {
   const quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0)
   const monthlyRent = normalizedItems.reduce((sum, item) => sum + item.monthlyRent * item.quantity, 0)
   const totalRent = normalizedItems.reduce((sum, item) => sum + item.totalRent, 0)
+  const rentalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   try {
     const first = value.items[0]
     // D1 不支持交互式事务；预先生成有序且低碰撞的安全整数 ID，随后用 batch 原子提交全部关联记录。
-    const rentalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
     const bills = value.billingType === 'daily'
       ? [{ rentalId, billNo: `${numbers.contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
       : buildMonthlyBills(rentalId, numbers.contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
@@ -158,6 +158,7 @@ async function createRentalOperation(input: RentalInput) {
     throw error
   }
   revalidatePath('/')
+  return rentalId
 }
 
 export async function createRental(input: RentalInput) {

@@ -97,6 +97,25 @@ export const customerPhoneSessions = sqliteTable('customer_phone_sessions', {
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
 
+export const smsDeliveryLogs = sqliteTable('sms_delivery_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  rentalId: integer('rental_id'),
+  scene: text('scene').notNull(),
+  templateCode: text('template_code').notNull(),
+  maskedPhone: text('masked_phone').notNull(),
+  idempotencyKey: text('idempotency_key').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  providerRequestId: text('provider_request_id'),
+  providerCode: text('provider_code'),
+  errorMessage: text('error_message'),
+  triggerType: text('trigger_type').notNull(),
+  actorUserId: text('actor_user_id'),
+  sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+})
+
 export type Rental = typeof rentals.$inferSelect
 export type RentalItem = typeof rentalItems.$inferSelect
 export type BuyoutRecord = typeof buyoutRecords.$inferSelect

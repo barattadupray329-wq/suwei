@@ -15,6 +15,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
   const [countdown, setCountdown] = useState(0)
   const [identities, setIdentities] = useState<{ workspace: boolean; customer: boolean } | null>(null)
   const [shopName, setShopName] = useState('')
+  const [agreed, setAgreed] = useState(false)
   const codeRef = useRef<HTMLInputElement>(null)
   const validPhone = /^1\d{10}$/.test(phone)
 
@@ -25,11 +26,16 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
   }, [countdown])
 
   async function requestCode() {
+    if (!agreed) {
+      setMessage('请先阅读并同意用户协议和隐私政策')
+      setMessageType('error')
+      return
+    }
     if (!validPhone || pendingAction || countdown > 0) return
     setPendingAction('send')
     setMessage('')
     try {
-      const response = await fetch('/api/customer-auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) })
+      const response = await fetch('/api/customer-auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, consent: agreed }) })
       const result = await response.json().catch(() => ({ message: '短信服务暂时繁忙，请稍后重试' })) as { message: string; shopName?: string; retryAfter?: number }
       setShopName(result.shopName ?? '')
       setMessage(result.message)
@@ -115,6 +121,14 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
             短信验证码
             <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setMessage('') }} className="h-12 rounded-xl border bg-background px-4 text-center text-lg tracking-[0.4em] outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 6 位验证码" />
             <span className="text-xs font-normal text-muted-foreground">验证码 5 分钟内有效。未收到时请在倒计时结束后重新获取。</span>
+          </label>
+          <div className="rounded-xl bg-muted p-4 text-sm">
+            <strong className="text-foreground">三步查看租赁信息</strong>
+            <ol className="mt-2 list-inside list-decimal leading-6 text-muted-foreground"><li>输入合同登记的手机号</li><li>获取并填写短信验证码</li><li>查看合同、设备、租期、账单和负责人</li></ol>
+          </div>
+          <label className="flex items-start gap-3 text-xs leading-5 text-muted-foreground">
+            <input type="checkbox" checked={agreed} onChange={(event) => { setAgreed(event.target.checked); setMessage('') }} className="mt-1 size-4 shrink-0 accent-primary" />
+            <span>我已阅读并同意 <Link href="/terms" target="_blank" className="font-medium text-primary underline-offset-2 hover:underline">《用户协议》</Link> 和 <Link href="/privacy" target="_blank" className="font-medium text-primary underline-offset-2 hover:underline">《隐私政策》</Link>，同意使用手机号接收本次身份验证码。</span>
           </label>
           {shopName ? <p className="rounded-xl border bg-muted px-4 py-3 text-sm"><span className="text-muted-foreground">所属店铺</span><strong className="ml-2 text-foreground">{shopName}</strong></p> : null}
           {message && <p role={messageType === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl px-4 py-3 text-sm ${messageType === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>{message}</p>}
