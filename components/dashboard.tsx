@@ -180,8 +180,8 @@ type Ledger = {
 };
 type Rental = {
   id: number;
-  orderType: "draft" | "test" | "official";
-  lifecycleStatus: "active" | "trash";
+  orderType: string;
+  lifecycleStatus: string;
   sourceUserId: string | null;
   sourceName: string | null;
   assigneeUserId: string | null;
@@ -718,7 +718,7 @@ export function Dashboard({
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs text-muted-foreground">���备</p>
+                      <p className="text-xs text-muted-foreground">设备</p>
                       <p className="mt-1 line-clamp-2">
                         {r.items.length} 项 · 共 {r.quantity} 台
                       </p>
@@ -904,7 +904,7 @@ export function Dashboard({
 canViewFinance={canViewFinance}
   onSendNotice={() => start(async () => {
     const result = await sendRentalCreatedNotice(selected.id);
-    result.ok ? toast.success("初���租赁通知已发送") : toast.error(result.message);
+    result.ok ? toast.success("初始租赁通知已发送") : toast.error(result.message);
   })}
   onAssignee={(assigneeId) =>
               run(
@@ -1817,7 +1817,7 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
             <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
               <Info l="设备总数" v={`${totals.qty} 台`} />
               <Info
-                l={`${billingType === "daily" ? "日租" : "月��"}单价合计`}
+                l={`${billingType === "daily" ? "日租" : "月租"}单价合计`}
                 v={money(totals.monthly)}
               />
               <Info l="租金总额" v={money(totals.total)} />
