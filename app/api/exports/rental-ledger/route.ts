@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { getAccessContext } from '@/lib/access'
 import { createCsv, csvResponse } from '@/lib/csv'
@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const access = await getAccessContext('资金查看')
     const [contracts, items] = await Promise.all([
-      db.select().from(rentals).where(eq(rentals.userId, access.userId)).orderBy(asc(rentals.id)),
+      db.select().from(rentals).where(and(eq(rentals.userId, access.userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))).orderBy(asc(rentals.id)),
       db.select().from(rentalItems).where(eq(rentalItems.userId, access.userId)).orderBy(asc(rentalItems.rentalId), asc(rentalItems.id)),
     ])
     const contractMap = new Map(contracts.map((row) => [row.id, row]))

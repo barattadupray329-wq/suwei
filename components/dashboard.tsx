@@ -180,6 +180,8 @@ type Ledger = {
 };
 type Rental = {
   id: number;
+  orderType: "draft" | "test" | "official";
+  lifecycleStatus: "active" | "trash";
   sourceUserId: string | null;
   sourceName: string | null;
   assigneeUserId: string | null;
@@ -716,7 +718,7 @@ export function Dashboard({
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs text-muted-foreground">设备</p>
+                      <p className="text-xs text-muted-foreground">���备</p>
                       <p className="mt-1 line-clamp-2">
                         {r.items.length} 项 · 共 {r.quantity} 台
                       </p>
@@ -871,16 +873,17 @@ export function Dashboard({
           pending={pending}
           currentActorName={currentActorName}
           assignees={assignees}
-          submit={(value, sendNow) => start(async () => {
-                  const created = await createRental(value);
+          allowTest={role !== "employee"}
+          submit={(value, sendNow, orderType) => start(async () => {
+                  const created = await createRental(value, orderType);
                   if (!created.ok) {
                     toast.error(created.message);
                     return;
                   }
-                  if (sendNow && created.data) {
+                  if (orderType === "official" && sendNow && created.data) {
                     const notice = await sendRentalCreatedNotice(created.data);
-                    notice.ok ? toast.success("合同已创建，初始租赁通知已发送") : toast.error(`合同已创建，但短信未发送：${notice.message}`);
-                  } else toast.success("租赁合同已创建，可稍后发送初始通知");
+                    notice.ok ? toast.success("正式合同已创建，初始租赁通知已发送") : toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
+                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
                   setDialog(null);
                   router.refresh();
                 })}
@@ -901,7 +904,7 @@ export function Dashboard({
 canViewFinance={canViewFinance}
   onSendNotice={() => start(async () => {
     const result = await sendRentalCreatedNotice(selected.id);
-    result.ok ? toast.success("初始租赁通知已发送") : toast.error(result.message);
+    result.ok ? toast.success("初���租赁通知已发送") : toast.error(result.message);
   })}
   onAssignee={(assigneeId) =>
               run(
@@ -950,15 +953,15 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "delete-confirm"}
-        title="确认删除测试合同"
+        title="确认移入回收站"
         onClose={() => setDialog("detail")}
       >
         {selected && (
           <div className="flex flex-col gap-5">
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-              <p className="font-semibold text-destructive">此操作无法撤销</p>
+              <p className="font-semibold text-destructive">订单将进入回收站</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                仅未产生收款、续租、退租、售后或资金记录的测试合同可以删除。正式业务合同请使用“关闭订单”保留记录。
+                回收站保留 30 天并支持管理员恢复。正式合同无法执行此操作；测试合同仅创建后 24 小时内可移入。
               </p>
             </div>
             <div className="flex justify-end gap-3">
@@ -973,11 +976,11 @@ canViewFinance={canViewFinance}
                 type="button"
                 disabled={pending}
                 onClick={() =>
-                  run(() => deleteTestRental(selected.id), "测试合同已删除")
+                  run(() => deleteTestRental(selected.id), "订单已移入回收站")
                 }
                 className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
               >
-                {pending ? "正在删除…" : "确认永久删除"}
+                {pending ? "正在处理…" : "确认移入回收站"}
               </button>
             </div>
           </div>
@@ -1302,14 +1305,16 @@ function RentalForm({
   pending,
   currentActorName,
   assignees,
-}: {
+  allowTest,
+  }: {
   form: RentalInput;
   setForm: React.Dispatch<React.SetStateAction<RentalInput>>;
-  submit: (form: RentalInput, sendNow: boolean) => void;
+  submit: (form: RentalInput, sendNow: boolean, orderType: "draft" | "test" | "official") => void;
   pending: boolean;
   currentActorName: string;
   assignees: RentalAssignee[];
-}) {
+  allowTest: boolean;
+  }) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [sendNoticeNow, setSendNoticeNow] = useState(false);
@@ -1437,15 +1442,15 @@ function RentalForm({
     setError("");
     setStep((current) => Math.min(2, current + 1));
   };
-  const confirmSubmit = () => {
-    const message = validate();
+const confirmSubmit = (orderType: "draft" | "test" | "official") => {
+  const message = validate();
     if (message) {
       setError(message);
       return;
     }
     setError("");
     setForm(normalizedForm);
-    submit(normalizedForm, sendNoticeNow);
+    submit(normalizedForm, orderType === "official" && sendNoticeNow, orderType);
   };
   const steps = ["客户与合同", "设备明细", "租期与费用"];
   return (
@@ -1812,7 +1817,7 @@ function RentalForm({
             <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
               <Info l="设备总数" v={`${totals.qty} 台`} />
               <Info
-                l={`${billingType === "daily" ? "日租" : "月租"}单价合计`}
+                l={`${billingType === "daily" ? "日租" : "月��"}单价合计`}
                 v={money(totals.monthly)}
               />
               <Info l="租金总额" v={money(totals.total)} />
@@ -1870,14 +1875,17 @@ function RentalForm({
             下一步
           </button>
         ) : (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={confirmSubmit}
-            className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {pending ? "正在保存" : "确认并保存合同"}
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" disabled={pending} onClick={() => confirmSubmit("draft")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-60">
+              保存草稿
+            </button>
+            {allowTest && <button type="button" disabled={pending} onClick={() => confirmSubmit("test")} className="h-10 rounded-lg border border-warning/40 bg-warning/10 px-4 text-sm font-medium text-foreground disabled:opacity-60">
+              创建测试合同
+            </button>}
+            <button type="button" disabled={pending} onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {pending ? "正在保存" : "确认正式合同"}
+            </button>
+          </div>
         )}
       </div>
     </form>
@@ -1987,7 +1995,7 @@ function Detail({
           <div>
             <h3 className="font-semibold">管理员订单管理</h3>
             <p className="text-sm text-muted-foreground">
-              测试订单可永久删除；已有业务记录的订单请关闭并保留记录。
+              正式合同永久禁止删除；草稿与测试合同只会先移入回收站。
             </p>
             <label className="mt-3 flex items-center gap-2 text-sm">
               <span className="shrink-0 font-medium">维护负责人</span>
@@ -2013,14 +2021,14 @@ function Detail({
             >
               {rental.status === "已关闭" ? "订单已关闭" : "关闭订单"}
             </button>
-            <button
+            {rental.orderType !== "official" && <button
               type="button"
               onClick={onDelete}
               className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground"
             >
               <Trash2 className="size-4" />
-              删除测试订单
-            </button>
+              移入回收站
+            </button>}
           </div>
         </section>
       )}

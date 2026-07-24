@@ -30,6 +30,7 @@ export async function sendRentalCreatedNotice(rentalId: number): Promise<SmsRemi
   const access = await getAccessContext('租赁操作')
   const [contract] = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), eq(rentals.id, rentalId))).limit(1)
   if (!contract) throw new Error('合同不存在或无权操作')
+  if (contract.orderType !== 'official' || contract.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以发送短信')
   const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'rental-created', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:rental-created:v1`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
   await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: '初始租赁通知', ok: result.ok })
   return { rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, message: result.message }
@@ -40,7 +41,7 @@ export async function sendRentalReminders(rentalIds: number[]): Promise<SmsRemin
   const ids = [...new Set(rentalIds.filter(Number.isInteger))]
   if (!ids.length) throw new Error('请先选择需要提醒的合同')
   if (ids.length > MAX_BATCH) throw new Error(`每次最多发送 ${MAX_BATCH} 条短信`)
-  const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), inArray(rentals.id, ids)))
+  const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), inArray(rentals.id, ids), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
   const results: SmsReminderResult[] = []
   for (const contract of contracts) {
     const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:due-reminder:${beijingDate()}`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
@@ -53,7 +54,7 @@ export async function sendRentalReminders(rentalIds: number[]): Promise<SmsRemin
 export async function processAutomaticDueReminders() {
   const dueDate = beijingDate(3)
   if (!businessSmsReadiness('due-reminder').configured) return { dueDate, scanned: 0, sent: 0, failed: 0, skipped: true }
-  const contracts = await db.select().from(rentals).where(and(eq(rentals.endDate, dueDate), inArray(rentals.status, ACTIVE_STATUSES)))
+  const contracts = await db.select().from(rentals).where(and(eq(rentals.endDate, dueDate), inArray(rentals.status, ACTIVE_STATUSES), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
   let sent = 0
   let failed = 0
   for (const contract of contracts) {
