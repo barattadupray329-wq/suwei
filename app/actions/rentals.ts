@@ -1,12 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, like, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -23,45 +24,26 @@ const rentalSchema = z.object({
 export type RentalItemInput = z.infer<typeof itemSchema>
 export type RentalInput = z.infer<typeof rentalSchema>
 
-function compactDate(value: string) {
-  return value.replaceAll('-', '')
-}
-
-function devicePrefix(deviceType: RentalItemInput['deviceType']) {
-  return ({ 台式机: 'PC', 笔记本: 'NB', 显示器: 'MON', 一体机: 'AIO', 其他: 'DEV' } as const)[deviceType]
-}
-
 export async function getNextRentalNumbers(startDate: string, items: Array<Pick<RentalItemInput, 'deviceType' | 'quantity'>>) {
   const userId = await getUserId()
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10)
-  const stamp = compactDate(date)
-  const contractPrefix = `HT${stamp}-`
-  const prefixes = [...new Set(items.map((item) => devicePrefix(item.deviceType)))]
+  const date = normalizeRentalDate(startDate)
+  const stamp = date.replaceAll('-', '')
   const [contractRows, deviceRows] = await Promise.all([
-    db.select({ sequence: sql<number>`coalesce(max(cast(substr(${rentals.contractNo}, ${contractPrefix.length + 1}) as integer)), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), ilike(rentals.contractNo, `${contractPrefix}%`))),
-    Promise.all(prefixes.map(async (prefix) => {
-      const fullPrefix = `${prefix}${stamp}-`
-      const [row] = await db.select({ sequence: sql<number>`coalesce(max(cast(substr(${rentalItems.deviceCode}, ${fullPrefix.length + 1}) as integer)), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), ilike(rentalItems.deviceCode, `${fullPrefix}%`)))
-      return [prefix, Number(row?.sequence ?? 0)] as const
-    })),
+    db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), like(rentals.contractNo, `HT${stamp}-%`))),
+    db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(and(eq(rentalItems.userId, userId), like(rentalItems.deviceCode, `%${stamp}-%`))),
   ])
-  const counters = new Map(deviceRows)
-  const deviceCodes = items.map((item) => {
-    const prefix = devicePrefix(item.deviceType)
-    const start = (counters.get(prefix) || 0) + 1
-    const end = start + Math.max(1, item.quantity) - 1
-    counters.set(prefix, end)
-    const first = `${prefix}${stamp}-${String(start).padStart(3, '0')}`
-    return end === start ? first : `${first}～${prefix}${stamp}-${String(end).padStart(3, '0')}`
-  })
-  const contractSequence = Number(contractRows[0]?.sequence ?? 0) + 1
-  return { contractNo: `${contractPrefix}${String(contractSequence).padStart(3, '0')}`, deviceCodes }
+  return buildRentalNumbers(
+    date,
+    items,
+    contractRows.map((row) => row.contractNo),
+    deviceRows.map((row) => row.deviceCode),
+  )
 }
 
 export async function getRentals(query = '', status = '全部') {
   const userId = await getUserId()
   const filters = [eq(rentals.userId, userId)]
-  if (query) filters.push(or(ilike(rentals.contractNo, `%${query}%`), ilike(rentals.customerCompany, `%${query}%`), ilike(rentals.customerName, `%${query}%`), ilike(rentals.customerPhone, `%${query}%`), ilike(rentals.deviceName, `%${query}%`))!)
+  if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
   const rows = await db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
   if (!rows.length) return []
