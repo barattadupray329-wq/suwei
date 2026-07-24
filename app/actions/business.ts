@@ -3,7 +3,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { and, asc, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, like, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -63,15 +63,49 @@ async function requireOwnedMember(ownerId: string, memberUserId: string) {
   if (!member) throw new Error('员工账号不存在或不属于当前管理员')
 }
 
-export async function getAccounts() {
+export type CustomerListInput = { query?: string; level?: string; status?: string; assignee?: string; sort?: string; page?: number; pageSize?: number }
+export async function getAccounts(input: CustomerListInput = {}) {
   const context = await requireManager()
-  const [owner, members, customers, applications] = await Promise.all([
+  const page = Math.max(1, Math.trunc(input.page || 1))
+  const pageSize = [20, 50, 100].includes(Number(input.pageSize)) ? Number(input.pageSize) : 20
+  const filters = [eq(customerPortals.userId, context.userId)]
+  if (input.query?.trim()) { const pattern = `%${input.query.trim().slice(0, 80)}%`; filters.push(or(like(customerPortals.customerName, pattern), like(customerPortals.phone, pattern))!) }
+  if (['silver', 'gold', 'diamond', 'king'].includes(input.level || '')) filters.push(eq(customerPortals.customerLevel, input.level!))
+  if (['active', 'disabled'].includes(input.status || '')) filters.push(eq(customerPortals.status, input.status!))
+  if (input.assignee) filters.push(eq(customerPortals.assigneeUserId, input.assignee))
+  const where = and(...filters)
+  const orderCount = sql<number>`(select count(*) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')`
+  const activeOrderCount = sql<number>`(select count(*) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active' and rentals.status not in ('已归还','已关闭','已完成'))`
+  const latestOrderAt = sql<Date | null>`(select max(rentals.createdAt) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')`
+  const ordering = input.sort === 'orders' ? desc(orderCount) : input.sort === 'recent' ? desc(latestOrderAt) : input.sort === 'oldest' ? asc(customerPortals.updatedAt) : desc(customerPortals.updatedAt)
+  const [owner, members, customers, [countRow], applications] = await Promise.all([
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, customerLevel: customerPortals.customerLevel, levelNote: customerPortals.levelNote, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt, orderCount: sql<number>`(select count(*) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')`, latestOrderAt: sql<Date | null>`(select max(rentals.createdAt) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')` }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, customerLevel: customerPortals.customerLevel, levelNote: customerPortals.levelNote, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt, orderCount, activeOrderCount, latestOrderAt }).from(customerPortals).where(where).orderBy(ordering).limit(pageSize).offset((page - 1) * pageSize),
+    db.select({ count: sql<number>`count(*)` }).from(customerPortals).where(where),
     context.role === 'super_admin' ? db.select({ id: adminApplications.id, shopName: adminApplications.shopName, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
-  return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
+  const total = Number(countRow?.count ?? 0)
+  return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin', customerList: { total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)), filters: input } }
+}
+
+const bulkCustomerSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(100), action: z.enum(['level', 'assignee', 'status']), value: z.string().min(1) })
+export async function bulkUpdateCustomers(input: z.infer<typeof bulkCustomerSchema>) {
+  const context = await requireManager()
+  const value = bulkCustomerSchema.parse(input)
+  const rows = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.userId, context.userId), inArray(customerPortals.id, value.ids)))
+  if (rows.length !== value.ids.length) throw new Error('部分客户不存在或不属于当前店铺')
+  const changes: { customerLevel?: CustomerLevel; assigneeUserId?: string; status?: string; sessionVersion?: ReturnType<typeof sql> ; updatedAt: Date } = { updatedAt: new Date() }
+  if (value.action === 'level') changes.customerLevel = customerLevelSchema.parse(value.value)
+  if (value.action === 'assignee') { await requireShopAssignee(context.userId, value.value); changes.assigneeUserId = value.value }
+  if (value.action === 'status') { changes.status = z.enum(['active', 'disabled']).parse(value.value); if (value.value === 'disabled') changes.sessionVersion = sql`${customerPortals.sessionVersion} + 1` }
+  const actionLabel = value.action === 'level' ? '批量调整客户等级' : value.action === 'assignee' ? '批量分配客户负责人' : '批量启停合作客户'
+  await db.batch([
+    db.update(customerPortals).set(changes).where(and(eq(customerPortals.userId, context.userId), inArray(customerPortals.id, value.ids))),
+    ...(value.action === 'status' && value.value === 'disabled' ? [db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, context.userId), inArray(customerPhoneSessions.phone, rows.map((row) => row.phone))))] : []),
+    db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: actionLabel, resourceType: '合作客户', summary: `${actionLabel}：${rows.length} 位客户`, metadata: { ids: value.ids, value: value.value, count: rows.length } }),
+  ] as [any, ...any[]])
+  revalidatePath('/accounts')
 }
 
 const loginAccountSchema = z.string().trim().toLowerCase().min(3, '账号至少需要 3 位').max(80, '账号最多 80 位').regex(/^[a-zA-Z0-9._@+-]+$/, '账号只能包含字母、数字及 . _ @ + -')

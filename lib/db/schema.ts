@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 export const user = sqliteTable('user', { id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(), emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull().default(false), username: text('username').unique(), displayUsername: text('displayUsername'), phoneNumber: text('phoneNumber').unique(), phoneNumberVerified: integer('phoneNumberVerified', { mode: 'boolean' }).notNull().default(false), image: text('image'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`) })
 export const session = sqliteTable('session', { id: text('id').primaryKey(), expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }).notNull(), token: text('token').notNull().unique(), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), ipAddress: text('ipAddress'), userAgent: text('userAgent'), userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }) })
@@ -74,7 +74,13 @@ export const auditLogs = sqliteTable('audit_logs', {
 
 export const customerPortals = sqliteTable('customer_portals', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), phone: text('phone').notNull(), customerName: text('customerName').notNull(), customerLevel: text('customerLevel').notNull().default('silver'), levelNote: text('levelNote'), assigneeUserId: text('assigneeUserId'), accessTokenHash: text('accessTokenHash').notNull().unique(), passwordHash: text('passwordHash').notNull(), status: text('status').notNull().default('active'), failedAttempts: integer('failedAttempts').notNull().default(0), lockedUntil: integer('lockedUntil', { mode: 'timestamp_ms' }), sessionVersion: integer('sessionVersion').notNull().default(1), lastLoginAt: integer('lastLoginAt', { mode: 'timestamp_ms' }), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
-}, (table) => [unique().on(table.userId, table.phone)])
+}, (table) => [
+  unique().on(table.userId, table.phone),
+  index('customer_portals_user_status_idx').on(table.userId, table.status),
+  index('customer_portals_user_level_idx').on(table.userId, table.customerLevel),
+  index('customer_portals_user_assignee_idx').on(table.userId, table.assigneeUserId),
+  index('customer_portals_user_updated_idx').on(table.userId, table.updatedAt),
+])
 
 export const customerOtpChallenges = sqliteTable('customer_otp_challenges', {
   id: integer('id').primaryKey({ autoIncrement: true }),

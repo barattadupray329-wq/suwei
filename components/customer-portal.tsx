@@ -1,23 +1,112 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { Banknote, CalendarDays, ChevronDown, Clock3, LogOut, Monitor, ShieldCheck, Wrench } from 'lucide-react'
+import { useTransition, useState } from 'react'
+import { Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone, ShieldCheck, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { loginCustomerPortal, logoutCustomerPortal } from '@/app/actions/portal-auth'
-import { formatDeviceConfig } from '@/lib/device-config'
 import { userErrorMessage } from '@/lib/errors'
 
-const money = (value: string | number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value))
+const money = (value: string | number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value || 0))
+const day = (value?: string | Date | null) => (value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value)) : '—')
+const today = () => new Date().toISOString().slice(0, 10)
+const daysUntil = (value: string) => Math.ceil((new Date(value).getTime() - new Date(today()).getTime()) / 86400000)
+
+const ACTIVE_STATUS = ['在租', '即将到期', '逾期', '部分归还', '进行中']
+const num = (value: unknown) => Number(value || 0)
+
 export function PortalLogin({ token, storeName }: { token: string; storeName: string }) {
   const [pending, start] = useTransition(); const [phone, setPhone] = useState(''); const [password, setPassword] = useState('')
   return <main className="min-h-svh bg-background px-4 py-10"><div className="mx-auto flex max-w-md flex-col gap-6"><header className="text-center"><span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><Monitor className="size-7"/></span><h1 className="mt-4 text-2xl font-bold text-balance">{storeName}客户服务中心</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">集中查看设备、合同期限、费用情况与服务记录</p></header><form className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm" onSubmit={e=>{e.preventDefault();start(async()=>{try{await loginCustomerPortal(token,phone,password);location.reload()}catch(error){toast.error(userErrorMessage(error,'登录失败，请稍后重试'))}})}}><label className="flex flex-col gap-2 text-sm font-medium">合同手机号<input inputMode="tel" autoComplete="tel" className="h-12 rounded-xl border bg-background px-4 text-base" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="请输入完整手机号"/></label><label className="flex flex-col gap-2 text-sm font-medium">专属密码<input type="password" autoComplete="current-password" className="h-12 rounded-xl border bg-background px-4 text-base" value={password} onChange={e=>setPassword(e.target.value)} placeholder="请输入管理员提供的密码"/></label><button disabled={pending} className="h-12 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">{pending?'正在验证…':'安全登录'}</button><p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0"/>此入口仅供已开通客户使用，请妥善保管登录信息。</p></form></div></main>
 }
 
-export function PortalDashboard({ token, data }: { token: string; data: any }) {
-  const active = data.contracts.filter((contract:any)=>['在租','即将到期','逾期'].includes(contract.status)); const unpaid = data.bills.reduce((sum:number,bill:any)=>sum+Math.max(0,Number(bill.amount)-Number(bill.paidAmount)),0); const deposit = data.ledger.reduce((sum:number,entry:any)=>sum+(entry.entryType==='押金收取'?Number(entry.amount):entry.entryType.startsWith('押金')?-Math.abs(Number(entry.amount)):0),0)
-  const rowsBy=(rows:any[],rentalId:number)=>rows.filter(row=>row.rentalId===rentalId)
-  return <main className="min-h-svh bg-background pb-10"><header className="bg-primary px-4 pb-8 pt-6 text-primary-foreground"><div className="mx-auto flex max-w-3xl items-start justify-between gap-4"><div><p className="text-sm opacity-80">{data.settings?.storeName||'速维租赁管理'}</p><h1 className="mt-1 text-2xl font-bold text-balance">你好，{data.portal.customerName}</h1><p className="mt-2 text-sm opacity-80">手机号 {data.portal.phone.slice(0,3)}****{data.portal.phone.slice(-4)}</p></div><form action={()=>logoutCustomerPortal(token)}><button aria-label="退出登录" className="rounded-xl border border-primary-foreground/30 p-2"><LogOut className="size-5"/></button></form></div></header><div className="mx-auto -mt-4 flex max-w-3xl flex-col gap-5 px-4"><section className="grid grid-cols-2 gap-3 rounded-2xl border bg-card p-4 shadow-sm"><Summary icon={<Monitor/>} label="在租合同" value={`${active.length} 份`}/><Summary icon={<CalendarDays/>} label="全部合同" value={`${data.contracts.length} 份`}/><Summary icon={<Banknote/>} label="待付金额" value={money(unpaid)}/><Summary icon={<ShieldCheck/>} label="押金余额" value={money(deposit)}/></section><section className="flex flex-col gap-3"><h2 className="text-lg font-bold">我的租赁记录</h2>{data.contracts.map((contract:any)=><details key={contract.id} className="group rounded-2xl border bg-card shadow-sm"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4"><div><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span></div><p className="mt-2 text-sm text-muted-foreground">{contract.startDate} 至 {contract.endDate}</p></div><ChevronDown className="size-5 transition group-open:rotate-180"/></summary><div className="flex flex-col gap-5 border-t p-4"><Block title="设备清单" icon={<Monitor/>}>{rowsBy(data.items,contract.id).map((item:any)=><Line key={item.id} title={`${item.deviceType} · ${item.deviceName} × ${item.quantity}`} detail={[item.deviceCode,formatDeviceConfig(item)].filter(Boolean).join(' · ')}/>)}</Block><Block title="月度账单" icon={<Banknote/>}>{rowsBy(data.bills,contract.id).map((bill:any)=><Line key={bill.id} title={`${bill.billType} · ${bill.status}`} detail={`${bill.periodStart} 至 ${bill.periodEnd}｜${money(bill.paidAmount)} / ${money(bill.amount)}`}/>)}</Block><Block title="付款与押金" icon={<ShieldCheck/>}>{[...rowsBy(data.payments,contract.id).map((row:any)=>({...row,title:`${row.feeType} · ${money(row.amount)}`,detail:`${row.paymentDate} · ${row.paymentMethod}`})),...rowsBy(data.ledger,contract.id).map((row:any)=>({...row,title:`${row.entryType} · ${money(row.amount)}`,detail:row.entryDate}))].map((row:any,index:number)=><Line key={`${row.title}-${index}`} title={row.title} detail={row.detail}/>)}</Block><Block title="维修与变更" icon={<Wrench/>}>{rowsBy(data.events,contract.id).map((event:any)=><Line key={event.id} title={`${event.eventType} · ${event.status}`} detail={`${event.eventDate} · ${event.faultDescription||event.reason||event.resolution||'已登记'}`}/>)}</Block><Block title="续租、买断与退租" icon={<Clock3/>}>{[...rowsBy(data.renewals,contract.id).map((row:any)=>({key:`r${row.id}`,title:`续租至 ${row.newEndDate}`,detail:`${row.renewalDate} · ${money(row.renewalAmount)}`})),...rowsBy(data.buyouts,contract.id).map((row:any)=>({key:`b${row.id}`,title:`买断 ${row.quantity} 台`,detail:`${row.buyoutDate} · ${money(row.amount)}`})),...rowsBy(data.returns,contract.id).map((row:any)=>({key:`t${row.id}`,title:`退租 ${row.quantity} 台 · ${row.condition}`,detail:`${row.returnDate} · 押金退还 ${money(row.depositRefund)}`}))].map((row:any)=><Line key={row.key} title={row.title} detail={row.detail}/>)}</Block></div></details>)}{!data.contracts.length&&<div className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground">暂未找到该手机号关联的租赁记录</div>}</section><p className="text-center text-xs leading-5 text-muted-foreground">本页面仅供客户本人查询。如记录有误，请联系出租方核对。</p></div></main>
+type Row = Record<string, any>
+const rowsBy = (rows: Row[], rentalId: number) => rows.filter((row) => row.rentalId === rentalId)
+
+function contractRank(contract: Row) {
+  if (!ACTIVE_STATUS.includes(contract.status)) return 4
+  const remaining = daysUntil(contract.endDate)
+  if (remaining < 0) return 0
+  if (remaining <= 7) return 1
+  if (remaining <= 30) return 2
+  return 3
 }
-function Summary({icon,label,value}:{icon:React.ReactNode;label:string;value:string}){return <div className="rounded-xl bg-muted p-3"><span className="text-primary [&>svg]:size-5">{icon}</span><p className="mt-3 text-xs text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div>}
-function Block({title,icon,children}:{title:string;icon:React.ReactNode;children:React.ReactNode}){return <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><span className="text-primary [&>svg]:size-4">{icon}</span>{title}</h3><div className="flex flex-col gap-2">{children||<p className="text-sm text-muted-foreground">暂无记录</p>}</div></section>}
-function Line({title,detail}:{title:string;detail:string}){return <div className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p></div>}
+
+// 当前待付：已到付款日（含逾期）且未结清的应收账单；下期预告：最近一期未到付款日的账单
+function billing(bills: Row[]) {
+  const open: Row[] = bills.map((bill) => ({ ...bill, due: Math.max(0, num(bill.amount) - num(bill.paidAmount)) })).filter((bill) => bill.due > 0)
+  const now = today()
+  const currentDue = open.filter((bill) => bill.dueDate <= now).reduce((sum, bill) => sum + bill.due, 0)
+  const upcoming = open.filter((bill) => bill.dueDate > now).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
+  return { currentDue, next: upcoming ? { date: upcoming.dueDate, amount: upcoming.due } : null }
+}
+
+function deviceStatus(items: Row[]): Row[] {
+  return items.map((item): Row => {
+    const total = num(item.quantity)
+    const returned = num(item.returnedQuantity), lost = num(item.lostQuantity), bought = num(item.boughtOutQuantity)
+    const renting = Math.max(0, total - returned - lost - bought)
+    return { ...item, renting, returned, lost, bought }
+  })
+}
+
+export function PortalDashboard({ token, data }: { token: string; data: Row }) {
+  const contracts: Row[] = [...data.contracts].sort((a, b) => contractRank(a) - contractRank(b) || a.endDate.localeCompare(b.endDate))
+  const active = contracts.filter((contract) => ACTIVE_STATUS.includes(contract.status))
+  const ended = contracts.filter((contract) => !ACTIVE_STATUS.includes(contract.status)).sort((a, b) => (b.updatedAt || '').toString().localeCompare((a.updatedAt || '').toString()))
+  const allDevices = deviceStatus(data.items)
+  const rentingTotal = allDevices.reduce((sum, item) => sum + (ACTIVE_STATUS.includes(contracts.find((c) => c.id === item.rentalId)?.status) ? item.renting : 0), 0)
+  const currentDueTotal = billing(data.bills).currentDue
+  const deposit = data.ledger.reduce((sum: number, entry: Row) => sum + (entry.entryType === '押金收取' ? num(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(num(entry.amount)) : 0), 0)
+  const levelLabels: Record<string, string> = { silver: '银牌', gold: '金牌', diamond: '钻石', king: '王者' }
+
+  return <main className="min-h-svh bg-background pb-12">
+    <header className="bg-primary px-4 pb-10 pt-6 text-primary-foreground"><div className="mx-auto flex max-w-3xl items-start justify-between gap-4"><div><p className="text-sm opacity-80">{data.settings?.storeName || '速维租赁管理'}</p><h1 className="mt-1 text-2xl font-bold text-balance">你好，{data.portal.customerName}</h1><p className="mt-2 flex items-center gap-2 text-sm opacity-80"><span>手机号 {data.portal.phone.slice(0, 3)}****{data.portal.phone.slice(-4)}</span><span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs">{levelLabels[data.portal.customerLevel] || '银牌'}客户</span></p></div><form action={() => logoutCustomerPortal(token)}><button aria-label="退出登录" className="rounded-xl border border-primary-foreground/30 p-2"><LogOut className="size-5"/></button></form></div></header>
+
+    <div className="mx-auto -mt-6 flex max-w-3xl flex-col gap-5 px-4">
+      <section className="grid grid-cols-2 gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-4">
+        <Summary icon={<Monitor/>} label="在租设备" value={`${rentingTotal} 台`}/>
+        <Summary icon={<CalendarClock/>} label="进行中合同" value={`${active.length} 份`}/>
+        <Summary icon={<Banknote/>} label="当前待付" value={money(currentDueTotal)} highlight={currentDueTotal > 0}/>
+        <Summary icon={<ShieldCheck/>} label="押金余额" value={money(deposit)}/>
+      </section>
+
+      <section className="flex items-center gap-4 rounded-2xl border bg-card p-4 shadow-sm"><span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><UserRound className="size-5"/></span><div className="flex-1"><p className="text-sm text-muted-foreground">专属{data.manager?.title || '客户经理'}</p><p className="font-semibold">{data.manager?.name || '门店客服'}</p></div>{data.manager?.phone ? <a href={`tel:${data.manager.phone}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"><Phone className="size-4"/>{data.manager.phone}</a> : null}</section>
+
+      {active.length ? <section className="flex flex-col gap-3"><h2 className="text-lg font-bold">进行中的租赁 <span className="text-sm font-normal text-muted-foreground">（{active.length} 份，快到期已置顶）</span></h2>{active.map((contract) => <ContractCard key={contract.id} contract={contract} data={data} devices={allDevices.filter((item) => item.rentalId === contract.id)}/>)}</section> : <div className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">当前没有进行中的租赁</div>}
+
+      {ended.length ? <details className="rounded-2xl border bg-card"><summary className="flex cursor-pointer items-center justify-between gap-3 p-4 font-semibold">已结束 / 已退租（{ended.length} 份）<ChevronDown className="size-5"/></summary><div className="flex flex-col gap-3 border-t p-4">{ended.map((contract) => <ContractCard key={contract.id} contract={contract} data={data} devices={allDevices.filter((item) => item.rentalId === contract.id)} archived/>)}</div></details> : null}
+    </div>
+  </main>
+}
+
+function ContractCard({ contract, data, devices, archived }: { contract: Row; data: Row; devices: Row[]; archived?: boolean }) {
+  const remaining = daysUntil(contract.endDate)
+  const overdue = ACTIVE_STATUS.includes(contract.status) && remaining < 0
+  const soon = ACTIVE_STATUS.includes(contract.status) && remaining >= 0 && remaining <= 30
+  const bill = billing(rowsBy(data.bills, contract.id))
+  const rentingCount = devices.reduce((sum, item) => sum + item.renting, 0)
+  return <details className="group rounded-2xl border bg-card shadow-sm open:ring-1 open:ring-border" open={!archived && (overdue || soon)}>
+    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap gap-x-5 gap-y-1 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.next ? <span className="text-muted-foreground">下期 {day(bill.next.date)} · {money(bill.next.amount)}</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
+    <div className="flex flex-col gap-5 border-t p-4">
+      <Block title="设备状态" icon={<Monitor/>}>{devices.map((item) => <div key={item.id} className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{item.deviceType} · {item.deviceName} × {item.quantity}</p><div className="mt-2 flex flex-wrap gap-2 text-xs">{item.renting > 0 ? <Tag tone="primary">在租 {item.renting}</Tag> : null}{item.returned > 0 ? <Tag>已归还 {item.returned}</Tag> : null}{item.bought > 0 ? <Tag>已买断 {item.bought}</Tag> : null}{item.lost > 0 ? <Tag tone="destructive">丢失 {item.lost}</Tag> : null}</div></div>)}</Block>
+      <Block title="租金账单" icon={<Banknote/>}>{rowsBy(data.bills, contract.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((item: Row) => <Line key={item.id} title={`${item.billType} · ${day(item.periodStart)} 起 · 应付 ${day(item.dueDate)}`} detail={`应收 ${money(item.amount)} · 已付 ${money(item.paidAmount)} · ${num(item.amount) - num(item.paidAmount) <= 0 ? '已结清' : `待付 ${money(num(item.amount) - num(item.paidAmount))}`}`}/>)}</Block>
+      <Block title="付款记录" icon={<Banknote/>}>{rowsBy(data.payments, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.paymentDate)} · ${item.feeType}`} detail={`${money(item.amount)} · ${item.paymentMethod}`}/>)}</Block>
+      {rowsBy(data.returns, contract.id).length ? <Block title="归还记录" icon={<Monitor/>}>{rowsBy(data.returns, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.returnDate)} 归还 ${item.quantity} 台`} detail={`成色 ${item.condition}`}/>)}</Block> : null}
+      {rowsBy(data.events, contract.id).length ? <Block title="服务记录" icon={<Monitor/>}>{rowsBy(data.events, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.eventDate)} · ${item.eventType}`} detail={item.faultDescription || item.notes || item.status}/>)}</Block> : null}
+    </div>
+  </details>
+}
+
+function Summary({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: string; highlight?: boolean }) {
+  return <div className={`rounded-xl p-3 ${highlight ? 'bg-destructive/10' : 'bg-muted'}`}><span className={highlight ? 'text-destructive [&>svg]:size-5' : 'text-primary [&>svg]:size-5'}>{icon}</span><p className="mt-3 text-xs text-muted-foreground">{label}</p><p className={`mt-1 font-bold ${highlight ? 'text-destructive' : ''}`}>{value}</p></div>
+}
+function Block({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><span className="text-primary [&>svg]:size-4">{icon}</span>{title}</h3><div className="flex flex-col gap-2">{Array.isArray(children) && children.filter(Boolean).length === 0 ? <p className="text-sm text-muted-foreground">暂无记录</p> : (children || <p className="text-sm text-muted-foreground">暂无记录</p>)}</div></section>
+}
+function Line({ title, detail }: { title: string; detail: string }) {
+  return <div className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p></div>
+}
+function Tag({ children, tone }: { children: React.ReactNode; tone?: 'primary' | 'destructive' }) {
+  const cls = tone === 'primary' ? 'bg-primary/10 text-primary' : tone === 'destructive' ? 'bg-destructive/10 text-destructive' : 'bg-background text-muted-foreground'
+  return <span className={`rounded-full px-2 py-0.5 font-medium ${cls}`}>{children}</span>
+}
