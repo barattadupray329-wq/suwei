@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { account, accountProfiles, adminApplications, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, shops, user, websitePackages } from '@/lib/db/schema'
+import { account, accountProfiles, adminApplications, auditLogs, businessSettings, contractSnapshots, customerPhoneSessions, customerPortals, organizationMembers, paymentRecords, rentalItems, rentals, session, shops, user, websitePackages } from '@/lib/db/schema'
 import { hashPassword } from 'better-auth/crypto'
 import { accountNameSchema, validateAccountPermissions, validatePasswordConfirmation } from '@/lib/account-validation'
 
@@ -68,7 +68,7 @@ export async function getAccounts() {
   const [owner, members, customers, applications] = await Promise.all([
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, createdAt: user.createdAt, updatedAt: user.updatedAt }).from(user).where(eq(user.id, context.actorId)),
     db.select({ id: user.id, name: user.name, email: user.username, phone: user.phoneNumber, role: organizationMembers.role, active: organizationMembers.active, permissions: organizationMembers.permissions, updatedAt: organizationMembers.updatedAt }).from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.memberUserId)).where(and(eq(organizationMembers.ownerId, context.userId), eq(organizationMembers.role, 'employee'))).orderBy(desc(organizationMembers.updatedAt)),
-    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
+    db.select({ id: customerPortals.id, name: customerPortals.customerName, phone: customerPortals.phone, customerLevel: customerPortals.customerLevel, levelNote: customerPortals.levelNote, assigneeUserId: customerPortals.assigneeUserId, status: customerPortals.status, verifiedAt: customerPortals.lastLoginAt, createdAt: customerPortals.createdAt, updatedAt: customerPortals.updatedAt, orderCount: sql<number>`(select count(*) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')`, latestOrderAt: sql<Date | null>`(select max(rentals.createdAt) from rentals where rentals.userId = ${context.userId} and rentals.customerPhone = ${customerPortals.phone} and rentals.orderType = 'official' and rentals.lifecycleStatus = 'active')` }).from(customerPortals).where(eq(customerPortals.userId, context.userId)).orderBy(desc(customerPortals.updatedAt)),
     context.role === 'super_admin' ? db.select({ id: adminApplications.id, shopName: adminApplications.shopName, name: adminApplications.name, email: adminApplications.email, phone: adminApplications.phone, status: adminApplications.status, createdAt: adminApplications.createdAt }).from(adminApplications).where(eq(adminApplications.status, 'pending')).orderBy(asc(adminApplications.createdAt)) : Promise.resolve([]),
   ])
   return { owner, members, customers, applications, currentRole: context.role as 'super_admin' | 'admin' }
@@ -145,10 +145,21 @@ export async function addMember(input: { name: string; account: string; phone: s
   revalidatePath('/accounts')
 }
 
+const CUSTOMER_LEVELS = {
+  silver: { label: '银牌', discount: 1, suggestion: '原价' },
+  gold: { label: '金牌', discount: 0.95, suggestion: '95 折' },
+  diamond: { label: '钻石', discount: 0.9, suggestion: '9 折' },
+  king: { label: '王者', discount: 0.85, suggestion: '85 折' },
+} as const
+export type CustomerLevel = keyof typeof CUSTOMER_LEVELS
+const customerLevelSchema = z.enum(['silver', 'gold', 'diamond', 'king'])
+
 const customerSchema = z.object({
   name: accountNameSchema,
   phone: z.string().transform((value) => value.replace(/\D/g, '')).pipe(z.string().regex(/^1\d{10}$/, '请输入有效的 11 位手机号')),
   assigneeUserId: z.string().min(1, '请选择客户负责人'),
+  customerLevel: customerLevelSchema.default('silver'),
+  levelNote: z.string().trim().max(200, '等级备注最多 200 字').default(''),
 })
 
 async function requireShopAssignee(ownerId: string, assigneeUserId: string) {
@@ -170,6 +181,8 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
     userId: context.userId,
     phone: value.phone,
     customerName: value.name,
+    customerLevel: value.customerLevel,
+    levelNote: value.levelNote || null,
     assigneeUserId: value.assigneeUserId,
     accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
     passwordHash: legacySecret,
@@ -180,14 +193,17 @@ export async function addCustomer(input: z.input<typeof customerSchema>) {
   revalidatePath('/accounts')
 }
 
-export async function updateCustomer(customerId: number, input: { name: string; active: boolean; assigneeUserId: string }) {
+export async function updateCustomer(customerId: number, input: { name: string; active: boolean; assigneeUserId: string; customerLevel: CustomerLevel; levelNote?: string }) {
   const context = await requireManager()
   const name = accountNameSchema.parse(input.name)
+  const customerLevel = customerLevelSchema.parse(input.customerLevel)
+  const levelNote = z.string().trim().max(200).parse(input.levelNote ?? '')
   await requireShopAssignee(context.userId, input.assigneeUserId)
-  const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+  const [customer] = await db.select({ id: customerPortals.id, phone: customerPortals.phone, customerName: customerPortals.customerName, customerLevel: customerPortals.customerLevel }).from(customerPortals).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
   if (!customer) throw new Error('客户不存在或不属于当前店铺')
   { const tx = db
-    await tx.update(customerPortals).set({ customerName: name, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    await tx.update(customerPortals).set({ customerName: name, customerLevel, levelNote: levelNote || null, assigneeUserId: input.assigneeUserId, status: input.active ? 'active' : 'disabled', updatedAt: new Date() }).where(and(eq(customerPortals.id, customerId), eq(customerPortals.userId, context.userId)))
+    if (customer.customerLevel !== customerLevel) await tx.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '调整客户等级', resourceType: '合作客户', resourceId: String(customerId), summary: `${customer.customerName}：${CUSTOMER_LEVELS[customer.customerLevel as CustomerLevel]?.label ?? '银牌'}调整为${CUSTOMER_LEVELS[customerLevel].label}`, metadata: { from: customer.customerLevel, to: customerLevel, note: levelNote } })
     if (!input.active) await tx.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, context.userId), eq(customerPhoneSessions.phone, customer.phone)))
   }
   revalidatePath('/accounts')

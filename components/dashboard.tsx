@@ -30,6 +30,7 @@ import {
   createRental,
   deleteTestRental,
   getCustomerHistory,
+  getCustomerOfferSuggestion,
   getNextRentalNumbers,
   recordDepositAction,
   renewRentalItems,
@@ -1319,6 +1320,15 @@ function RentalForm({
   const [error, setError] = useState("");
   const [sendNoticeNow, setSendNoticeNow] = useState(false);
   const [numbersLoading, setNumbersLoading] = useState(false);
+  const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
+  const [offerLoading, setOfferLoading] = useState(false);
+  const checkCustomerOffer = async () => {
+    if (!/^1\d{10}$/.test(form.customerPhone.trim())) { setCustomerOffer(null); return; }
+    setOfferLoading(true);
+    try { setCustomerOffer(await getCustomerOfferSuggestion(form.customerPhone)); }
+    catch { setCustomerOffer(null); }
+    finally { setOfferLoading(false); }
+  };
   const billingType = form.billingType || "monthly";
   const duration = Math.max(1, form.duration || 1);
   const suggestedTotal = (item: RentalItemInput) =>
@@ -1535,17 +1545,8 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
               onChange={(v) => setForm({ ...form, customerName: v })}
               placeholder="必填，请输入联系人姓名"
             />
-            <Field
-              label="联系电话"
-              value={form.customerPhone}
-              onChange={(v) =>
-                setForm({
-                  ...form,
-                  customerPhone: v.replace(/\D/g, "").slice(0, 11),
-                })
-              }
-              placeholder="必填，请输入 11 位手机号"
-            />
+            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系电话<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" value={form.customerPhone} inputMode="numeric" onChange={(event) => { setCustomerOffer(null); setForm({ ...form, customerPhone: event.target.value.replace(/\D/g, "").slice(0, 11) }); }} onBlur={checkCustomerOffer} placeholder="必填，请输入 11 位手机号" /></label>
+            <div className="flex flex-col justify-center rounded-lg border bg-muted/40 px-4 py-3" aria-live="polite">{offerLoading ? <p className="text-sm text-muted-foreground">正在查询客户等级…</p> : customerOffer ? <><p className="text-sm font-medium">{customerOffer.name} · {customerOffer.label}客户</p><p className="mt-1 text-xs text-muted-foreground">本单优惠建议：{customerOffer.suggestion}。仅供业务参考，合同金额仍由经办人确认。</p>{customerOffer.note ? <p className="mt-1 text-xs text-muted-foreground">等级备注：{customerOffer.note}</p> : null}</> : <><p className="text-sm font-medium">客户优惠建议</p><p className="mt-1 text-xs text-muted-foreground">输入已登记客户手机号后自动显示等级与建议折扣。</p></>}</div>
             <Field
               label="客户地址"
               value={form.customerAddress || ""}

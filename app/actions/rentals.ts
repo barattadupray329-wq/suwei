@@ -5,7 +5,7 @@ import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzl
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
@@ -15,6 +15,17 @@ import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } fro
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
+}
+
+export async function getCustomerOfferSuggestion(phone: string) {
+  const userId = await getUserId()
+  const normalized = phone.replace(/\D/g, '')
+  if (!/^1\d{10}$/.test(normalized)) return null
+  const [customer] = await db.select({ name: customerPortals.customerName, level: customerPortals.customerLevel, note: customerPortals.levelNote }).from(customerPortals).where(and(eq(customerPortals.userId, userId), eq(customerPortals.phone, normalized), eq(customerPortals.status, 'active'))).limit(1)
+  if (!customer) return null
+  const offers = { silver: { label: '银牌', discount: 1, suggestion: '原价' }, gold: { label: '金牌', discount: 0.95, suggestion: '95 折' }, diamond: { label: '钻石', discount: 0.9, suggestion: '9 折' }, king: { label: '王者', discount: 0.85, suggestion: '85 折' } } as const
+  const offer = offers[customer.level as keyof typeof offers] ?? offers.silver
+  return { ...customer, ...offer }
 }
 
 function assertOfficialRental(rental: { orderType: string; lifecycleStatus: string }) {
