@@ -962,7 +962,7 @@ canViewFinance={canViewFinance}
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
               <p className="font-semibold text-destructive">订单将进入回收站</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                回收站保留 30 天并支持管理员恢复。正式合同无法执行此操作；测试合同仅创建后 24 小时内可移入。
+                回收站保留 30 天并支持业务主管恢复。正式合同无法执行此操作；测试合同仅创建后 24 小时内可移入。
               </p>
             </div>
             <div className="flex justify-end gap-3">
@@ -1518,7 +1518,7 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
                 {assignees.map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.name} ·{" "}
-                    {person.role === "admin" ? "管理员" : "员工"}
+                    {person.role === "admin" ? "业务主管" : "客户经理"}
                   </option>
                 ))}
               </select>
@@ -1994,7 +1994,7 @@ function Detail({
       {role !== "employee" && canManageContracts && (
         <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-semibold">管理员订单管理</h3>
+            <h3 className="font-semibold">业务主管订单管理</h3>
             <p className="text-sm text-muted-foreground">
               正式合同永久禁止删除；草稿与测试合同只会先移入回收站。
             </p>

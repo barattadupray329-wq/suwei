@@ -20,7 +20,7 @@ const groups: NavGroup[] = [
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
   ] },
   { label: '团队与配置', items: [
-    { href: '/accounts', label: '账号与权限', description: '员工账号和职责', icon: UserRoundCog, permission: '账号管理', managerOnly: true },
+    { href: '/accounts', label: '账号与权限', description: '客户经理账号和职责', icon: UserRoundCog, permission: '账号管理', managerOnly: true },
     { href: '/settings', label: '业务设置', description: '门店、合同与外观', icon: Palette, permission: '系统设置' },
     { href: '/website-packages', label: '官网方案', description: '公开租赁套餐', icon: Globe2, superAdminOnly: true },
   ] },

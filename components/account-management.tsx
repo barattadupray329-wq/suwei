@@ -60,7 +60,7 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
           </span>
           <div>
             <h1 className="text-balance text-2xl font-bold">账号管理</h1>
-            <p className="text-pretty text-sm text-muted-foreground">维护账号资料、登录密码、员工权限与启用状态</p>
+            <p className="text-pretty text-sm text-muted-foreground">维护账号资料、登录密码、客户经理权限与启用状态</p>
           </div>
         </header>
 
@@ -73,17 +73,17 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
 
         {data.currentRole === 'admin' ? <section className="flex flex-col gap-4" aria-labelledby="customer-accounts-title">
           <div>
-            <h2 id="customer-accounts-title" className="text-lg font-semibold">普通客户</h2>
+            <h2 id="customer-accounts-title" className="text-lg font-semibold">合作客户</h2>
             <p className="text-sm text-muted-foreground">共 {data.customers.length} 位客户。客户只能用已绑定手机号验证登录并查看自己的在租信息。</p>
           </div>
-          {data.customers.length ? <div className="grid gap-4 md:grid-cols-2">{data.customers.map((customer) => <CustomerCard key={customer.id} customer={customer} owner={owner} members={data.members} />)}</div> : <div className="rounded-xl border border-dashed bg-card p-8 text-center"><Phone className="mx-auto size-8 text-muted-foreground" /><p className="mt-3 font-medium">还没有普通客户</p><p className="mt-1 text-sm text-muted-foreground">先在上方登记客户姓名和手机号，客户才能接收短信验证码。</p></div>}
+          {data.customers.length ? <div className="grid gap-4 md:grid-cols-2">{data.customers.map((customer) => <CustomerCard key={customer.id} customer={customer} owner={owner} members={data.members} />)}</div> : <div className="rounded-xl border border-dashed bg-card p-8 text-center"><Phone className="mx-auto size-8 text-muted-foreground" /><p className="mt-3 font-medium">还没有合作客户</p><p className="mt-1 text-sm text-muted-foreground">先在上方登记客户姓名和手机号，客户才能接收短信验证码。</p></div>}
         </section> : null}
 
         {data.currentRole === 'admin' ? <section className="flex flex-col gap-4" aria-labelledby="member-accounts-title">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h2 id="member-accounts-title" className="text-lg font-semibold">员工账号</h2>
-              <p className="text-sm text-muted-foreground">共 {data.members.length} 位员工，账号停用后会立即退出登录。</p>
+              <h2 id="member-accounts-title" className="text-lg font-semibold">客户经理账号</h2>
+              <p className="text-sm text-muted-foreground">共 {data.members.length} 位客户经理，账号停用后会立即退出登录。</p>
             </div>
           </div>
           {data.members.length ? (
@@ -93,8 +93,8 @@ export function AccountManagement({ data }: { data: { owner: Account[]; members:
           ) : (
             <div className="rounded-xl border border-dashed bg-card p-8 text-center">
               <Users className="mx-auto size-8 text-muted-foreground" />
-              <p className="mt-3 font-medium">还没有员工账号</p>
-              <p className="mt-1 text-sm text-muted-foreground">请通过上方表单创建首个员工账号并分配权限。</p>
+              <p className="mt-3 font-medium">还没有客户经理账号</p>
+              <p className="mt-1 text-sm text-muted-foreground">请通过上方表单创建首个客户经理账号并分配权限。</p>
             </div>
           )}
         </section> : null}
@@ -116,10 +116,10 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
       <div className="flex items-center gap-3 border-b p-5">
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><ShieldCheck className="size-5" /></span>
         <div>
-          <h2 id="my-account-title" className="font-semibold">我的管理员账号</h2>
+          <h2 id="my-account-title" className="font-semibold">我的业务主管账号</h2>
           <p className="text-sm text-muted-foreground">修改姓名或使用当前密码更新登录密码。</p>
         </div>
-        <span className="ml-auto hidden rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary sm:inline-flex">{role === 'super_admin' ? '超级管理员' : '管理员'} · 正常</span>
+        <span className="ml-auto hidden rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary sm:inline-flex">{role === 'super_admin' ? '平台主管' : '业务主管'} · 正常</span>
       </div>
       <div className="grid gap-6 p-5 lg:grid-cols-2">
         <form className="flex flex-col gap-4" aria-busy={profilePending} onSubmit={(event) => {
@@ -127,7 +127,7 @@ function OwnerSection({ owner, role }: { owner: Account; role: 'super_admin' | '
           startProfile(async () => {
             try {
               await updateOwnName(name)
-              toast.success('管理员姓名已更新')
+              toast.success('业务主管姓名已更新')
               router.refresh()
             } catch (error) {
               toast.error(userErrorMessage(error, '姓名保存失败，请稍后重试'))
@@ -179,13 +179,13 @@ function ApplicationSection({ applications }: { applications: Application[] }) {
   const router = useRouter()
   const [pendingId, setPendingId] = useState<number | null>(null)
   const review = async (id: number, decision: 'approve' | 'reject') => {
-    if (!window.confirm(decision === 'approve' ? '确认批准该管理员申请吗？批准后对方可登录并创建员工。' : '确认拒绝该管理员申请吗？')) return
+    if (!window.confirm(decision === 'approve' ? '确认批准该业务主管申请吗？批准后对方可登录并创建客户经理。' : '确认拒绝该业务主管申请吗？')) return
     setPendingId(id)
-    try { await reviewAdminApplication(id, decision); toast.success(decision === 'approve' ? '管理员申请已批准' : '管理员申请已拒绝'); router.refresh() }
+    try { await reviewAdminApplication(id, decision); toast.success(decision === 'approve' ? '业务主管申请已批准' : '业务主管申请已拒绝'); router.refresh() }
     catch (error) { toast.error(userErrorMessage(error, '申请处理失败，请稍后重试')) }
     finally { setPendingId(null) }
   }
-  return <section className="rounded-xl border bg-card p-5" aria-labelledby="applications-title"><div><h2 id="applications-title" className="font-semibold">管理员申请审核</h2><p className="text-sm text-muted-foreground">只有超级管理员可以批准管理员。审核前申请人不能登录。</p></div><div className="mt-4 grid gap-3">{applications.length ? applications.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{item.shopName || '未命名店铺'}</p><p className="text-sm">管理员：{item.name}</p><p className="text-sm text-muted-foreground">{item.email} · {item.phone}</p><p className="mt-1 text-xs text-muted-foreground">申请时间：{formatDate(item.createdAt)}</p></div><div className="flex gap-2"><button disabled={pendingId === item.id} onClick={() => review(item.id, 'reject')} className="h-9 rounded-lg border px-3 text-sm font-medium disabled:opacity-50">拒绝</button><button disabled={pendingId === item.id} onClick={() => review(item.id, 'approve')} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">批准为管理员</button></div></article>) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">当前没有待审核的管理员申请。</p>}</div></section>
+  return <section className="rounded-xl border bg-card p-5" aria-labelledby="applications-title"><div><h2 id="applications-title" className="font-semibold">业务主管申请审核</h2><p className="text-sm text-muted-foreground">只有平台主管可以批准业务主管。审核前申请人不能登录。</p></div><div className="mt-4 grid gap-3">{applications.length ? applications.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{item.shopName || '未命名店铺'}</p><p className="text-sm">业务主管：{item.name}</p><p className="text-sm text-muted-foreground">{item.email} · {item.phone}</p><p className="mt-1 text-xs text-muted-foreground">申请时间：{formatDate(item.createdAt)}</p></div><div className="flex gap-2"><button disabled={pendingId === item.id} onClick={() => review(item.id, 'reject')} className="h-9 rounded-lg border px-3 text-sm font-medium disabled:opacity-50">拒绝</button><button disabled={pendingId === item.id} onClick={() => review(item.id, 'approve')} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">批准为业务主管</button></div></article>) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">当前没有待审核的业务主管申请。</p>}</div></section>
 }
 
 function AddMemberSection() {
@@ -200,8 +200,8 @@ function AddMemberSection() {
       <div className="flex items-center gap-3">
         <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><UserPlus className="size-5" /></span>
         <div>
-          <h2 id="add-member-title" className="font-semibold">创建员工账号</h2>
-          <p className="text-sm text-muted-foreground">创建员工登录账号，并根据岗位分配可使用的业务功能。</p>
+          <h2 id="add-member-title" className="font-semibold">创建客户经理账号</h2>
+          <p className="text-sm text-muted-foreground">创建客户经理登录账号，并根据岗位分配可使用的业务功能。</p>
         </div>
       </div>
       <form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => {
@@ -211,15 +211,15 @@ function AddMemberSection() {
             await addMember({ ...form, permissions: selected })
             setForm({ name: '', account: '', phone: '', password: '', confirmPassword: '' })
             setSelected(['租赁操作'])
-            toast.success('员工账号已创建，请安全告知员工临时密码')
+            toast.success('客户经理账号已创建，请安全告知客户经理临时密码')
             router.refresh()
           } catch (error) {
-            toast.error(userErrorMessage(error, '员工账号创建失败，请稍后重试'))
+            toast.error(userErrorMessage(error, '客户经理账号创建失败，请稍后重试'))
           }
         })
       }}>
         <div className="grid max-w-3xl gap-4 md:grid-cols-2">
-          <Field label="员工姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入员工姓名" />
+          <Field label="客户经理姓名" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="请输入客户经理姓名" />
           <Field label="登录账号" value={form.account} onChange={(account) => setForm((value) => ({ ...value, account }))} autoComplete="off" placeholder="用户名或邮箱格式账号" />
           <Field label="绑定手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="11 位手机号" />
           <PasswordField label="临时密码" value={form.password} show={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(password) => setForm((value) => ({ ...value, password }))} autoComplete="new-password" />
@@ -227,7 +227,7 @@ function AddMemberSection() {
         </div>
         <PermissionPicker selected={selected} onChange={setSelected} />
         <button disabled={pending || !form.name || !form.account || form.phone.length !== 11 || !form.password || !form.confirmPassword || selected.length === 0} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
-          {pending ? '正在创建…' : '创建员工账号'}
+          {pending ? '正在创建…' : '创建客户经理账号'}
         </button>
       </form>
     </section>
@@ -238,7 +238,7 @@ function AddCustomerSection({ owner, members }: { owner?: Account; members: Memb
   const router = useRouter()
   const [pending, start] = useTransition()
   const [form, setForm] = useState({ name: '', phone: '', assigneeUserId: owner?.id ?? '', customerLevel: 'silver' as CustomerLevel, levelNote: '' })
-  return <section className="rounded-xl border bg-card p-5" aria-labelledby="add-customer-title"><div className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Phone className="size-5" /></span><div><h2 id="add-customer-title" className="font-semibold">添加普通客户</h2><p className="text-sm text-muted-foreground">超级管理员和管理员可登记客户，短信验证后客户即可查看本人在租信息。</p></div></div><form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => { event.preventDefault(); start(async () => { try { await addCustomer(form); setForm({ name: '', phone: '', assigneeUserId: owner?.id ?? '', customerLevel: 'silver', levelNote: '' }); toast.success('客户已添加，可使用绑定手机号验证登录'); router.refresh() } catch (error) { toast.error(userErrorMessage(error, '客户添加失败，请稍后重试')) } }) }}><Field label="客户名称" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="支持中文或英文" /><Field label="绑定手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="请输入 11 位手机号" /><label className="flex flex-col gap-2 text-sm font-medium">客户等级<select value={form.customerLevel} onChange={(event) => setForm((value) => ({ ...value, customerLevel: event.target.value as CustomerLevel }))} className="h-10 rounded-lg border bg-background px-3 font-normal">{Object.entries(CUSTOMER_LEVELS).map(([value, level]) => <option key={value} value={value}>{level.label} · 建议{level.suggestion}</option>)}</select></label><Field label="等级备注" value={form.levelNote} onChange={(levelNote) => setForm((value) => ({ ...value, levelNote }))} autoComplete="off" placeholder="选填，如长期合作客户" /><label className="flex flex-col gap-2 text-sm font-medium">客户负责人<select value={form.assigneeUserId} onChange={(event) => setForm((value) => ({ ...value, assigneeUserId: event.target.value }))} className="h-10 rounded-lg border bg-background px-3 font-normal"><option value={owner?.id}>{owner?.name}（管理员）</option>{members.filter((member) => member.active).map((member) => <option key={member.id} value={member.id}>{member.name}（员工）</option>)}</select></label><button disabled={pending || !form.name.trim() || !/^1\d{10}$/.test(form.phone) || !form.assigneeUserId} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{pending ? '正在添加…' : '添加客户'}</button></form></section>
+  return <section className="rounded-xl border bg-card p-5" aria-labelledby="add-customer-title"><div className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Phone className="size-5" /></span><div><h2 id="add-customer-title" className="font-semibold">添加合作客户</h2><p className="text-sm text-muted-foreground">平台主管和业务主管可登记客户，短信验证后客户即可查看本人在租信息。</p></div></div><form className="mt-5 flex flex-col gap-4" aria-busy={pending} onSubmit={(event) => { event.preventDefault(); start(async () => { try { await addCustomer(form); setForm({ name: '', phone: '', assigneeUserId: owner?.id ?? '', customerLevel: 'silver', levelNote: '' }); toast.success('客户已添加，可使用绑定手机号验证登录'); router.refresh() } catch (error) { toast.error(userErrorMessage(error, '客户添加失败，请稍后重试')) } }) }}><Field label="客户名称" value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} autoComplete="off" placeholder="支持中文或英文" /><Field label="绑定手机号" value={form.phone} onChange={(phone) => setForm((value) => ({ ...value, phone: phone.replace(/\D/g, '').slice(0, 11) }))} type="tel" autoComplete="off" placeholder="请输入 11 位手机号" /><label className="flex flex-col gap-2 text-sm font-medium">客户等级<select value={form.customerLevel} onChange={(event) => setForm((value) => ({ ...value, customerLevel: event.target.value as CustomerLevel }))} className="h-10 rounded-lg border bg-background px-3 font-normal">{Object.entries(CUSTOMER_LEVELS).map(([value, level]) => <option key={value} value={value}>{level.label} · 建议{level.suggestion}</option>)}</select></label><Field label="等级备注" value={form.levelNote} onChange={(levelNote) => setForm((value) => ({ ...value, levelNote }))} autoComplete="off" placeholder="选填，如长期合作客户" /><label className="flex flex-col gap-2 text-sm font-medium">客户负责人<select value={form.assigneeUserId} onChange={(event) => setForm((value) => ({ ...value, assigneeUserId: event.target.value }))} className="h-10 rounded-lg border bg-background px-3 font-normal"><option value={owner?.id}>{owner?.name}（业务主管）</option>{members.filter((member) => member.active).map((member) => <option key={member.id} value={member.id}>{member.name}（客户经理）</option>)}</select></label><button disabled={pending || !form.name.trim() || !/^1\d{10}$/.test(form.phone) || !form.assigneeUserId} className="h-10 self-start rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{pending ? '正在添加…' : '添加客户'}</button></form></section>
 }
 
 function CustomerCard({ customer, owner, members }: { customer: Customer; owner?: Account; members: Member[] }) {
@@ -261,7 +261,7 @@ function CustomerCard({ customer, owner, members }: { customer: Customer; owner?
   })
   return <article className="flex flex-col gap-4 rounded-xl border bg-card p-5">
     <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{customer.name}</h3><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{CUSTOMER_LEVELS[initialLevel].label}</span><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{active ? '正常' : '已停用'}</span></div><p className="mt-1 text-sm text-muted-foreground">{customer.phone.slice(0, 3)}****{customer.phone.slice(-4)}</p><p className="mt-2 text-xs text-muted-foreground">累计有效合同 {customer.orderCount} 份 · 最近合作 {customer.latestOrderAt ? formatDate(customer.latestOrderAt) : '暂无'}</p></div><button disabled={pending} onClick={() => save(!active)} className={`h-9 rounded-lg px-3 text-sm font-medium disabled:opacity-50 ${active ? 'border hover:bg-muted' : 'bg-primary text-primary-foreground'}`}>{active ? '停用' : '启用'}</button></div>
-    <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); save(active) }}><div className="grid gap-3 sm:grid-cols-2"><Field label="显示名称" value={name} onChange={setName} autoComplete="off" /><label className="flex flex-col gap-2 text-sm font-medium">客户等级<select value={customerLevel} onChange={(event) => setCustomerLevel(event.target.value as CustomerLevel)} className="h-10 rounded-lg border bg-background px-3 font-normal">{Object.entries(CUSTOMER_LEVELS).map(([value, level]) => <option key={value} value={value}>{level.label} · 建议{level.suggestion}</option>)}</select></label><Field label="等级备注" value={levelNote} onChange={setLevelNote} autoComplete="off" placeholder="选填等级调整原因" /><label className="flex flex-col gap-2 text-sm font-medium">客户负责人<select value={assigneeUserId} onChange={(event) => setAssigneeUserId(event.target.value)} className="h-10 rounded-lg border bg-background px-3 font-normal"><option value={owner?.id}>{owner?.name}（管理员）</option>{members.filter((member) => member.active).map((member) => <option key={member.id} value={member.id}>{member.name}（员工）</option>)}</select></label></div><button disabled={pending || !changed} className="h-10 self-end rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{pending ? '正在保存…' : '保存客户设置'}</button></form>
+    <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); save(active) }}><div className="grid gap-3 sm:grid-cols-2"><Field label="显示名称" value={name} onChange={setName} autoComplete="off" /><label className="flex flex-col gap-2 text-sm font-medium">客户等级<select value={customerLevel} onChange={(event) => setCustomerLevel(event.target.value as CustomerLevel)} className="h-10 rounded-lg border bg-background px-3 font-normal">{Object.entries(CUSTOMER_LEVELS).map(([value, level]) => <option key={value} value={value}>{level.label} · 建议{level.suggestion}</option>)}</select></label><Field label="等级备注" value={levelNote} onChange={setLevelNote} autoComplete="off" placeholder="选填等级调整原因" /><label className="flex flex-col gap-2 text-sm font-medium">客户负责人<select value={assigneeUserId} onChange={(event) => setAssigneeUserId(event.target.value)} className="h-10 rounded-lg border bg-background px-3 font-normal"><option value={owner?.id}>{owner?.name}（业务主管）</option>{members.filter((member) => member.active).map((member) => <option key={member.id} value={member.id}>{member.name}（客户经理）</option>)}</select></label></div><button disabled={pending || !changed} className="h-10 self-end rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{pending ? '正在保存…' : '保存客户设置'}</button></form>
   </article>
 }
 
@@ -277,10 +277,10 @@ function MemberCard({ member }: { member: Member }) {
   const [showPassword, setShowPassword] = useState(false)
 
   const saveAccess = (active: boolean) => startAccess(async () => {
-    if (active === false && !window.confirm(`确认停用 ${member.name} 的账号吗？该员工会立即退出登录。`)) return
+    if (active === false && !window.confirm(`确认停用 ${member.name} 的账号吗？该客户经理会立即退出登录。`)) return
     try {
       await updateMember(member.id, { active, permissions: selected })
-      toast.success(active === member.active ? '员工权限已保存' : active ? '员工账号已启用' : '员工账号已停用')
+      toast.success(active === member.active ? '客户经理权限已保存' : active ? '客户经理账号已启用' : '客户经理账号已停用')
       router.refresh()
     } catch (error) {
       toast.error(userErrorMessage(error, '账号设置保存失败，请稍后重试'))
@@ -306,15 +306,15 @@ function MemberCard({ member }: { member: Member }) {
       <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="flex flex-col gap-4">
           <div>
-            <h4 className="text-sm font-semibold">员工资料</h4>
-            <p className="mt-1 text-sm text-muted-foreground">修改员工在系统中显示的姓名。</p>
+            <h4 className="text-sm font-semibold">客户经理资料</h4>
+            <p className="mt-1 text-sm text-muted-foreground">修改客户经理在系统中显示的姓名。</p>
           </div>
           <form className="flex flex-col gap-3" onSubmit={(event) => {
             event.preventDefault()
             startName(async () => {
               try {
                 await updateMemberName(member.id, name)
-                toast.success('员工姓名已更新')
+                toast.success('客户经理姓名已更新')
                 router.refresh()
               } catch (error) {
                 toast.error(userErrorMessage(error, '姓名保存失败，请稍后重试'))
@@ -324,7 +324,7 @@ function MemberCard({ member }: { member: Member }) {
             <Field label="姓名" value={name} onChange={setName} autoComplete="off" />
             <button disabled={namePending || name.trim() === member.name} className="h-9 self-start rounded-lg border px-3 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{namePending ? '正在保存…' : '保存姓名'}</button>
           </form>
-          <button onClick={() => setShowReset((value) => !value)} className="inline-flex w-fit items-center gap-2 text-sm font-medium text-primary hover:underline"><KeyRound className="size-4" />{showReset ? '取消重置密码' : '重置员工密码'}</button>
+          <button onClick={() => setShowReset((value) => !value)} className="inline-flex w-fit items-center gap-2 text-sm font-medium text-primary hover:underline"><KeyRound className="size-4" />{showReset ? '取消重置密码' : '重置客户经理密码'}</button>
           {showReset ? (
             <form className="flex flex-col gap-3 rounded-lg bg-muted p-4" onSubmit={(event) => {
               event.preventDefault()
@@ -334,7 +334,7 @@ function MemberCard({ member }: { member: Member }) {
                   await resetMemberPassword(member.id, passwords)
                   setPasswords({ newPassword: '', confirmPassword: '' })
                   setShowReset(false)
-                  toast.success('员工密码已重置，原密码已失效')
+                  toast.success('客户经理密码已重置，原密码已失效')
                 } catch (error) {
                   toast.error(userErrorMessage(error, '密码重置失败，请稍后重试'))
                 }
@@ -351,7 +351,7 @@ function MemberCard({ member }: { member: Member }) {
         <div className="flex flex-col gap-4 border-t pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
           <div>
             <h4 className="text-sm font-semibold">工作权限</h4>
-            <p className="mt-1 text-sm text-muted-foreground">选择该员工负责的工作范围，未选择的功能不会显示。</p>
+            <p className="mt-1 text-sm text-muted-foreground">选择该客户经理负责的工作范围，未选择的功能不会显示。</p>
           </div>
           <PermissionPicker selected={selected} onChange={setSelected} />
           <button disabled={accessPending || selected.length === 0} onClick={() => saveAccess(member.active)} className="inline-flex h-9 self-start items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="size-4" />{accessPending ? '正在保存…' : '保存权限'}</button>
