@@ -81,14 +81,14 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
     } finally { setLoading(false) }
   }
 
-  return <main className="flex min-h-svh items-center justify-center bg-background p-4 sm:p-6">
-    <section className="flex w-full max-w-4xl overflow-hidden rounded-2xl border bg-card shadow-xl">
-      <aside className="hidden w-1/2 flex-col justify-between bg-primary p-10 text-primary-foreground md:flex">
+  return <main className="flex min-h-svh items-center justify-center bg-background p-4 sm:p-6 lg:p-10">
+    <section className="flex w-full max-w-6xl overflow-hidden rounded-2xl border bg-card shadow-xl lg:min-h-[640px]">
+      <aside className="hidden w-3/5 flex-col justify-between bg-primary p-10 text-primary-foreground md:flex lg:p-14">
         <div className="flex items-center gap-3 font-semibold"><span className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/15"><ShieldCheck /></span>速维租赁统一服务</div>
-        <div className="flex flex-col gap-4"><p className="text-balance text-3xl font-semibold">一个入口，安全连接工作与租赁服务</p><p className="leading-relaxed opacity-80">团队成员进入业务工作台，租赁客户查看本人当前在租信息。</p></div>
+        <div className="flex max-w-xl flex-col gap-5"><p className="text-balance text-3xl font-semibold lg:text-4xl">一个入口，安全连接工作与租赁服务</p><p className="max-w-lg leading-relaxed opacity-80">团队成员进入业务工作台，租赁客户查看本人当前在租信息。</p></div>
         <p className="text-sm opacity-70">短信验证码 5 分钟有效 · 全程加密传输</p>
       </aside>
-      <div className="w-full p-6 sm:p-8 md:w-1/2 md:p-10">
+      <div className="flex w-full flex-col justify-center p-6 sm:p-8 md:w-2/5 md:p-10 lg:p-12">
         <div className="flex flex-col gap-2"><p className="text-sm font-semibold text-primary">SUWEI WEB</p><h1 className="text-balance text-3xl font-semibold">{mode === 'sign-up' ? '申请或登录速维租赁' : '登录速维租赁'}</h1><p className="text-sm text-muted-foreground">请选择适合您的登录方式</p></div>
         {!showApplication ? <>
           <div className="mt-6 flex rounded-xl bg-muted p-1" role="tablist" aria-label="登录方式">
