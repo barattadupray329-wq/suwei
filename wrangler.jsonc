@@ -9,7 +9,9 @@
 	"workers_dev": true,
 	"preview_urls": true,
 	"vars": {
-		"BETTER_AUTH_URL": "https://tuzhuzu.cn"
+		"BETTER_AUTH_URL": "https://tuzhuzu.cn",
+		"ALIYUN_SMS_RENTAL_CREATED_TEMPLATE_CODE": "SMS_510905025",
+		"ALIYUN_SMS_REMINDER_TEMPLATE_CODE": "SMS_510985016"
 	},
 	"compatibility_flags": [
 		"nodejs_compat",

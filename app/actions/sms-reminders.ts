@@ -3,7 +3,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { auditLogs, businessSettings, rentals } from '@/lib/db/schema'
+import { auditLogs, rentals } from '@/lib/db/schema'
 import { businessSmsReadiness, sendBusinessSms } from '@/lib/business-sms'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
 
@@ -15,11 +15,6 @@ function beijingDate(offsetDays = 0) {
   const now = new Date(Date.now() + 8 * 60 * 60 * 1000)
   now.setUTCDate(now.getUTCDate() + offsetDays)
   return now.toISOString().slice(0, 10)
-}
-
-async function contactFor(userId: string) {
-  const [settings] = await db.select({ storeName: businessSettings.storeName, contactName: businessSettings.contactName, phone: businessSettings.phone }).from(businessSettings).where(eq(businessSettings.userId, userId)).limit(1)
-  return { store: settings?.storeName?.trim() || '速维电脑租赁', contact: settings?.contactName?.trim() || '业务负责人', phone: settings?.phone?.trim() || '请登录客户中心查看' }
 }
 
 async function logAudit(input: { userId: string; actorUserId: string; actorName: string; rentalId: number; contractNo: string; phone: string; scene: string; ok: boolean }) {
@@ -35,8 +30,7 @@ export async function sendRentalCreatedNotice(rentalId: number): Promise<SmsRemi
   const access = await getAccessContext('租赁操作')
   const [contract] = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), eq(rentals.id, rentalId))).limit(1)
   if (!contract) throw new Error('合同不存在或无权操作')
-  const contact = await contactFor(access.userId)
-  const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'rental-created', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:rental-created:v1`, params: { customer: contract.customerName.slice(0, 20), contract: contract.contractNo.slice(0, 30), startDate: contract.startDate, dueDate: contract.endDate, contact: contact.contact.slice(0, 20), phone: contact.phone.slice(0, 20), url: 'www.tuzhuzu.cn/customer-login' } })
+  const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'rental-created', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:rental-created:v1`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
   await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: '初始租赁通知', ok: result.ok })
   return { rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, message: result.message }
 }
@@ -47,10 +41,9 @@ export async function sendRentalReminders(rentalIds: number[]): Promise<SmsRemin
   if (!ids.length) throw new Error('请先选择需要提醒的合同')
   if (ids.length > MAX_BATCH) throw new Error(`每次最多发送 ${MAX_BATCH} 条短信`)
   const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), inArray(rentals.id, ids)))
-  const contact = await contactFor(access.userId)
   const results: SmsReminderResult[] = []
   for (const contract of contracts) {
-    const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:due-reminder:${beijingDate()}`, params: { customer: contract.customerName.slice(0, 20), contract: contract.contractNo.slice(0, 30), dueDate: contract.endDate, contact: contact.contact.slice(0, 20), phone: contact.phone.slice(0, 20), url: 'www.tuzhuzu.cn/customer-login' } })
+    const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:due-reminder:${beijingDate()}`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
     await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: '到期提醒', ok: result.ok })
     results.push({ rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, message: result.message })
   }
@@ -64,8 +57,7 @@ export async function processAutomaticDueReminders() {
   let sent = 0
   let failed = 0
   for (const contract of contracts) {
-    const contact = await contactFor(contract.userId)
-    const result = await sendBusinessSms({ userId: contract.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'automatic', idempotencyKey: `${contract.userId}:${contract.id}:due-reminder:${dueDate}`, params: { customer: contract.customerName.slice(0, 20), contract: contract.contractNo.slice(0, 30), dueDate, contact: contact.contact.slice(0, 20), phone: contact.phone.slice(0, 20), url: 'www.tuzhuzu.cn/customer-login' } })
+    const result = await sendBusinessSms({ userId: contract.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'automatic', idempotencyKey: `${contract.userId}:${contract.id}:due-reminder:${dueDate}`, params: { customer: contract.customerName.slice(0, 20), dueDate } })
     if (result.ok) sent += 1
     else failed += 1
   }
