@@ -59,7 +59,7 @@ import {
   type RepairInput,
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
-import { isDueWithin, rentalEndDate } from "@/lib/rental-calculations";
+import { rentalEndDate } from "@/lib/rental-calculations";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
   START_DATE_REASONS,
@@ -214,6 +214,8 @@ type Summary = {
   total: number;
   active: number;
   overdue: number;
+  dueSoon: number;
+  repairPending: number;
   revenue: string;
   receivable: string;
 };
@@ -461,20 +463,8 @@ export function Dashboard({
     URL.revokeObjectURL(url);
     toast.success(`已导出 ${selectedRentals.length} 份合同`);
   };
-  const dueSoon = rentals.filter(
-    (r) =>
-      ["在租", "部分买断", "部分退租"].includes(r.status) &&
-      isDueWithin(r.endDate, today(), 7),
-  ).length;
-  const repairPending = rentals.reduce(
-    (sum, r) =>
-      sum +
-      r.events.filter(
-        (event) =>
-          event.eventType.includes("维修") && event.status !== "已完成",
-      ).length,
-    0,
-  );
+  const dueSoon = summary.dueSoon;
+  const repairPending = summary.repairPending;
   return (
     <div className="bg-background">
       <div className="p-4 md:p-6">
@@ -547,10 +537,7 @@ export function Dashboard({
             <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <button
                 type="button"
-                onClick={() => {
-                  setStatus("逾期");
-                  setQuery("");
-                }}
+                onClick={() => router.push("/rentals?status=逾期")}
                 className="rounded-xl bg-muted p-3 text-left hover:bg-border"
               >
                 <p className="text-2xl font-bold">{summary.overdue}</p>
@@ -558,10 +545,7 @@ export function Dashboard({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setStatus("全部");
-                  setSort("due");
-                }}
+                onClick={() => router.push("/rentals?sort=due")}
                 className="rounded-xl bg-muted p-3 text-left hover:bg-border"
               >
                 <p className="text-2xl font-bold">{dueSoon}</p>
@@ -617,13 +601,14 @@ export function Dashboard({
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="font-semibold">租赁记录</h2>
+                <h2 className="font-semibold">最近租赁合同</h2>
                 <p className="text-sm text-muted-foreground">
-                  共 {filtered.length} 条记录
+                  展示最近录入的合同，完整历史请前往租赁记录
                 </p>
               </div>
-              <div className="flex gap-2">
-                <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 sm:w-72">
+              <div className="flex flex-wrap gap-2">
+                <Link href="/rentals" className="flex h-10 items-center rounded-lg border px-3 text-sm font-semibold text-primary hover:bg-muted">查看全部</Link>
+                <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 sm:w-64">
                   <Search className="size-4 text-muted-foreground" />
                   <input
                     value={query}

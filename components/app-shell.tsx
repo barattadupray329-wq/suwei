@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, BookOpenCheck, ChevronRight, ClipboardList, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, BookOpenCheck, ChevronRight, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
@@ -14,7 +14,8 @@ type NavGroup = { label: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
   { label: '日常经营', items: [
-    { href: '/dashboard', label: '经营总览', description: '合同、设备与待办', icon: LayoutDashboard, permission: '租赁操作' },
+    { href: '/dashboard', label: '经营总览', description: '指标、待办与最近合同', icon: LayoutDashboard, permission: '租赁操作' },
+    { href: '/rentals', label: '租赁记录', description: '检索、筛选与合同操作', icon: FileSearch, permission: '租赁操作' },
     { href: '/finance', label: '资金流水', description: '收款、退款与应收', icon: Banknote, permission: '资金查看' },
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
   ] },

@@ -3,7 +3,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext, type ModulePermission } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -23,7 +23,28 @@ export async function getWebsitePackagesForAdmin(){const context=await requireSu
 export async function saveWebsitePackage(input:z.infer<typeof websitePackageSchema>&{id?:number}){const context=await requireSuperAdmin();const value=websitePackageSchema.parse(input);const now=new Date();if(input.id){await db.update(websitePackages).set({...value,updatedAt:now}).where(and(eq(websitePackages.id,input.id),eq(websitePackages.userId,context.userId)))}else{await db.insert(websitePackages).values({...value,userId:context.userId,createdAt:now,updatedAt:now})}revalidatePath('/');revalidatePath('/website-packages')}
 export async function deleteWebsitePackage(id:number){const context=await requireSuperAdmin();await db.delete(websitePackages).where(and(eq(websitePackages.id,id),eq(websitePackages.userId,context.userId)));revalidatePath('/');revalidatePath('/website-packages')}
 
-export async function getFinanceData(from?:string,to?:string){const id=await userId('资金查看');const filters=[eq(paymentRecords.userId,id)];if(from)filters.push(gte(paymentRecords.paymentDate,from));if(to)filters.push(lte(paymentRecords.paymentDate,to));const rows=await db.select({id:paymentRecords.id,rentalId:paymentRecords.rentalId,amount:paymentRecords.amount,paymentDate:paymentRecords.paymentDate,paymentMethod:paymentRecords.paymentMethod,feeType:paymentRecords.feeType,notes:paymentRecords.notes,operatorName:paymentRecords.operatorName,contractNo:rentals.contractNo,customerCompany:rentals.customerCompany,customerName:rentals.customerName,customerPhone:rentals.customerPhone,deviceName:rentals.deviceName,renewalRecordId:paymentRecords.renewalRecordId}).from(paymentRecords).innerJoin(rentals,and(eq(rentals.id,paymentRecords.rentalId),eq(rentals.userId,id))).where(and(...filters)).orderBy(desc(paymentRecords.paymentDate),desc(paymentRecords.id));const now=new Date();const day=now.toISOString().slice(0,10);const month=day.slice(0,7);const year=day.slice(0,4);const all=await db.select({date:paymentRecords.paymentDate,amount:paymentRecords.amount,feeType:paymentRecords.feeType}).from(paymentRecords).where(eq(paymentRecords.userId,id));const sum=(test:(d:string)=>boolean)=>all.filter(x=>test(x.date)).reduce((s,x)=>s+Number(x.amount),0);return{rows,summary:{today:sum(d=>d===day),month:sum(d=>d.startsWith(month)),year:sum(d=>d.startsWith(year)),all:sum(()=>true)},types:Object.entries(all.reduce<Record<string,number>>((a,x)=>(a[x.feeType]=(a[x.feeType]||0)+Number(x.amount),a),{}))}}
+export async function getFinanceData(input: { query?: string; type?: string; method?: string; from?: string; to?: string; page?: number; pageSize?: number } = {}) {
+  const id = await userId('资金查看')
+  const page = Math.max(1, Math.min(500000, Math.trunc(input.page || 1)))
+  const pageSize = Math.max(1, Math.min(100, Math.trunc(input.pageSize || 20)))
+  const filters = [eq(paymentRecords.userId, id)]
+  if (input.from) filters.push(gte(paymentRecords.paymentDate, input.from))
+  if (input.to) filters.push(lte(paymentRecords.paymentDate, input.to))
+  if (input.type && input.type !== '全部') filters.push(eq(paymentRecords.feeType, input.type))
+  if (input.method && input.method !== '全部') filters.push(eq(paymentRecords.paymentMethod, input.method))
+  if (input.query) { const pattern = `%${input.query.slice(0, 80)}%`; filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern))!) }
+  const where = and(...filters)
+  const joined = db.select({ id: paymentRecords.id, rentalId: paymentRecords.rentalId, amount: paymentRecords.amount, paymentDate: paymentRecords.paymentDate, paymentMethod: paymentRecords.paymentMethod, feeType: paymentRecords.feeType, notes: paymentRecords.notes, operatorName: paymentRecords.operatorName, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, renewalRecordId: paymentRecords.renewalRecordId }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id)))
+  const now = new Date(); const day = now.toISOString().slice(0, 10); const month = day.slice(0, 7); const year = day.slice(0, 4)
+  const [rows, [countRow], [summary], types] = await Promise.all([
+    joined.where(where).orderBy(desc(paymentRecords.paymentDate), desc(paymentRecords.id)).limit(pageSize).offset((page - 1) * pageSize),
+    db.select({ count: sql<number>`count(*)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
+    db.select({ today: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} = ${day} then cast(${paymentRecords.amount} as real) else 0 end),0)`, month: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${month + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, year: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${year + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, all: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).where(eq(paymentRecords.userId, id)),
+    db.select({ type: paymentRecords.feeType, amount: sql<number>`sum(cast(${paymentRecords.amount} as real))` }).from(paymentRecords).where(eq(paymentRecords.userId, id)).groupBy(paymentRecords.feeType),
+  ])
+  const total = Number(countRow?.count ?? 0)
+  return { rows, summary: { today: Number(summary?.today ?? 0), month: Number(summary?.month ?? 0), year: Number(summary?.year ?? 0), all: Number(summary?.all ?? 0) }, types: types.map((row) => [row.type, Number(row.amount)] as [string, number]), total, page, pageCount: Math.max(1, Math.ceil(total / pageSize)) }
+}
 
 async function loadSettings(id:string){const [row]=await db.select().from(businessSettings).where(eq(businessSettings.userId,id));return row??{userId:id,storeName:'速维租赁管理',lessorType:'企业',lessorName:'',identityNo:'',contactName:'',phone:'',address:'',paymentInfo:'',contractTerms:DEFAULT_TERMS,themeMode:'system',themeColor:'green'}}
 export async function getSettings(){const id=await userId('系统设置');return loadSettings(id)}

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq, inArray, like, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -44,12 +44,13 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   )
 }
 
-export async function getRentals(query = '', status = '全部') {
+export async function getRentals(query = '', status = '全部', limit?: number) {
   const userId = await getUserId()
   const filters = [eq(rentals.userId, userId)]
   if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
-  const rows = await db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
+  const baseQuery = db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
+  const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
   const [items, buyouts, renewals, payments, events, bills, ledger] = await Promise.all([
@@ -76,9 +77,52 @@ export async function getRentals(query = '', status = '全部') {
   return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: billMap.get(row.id) ?? [], ledger: ledgerMap.get(row.id) ?? [] }))
 }
 
+const rentalQuerySchema = z.object({
+  query: z.string().trim().max(80).default(''),
+  status: z.string().trim().max(20).default('全部'),
+  startDate: z.string().max(10).default(''),
+  endDate: z.string().max(10).default(''),
+  assignee: z.string().trim().max(100).default(''),
+  sort: z.enum(['newest', 'oldest', 'due', 'amount']).default('newest'),
+  page: z.coerce.number().int().min(1).max(500000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+})
+
+export type RentalListQuery = z.input<typeof rentalQuerySchema>
+
+export async function getRentalPage(input: RentalListQuery = {}) {
+  const userId = await getUserId()
+  const value = rentalQuerySchema.parse(input)
+  const filters = [eq(rentals.userId, userId)]
+  if (value.query) {
+    const pattern = `%${value.query}%`
+    filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern), like(rentals.deviceCode, pattern))!)
+  }
+  if (value.status !== '全部') filters.push(eq(rentals.status, value.status))
+  if (value.startDate) filters.push(gte(rentals.startDate, value.startDate))
+  if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
+  if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
+  const where = and(...filters)
+  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : desc(rentals.createdAt)
+  const offset = (value.page - 1) * value.pageSize
+  const [[countRow], rows] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
+    db.select({ id: rentals.id, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+  ])
+  const total = Number(countRow?.count ?? 0)
+  return { rows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+}
+
+export async function getRentalById(id: number) {
+  const userId = await getUserId()
+  const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
+  if (!row) return null
+  return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
+}
+
 export async function getDashboard() {
   const userId = await getUserId()
-  const [summary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, revenue: sql<string>`coalesce((select sum(${paymentRecords.amount}) from ${paymentRecords} where ${paymentRecords.userId} = ${userId}), 0)`, receivable: sql<string>`coalesce((select sum(max(${receivableBills.amount} - ${receivableBills.paidAmount}, 0)) from ${receivableBills} where ${receivableBills.userId} = ${userId} and ${receivableBills.status} not in ('已结清', '已调整')), 0)` }).from(rentals).where(eq(rentals.userId, userId))
+  const [summary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date('now', '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce((select count(*) from ${rentalEvents} where ${rentalEvents.userId} = ${userId} and ${rentalEvents.eventType} like '%维修%' and ${rentalEvents.status} <> '已完成'), 0)`, revenue: sql<string>`coalesce((select sum(${paymentRecords.amount}) from ${paymentRecords} where ${paymentRecords.userId} = ${userId}), 0)`, receivable: sql<string>`coalesce((select sum(max(${receivableBills.amount} - ${receivableBills.paidAmount}, 0)) from ${receivableBills} where ${receivableBills.userId} = ${userId} and ${receivableBills.status} not in ('已结清', '已调整')), 0)` }).from(rentals).where(eq(rentals.userId, userId))
   return summary
 }
 

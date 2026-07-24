@@ -1,0 +1,17 @@
+CREATE INDEX IF NOT EXISTS rentals_user_created_idx ON rentals(userId, createdAt DESC, id DESC);
+CREATE INDEX IF NOT EXISTS rentals_user_status_end_idx ON rentals(userId, status, endDate, id);
+CREATE INDEX IF NOT EXISTS rentals_user_phone_idx ON rentals(userId, customerPhone, id);
+CREATE INDEX IF NOT EXISTS rentals_user_assignee_created_idx ON rentals(userId, assigneeUserId, createdAt DESC);
+CREATE INDEX IF NOT EXISTS rental_items_user_rental_idx ON rental_items(userId, rentalId, id);
+CREATE INDEX IF NOT EXISTS payment_records_user_date_idx ON payment_records(userId, paymentDate DESC, id DESC);
+CREATE INDEX IF NOT EXISTS payment_records_user_rental_idx ON payment_records(userId, rentalId, createdAt DESC);
+CREATE INDEX IF NOT EXISTS receivable_bills_user_status_due_idx ON receivable_bills(userId, status, dueDate, id);
+CREATE INDEX IF NOT EXISTS receivable_bills_user_rental_idx ON receivable_bills(userId, rentalId, dueDate);
+CREATE INDEX IF NOT EXISTS account_ledger_user_date_idx ON account_ledger(userId, entryDate DESC, id DESC);
+CREATE INDEX IF NOT EXISTS account_ledger_user_rental_idx ON account_ledger(userId, rentalId, entryDate DESC);
+CREATE INDEX IF NOT EXISTS rental_events_user_rental_date_idx ON rental_events(userId, rentalId, eventDate DESC, id DESC);
+CREATE INDEX IF NOT EXISTS renewal_records_user_rental_idx ON renewal_records(userId, rentalId, createdAt DESC);
+CREATE INDEX IF NOT EXISTS buyout_records_user_rental_idx ON buyout_records(userId, rentalId, createdAt DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_user_created_idx ON audit_logs(userId, createdAt DESC, id DESC);
+CREATE INDEX IF NOT EXISTS customer_portals_user_created_idx ON customer_portals(userId, createdAt DESC, id DESC);
+CREATE INDEX IF NOT EXISTS backup_snapshots_user_created_idx ON backup_snapshots(userId, createdAt DESC, id DESC);
