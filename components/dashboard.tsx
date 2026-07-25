@@ -2463,7 +2463,7 @@ function RenewalForm({
   pending: boolean;
 }) {
   const available = rental.items.filter(
-    (item) => item.quantity > item.boughtOutQuantity,
+    (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
   );
   const [rows, setRows] = useState<Record<number, RenewalInput>>({});
   const toggle = (item: Item) =>
@@ -2474,7 +2474,7 @@ function RenewalForm({
         const end = item.endDate || rental.endDate;
         next[item.id] = {
           rentalItemId: item.id,
-          quantity: item.quantity - item.boughtOutQuantity,
+          quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
           billingUnit: "month",
           duration: 1,
           unitPrice: Number(item.monthlyRent),
@@ -2513,7 +2513,7 @@ function RenewalForm({
       <div className="flex flex-col gap-3">
         {available.map((item) => {
           const row = rows[item.id];
-          const max = item.quantity - item.boughtOutQuantity;
+          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
           return (
             <article
               key={item.id}
@@ -2641,7 +2641,7 @@ function RenewalForm({
             return (
               !item ||
               row.quantity <= 0 ||
-              row.quantity > item.quantity - item.boughtOutQuantity ||
+              row.quantity > item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity ||
               row.duration < 1 ||
               row.duration > 3650 ||
               row.unitPrice < 0 ||

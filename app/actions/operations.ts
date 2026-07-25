@@ -5,12 +5,12 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, lossRecords, receivableBills, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, lossRecords, receivableBills, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
-  return { userId: context.userId, name: context.actorName }
+  return { userId: context.userId, actorId: context.actorId, name: context.actorName }
 }
 
 const operationSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), date: z.string().min(1), notes: z.string().optional() })
@@ -18,7 +18,7 @@ export type ReturnInput = z.infer<typeof operationSchema> & { condition: '完好
 export type LossInput = z.infer<typeof operationSchema> & { unitCompensation: number }
 
 export async function returnRentalItem(input: ReturnInput) {
-  const { userId, name } = await actor()
+  const { userId, actorId, name } = await actor()
   const value = operationSchema.extend({ condition: z.enum(['完好','轻微磨损','损坏']), deductionAmount: z.number().nonnegative(), depositRefund: z.number().nonnegative() }).parse(input)
   const [[item], items] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId))),
@@ -29,9 +29,14 @@ export async function returnRentalItem(input: ReturnInput) {
   if (value.quantity>available) throw new Error(`最多可退 ${available} 台`)
   const nextReturned = item.returnedQuantity + value.quantity
   const nextItems = items.map(current => current.id === item.id ? { ...current, returnedQuantity: nextReturned } : current)
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
+  if (!rental) throw new Error('租赁合同不存在')
+  const availableAfter = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
     db.update(rentalItems).set({returnedQuantity:nextReturned,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
     db.insert(returnRecords).values({userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:value.notes,operatorName:name}),
+    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: value.rentalItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition }, feeAdjustment: String(-value.deductionAmount), operatorName: name, notes: value.notes }),
+    db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '办理退租', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, metadata: { rentalItemId: value.rentalItemId, quantity: value.quantity, condition: value.condition, deductionAmount: value.deductionAmount, depositRefund: value.depositRefund } }),
   ]
   const itemEndDate = item.endDate
   if (itemEndDate && value.date < itemEndDate) {
@@ -41,9 +46,10 @@ export async function returnRentalItem(input: ReturnInput) {
   }
   if (value.deductionAmount > 0) statements.push(db.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金抵扣赔偿', amount: String(-value.deductionAmount), entryDate: value.date, operatorName: name, notes: value.notes }))
   if (value.depositRefund > 0) statements.push(db.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金退还', amount: String(-value.depositRefund), entryDate: value.date, operatorName: name, notes: value.notes }))
-  statements.push(db.update(rentals).set({ status:rentalLifecycleStatus(nextItems), updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))))
+  statements.push(db.update(rentals).set({ quantity: availableAfter, status:rentalLifecycleStatus(nextItems), updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
+  revalidatePath('/audit-logs')
 }
 
 const exchangeText = z.string().trim().max(500).optional()
