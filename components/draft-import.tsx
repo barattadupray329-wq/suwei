@@ -36,8 +36,16 @@ export function DraftImport({ assignees }: { assignees: RentalAssignee[] }) {
       toast.error('Excel 文件请先在表格软件里另存为 CSV，或直接复制单元格粘贴到下方文本框')
       return
     }
-    setFileName(file.name)
-    setText(await file.text())
+    // 读取可能失败（选择后文件被移动/删除、无读取权限、网络盘断开等），
+    // 若不捕获则只会显示文件名而无任何反馈，用户无从判断是否已选中。
+    try {
+      const content = await file.text()
+      setFileName(file.name)
+      setText(content)
+    } catch {
+      setFileName('')
+      toast.error('文件读取失败，请确认文件仍存在且可访问，或直接复制单元格粘贴到下方文本框')
+    }
   }
 
   const submit = () => {

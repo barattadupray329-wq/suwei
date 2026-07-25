@@ -77,8 +77,14 @@ describe('validateDraftRow', () => {
   })
 
   it('非当天起租必须填写补录原因', () => {
-    expect(validateDraftRow({ ...base, startDate: '2026-06-01' }, 2, TODAY).errors.join()).toContain('补录原因')
+    expect(validateDraftRow({ ...base, startDate: '2026-06-01' }, 2, TODAY).errors.join()).toContain('必须填写补录原因')
     expect(validateDraftRow({ ...base, startDate: '2026-06-01', startDateReason: '旧数据转移' }, 2, TODAY).errors).toEqual([])
+  })
+
+  it('补录原因填了但不在可选值内时，提示填错而不是没填', () => {
+    const errors = validateDraftRow({ ...base, startDate: '2026-06-01', startDateReason: '客户补签合同' }, 2, TODAY).errors.join()
+    expect(errors).toContain('客户补签合同')
+    expect(errors).not.toContain('必须填写')
   })
 
   it('显示器必须同时提供品牌与屏幕尺寸', () => {

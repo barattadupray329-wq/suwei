@@ -170,7 +170,10 @@ export function validateDraftRow(raw: DraftRawRow, line: number, today = shangha
   const reasonText = (raw.startDateReason ?? '').trim()
   let startDateReason: (typeof START_DATE_REASONS)[number] | undefined
   if (startDate && startDate !== today) {
-    if (!START_DATE_REASONS.includes(reasonText as (typeof START_DATE_REASONS)[number])) errors.push(`非当天起租必须填写补录原因（${START_DATE_REASONS.join(' / ')}）`)
+    // 区分「没填」与「填了但不在可选值内」：后者若也提示“必须填写”，
+    // 用户看着单元格里明明有内容，会完全无法理解错在哪里。
+    if (!reasonText) errors.push(`非当天起租必须填写补录原因（${START_DATE_REASONS.join(' / ')}）`)
+    else if (!START_DATE_REASONS.includes(reasonText as (typeof START_DATE_REASONS)[number])) errors.push(`补录原因需为 ${START_DATE_REASONS.join(' / ')}，当前为“${reasonText}”`)
     else startDateReason = reasonText as (typeof START_DATE_REASONS)[number]
   }
 
