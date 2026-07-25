@@ -337,6 +337,7 @@ export function Dashboard({
   | "exchange"
   | "change-guide"
   | "delete-confirm"
+  | "confirm-draft"
     | null
   >(linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
@@ -392,7 +393,6 @@ export function Dashboard({
   };
   const confirmSelectedDraft = () => {
     if (!selected || selected.orderType !== "draft") return;
-    if (!window.confirm("确认将这份草稿转为正式合同？转正后会生成正式合同号与应收账单，且不能再删除。")) return;
     start(async () => {
       const result = await confirmDraftsAsOfficial([selected.id]);
       if (!result.ok) {
@@ -951,7 +951,7 @@ canViewFinance={canViewFinance}
               )
             }
             onDelete={() => setDialog("delete-confirm")}
-            onConfirmDraft={confirmSelectedDraft}
+            onConfirmDraft={() => setDialog("confirm-draft")}
             onRentalChange={() => setDialog("change-guide")}
             onPayment={(target) => {
               setPaymentTarget(target);
@@ -973,6 +973,71 @@ canViewFinance={canViewFinance}
               run(() => changeStatus(selected.id, s), "状态已更新")
             }
           />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "confirm-draft"}
+        title="确认转为正式合同"
+        onClose={() => !pending && setDialog("detail")}
+      >
+        {selected && (
+          <div className="flex flex-col gap-5">
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <div className="flex items-start gap-3">
+                <ClipboardPenLine className="mt-0.5 size-5 shrink-0 text-primary" />
+                <div>
+                  <p className="font-semibold">请在转正前完成最后核对</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    这项操作会将草稿纳入正式经营和财务数据，转正后不能删除。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <dl className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm">
+              <Info l="草稿编号" v={selected.contractNo} />
+              <Info l="客户" v={selected.customerCompany || selected.customerName} />
+              <Info l="租赁金额" v={money(Number(selected.totalRent))} />
+              <Info l="设备数量" v={`${selected.items.reduce((total, item) => total + item.quantity, 0)} 台`} />
+            </dl>
+
+            <div className="flex flex-col gap-3">
+              <p className="text-sm font-semibold">确认后系统将自动完成</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
+                  <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <span>生成正式合同号</span>
+                </div>
+                <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
+                  <WalletCards className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <span>生成应收账单</span>
+                </div>
+                <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
+                  <CheckSquare className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <span>计入经营数据</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setDialog("detail")}
+                className="h-11 rounded-xl border bg-background px-5 text-sm font-medium disabled:opacity-50"
+              >
+                暂不转正
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={confirmSelectedDraft}
+                className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
+              >
+                {pending ? "正在生成正式合同…" : "确认转为正式合同"}
+              </button>
+            </div>
+          </div>
         )}
       </Dialog>
       <Dialog
