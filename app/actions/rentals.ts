@@ -11,6 +11,7 @@ import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
 import { safeError } from '@/lib/errors'
+import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
@@ -165,15 +166,14 @@ async function resolveRentalAssignee(access: Awaited<ReturnType<typeof getAccess
   return member
 }
 
-// D1 单条语句的绑定变量数量有上限；应收账单每行占 9 个变量，长租期合同
-// （例如 12 期月租再加押金）一次性批量插入会触发 "too many SQL variables"。
-// 因此按固定行数拆成多条 INSERT，仍放进同一个 batch 以保持原子性。
-const BILL_INSERT_CHUNK_SIZE = 8
+// 批量 INSERT 需要按 D1 的绑定变量上限拆分（见 lib/d1-batch.ts），
+// 拆出的多条语句仍放进同一个 batch，以保持原子性。
+function buildChunkedInserts(table: Parameters<typeof db.insert>[0], rows: Record<string, unknown>[]) {
+  return chunkRowsForD1(rows).map((chunk) => db.insert(table).values(chunk as never))
+}
 
 function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[], userId: string) {
-  const chunks: T[][] = []
-  for (let offset = 0; offset < bills.length; offset += BILL_INSERT_CHUNK_SIZE) chunks.push(bills.slice(offset, offset + BILL_INSERT_CHUNK_SIZE))
-  return chunks.map((chunk) => db.insert(receivableBills).values(chunk.map((bill) => ({ ...bill, userId })) as never))
+  return buildChunkedInserts(receivableBills, bills.map((bill) => ({ ...bill, userId })))
 }
 
 function buildMonthlyBills(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, monthlyRent: number) {
@@ -226,7 +226,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
     const statements = [
       db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }),
-      db.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
+      ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
       ...buildBillInsertStatements(allBills, userId),
       db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType } }),
     ]
