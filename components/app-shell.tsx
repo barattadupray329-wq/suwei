@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, BookOpenCheck, ChevronRight, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, BookOpenCheck, ChevronRight, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
@@ -18,6 +18,7 @@ const groups: NavGroup[] = [
     { href: '/rentals', label: '租赁记录', description: '检索、筛选与合同操作', icon: FileSearch, permission: '租赁操作' },
     { href: '/finance', label: '资金流水', description: '收款、退款与应收', icon: Banknote, permission: '资金查看' },
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
+    { href: '/rentals/drafts', label: '草稿审核', description: '批量导入与转正式合同', icon: ClipboardCheck, permission: '租赁操作' },
   ] },
   { label: '团队与配置', items: [
     { href: '/accounts', label: '账号与权限', description: '客户经理账号和职责', icon: UserRoundCog, permission: '账号管理', managerOnly: true },
@@ -35,7 +36,9 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname(); const router = useRouter(); const [mobileMenu, setMobileMenu] = useState(false); const [signingOut, setSigningOut] = useState(false)
   const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleGroups = groups.map((group) => ({ ...group, items: group.items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && (!item.managerOnly || role !== 'employee') && can(item.permission)) })).filter((group) => group.items.length)
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+  // 子路由（如 /rentals/drafts）必须只高亮最精确的菜单项，否则父级「租赁记录」会同时点亮。
+  const activeHref = visibleGroups.flatMap((group) => group.items).map((item) => item.href).filter((href) => pathname === href || pathname.startsWith(`${href}/`)).sort((left, right) => right.length - left.length)[0]
+  const isActive = (href: string) => href === activeHref
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
   const current = visibleGroups.flatMap((group) => group.items).find((item) => isActive(item.href))
 
