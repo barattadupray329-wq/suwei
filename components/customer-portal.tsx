@@ -5,6 +5,7 @@ import { Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone, ShieldChe
 import { toast } from 'sonner'
 import { loginCustomerPortal, logoutCustomerPortal } from '@/app/actions/portal-auth'
 import { userErrorMessage } from '@/lib/errors'
+import { addCalendarDays, billCoverageLabel, billState } from '@/lib/rental-calculations'
 
 const money = (value: string | number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value || 0))
 const day = (value?: string | Date | null) => (value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value)) : '—')
@@ -37,7 +38,13 @@ function billing(bills: Row[]) {
   const now = today()
   const currentDue = open.filter((bill) => bill.dueDate <= now).reduce((sum, bill) => sum + bill.due, 0)
   const upcoming = open.filter((bill) => bill.dueDate > now).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
-  return { currentDue, next: upcoming ? { date: upcoming.dueDate, amount: upcoming.due } : null }
+  const nextOpen = open.sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
+  const settled = bills.filter((bill) => num(bill.paidAmount) >= num(bill.amount) && bill.billType !== '押金').sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0]
+  return {
+    currentDue,
+    next: nextOpen ? { date: nextOpen.dueDate, amount: nextOpen.due } : upcoming ? { date: upcoming.dueDate, amount: upcoming.due } : null,
+    paidThrough: settled ? addCalendarDays(settled.periodEnd, 1) : null,
+  }
 }
 
 function deviceStatus(items: Row[]): Row[] {
@@ -86,10 +93,10 @@ function ContractCard({ contract, data, devices, archived }: { contract: Row; da
   const bill = billing(rowsBy(data.bills, contract.id))
   const rentingCount = devices.reduce((sum, item) => sum + item.renting, 0)
   return <details className="group rounded-2xl border bg-card shadow-sm open:ring-1 open:ring-border" open={!archived && (overdue || soon)}>
-    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap gap-x-5 gap-y-1 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.next ? <span className="text-muted-foreground">下期 {day(bill.next.date)} · {money(bill.next.amount)}</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
+    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap gap-x-5 gap-y-1 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">已付覆盖至 {day(bill.paidThrough)}（不含）</span> : null}{bill.next ? <span className="text-muted-foreground">下次付款 {day(bill.next.date)} · {money(bill.next.amount)}</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
     <div className="flex flex-col gap-5 border-t p-4">
       <Block title="设备状态" icon={<Monitor/>}>{devices.map((item) => <div key={item.id} className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{item.deviceType} · {item.deviceName} × {item.quantity}</p><div className="mt-2 flex flex-wrap gap-2 text-xs">{item.renting > 0 ? <Tag tone="primary">在租 {item.renting}</Tag> : null}{item.returned > 0 ? <Tag>已归还 {item.returned}</Tag> : null}{item.bought > 0 ? <Tag>已买断 {item.bought}</Tag> : null}{item.lost > 0 ? <Tag tone="destructive">丢失 {item.lost}</Tag> : null}</div></div>)}</Block>
-      <Block title="租金账单" icon={<Banknote/>}>{rowsBy(data.bills, contract.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((item: Row) => <Line key={item.id} title={`${item.billType} · ${day(item.periodStart)} 起 · 应付 ${day(item.dueDate)}`} detail={`应收 ${money(item.amount)} · 已付 ${money(item.paidAmount)} · ${num(item.amount) - num(item.paidAmount) <= 0 ? '已结清' : `待付 ${money(num(item.amount) - num(item.paidAmount))}`}`}/>)}</Block>
+      <Block title="租金账单" icon={<Banknote/>}>{rowsBy(data.bills, contract.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((item: Row) => <BillLine key={item.id} bill={item}/>)}</Block>
       <Block title="付款记录" icon={<Banknote/>}>{rowsBy(data.payments, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.paymentDate)} · ${item.feeType}`} detail={`${money(item.amount)} · ${item.paymentMethod}`}/>)}</Block>
       {rowsBy(data.returns, contract.id).length ? <Block title="归还记录" icon={<Monitor/>}>{rowsBy(data.returns, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.returnDate)} 归还 ${item.quantity} 台`} detail={`成色 ${item.condition}`}/>)}</Block> : null}
       {rowsBy(data.events, contract.id).length ? <Block title="服务记录" icon={<Monitor/>}>{rowsBy(data.events, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.eventDate)} · ${item.eventType}`} detail={item.faultDescription || item.notes || item.status}/>)}</Block> : null}
@@ -103,6 +110,19 @@ function Summary({ icon, label, value, highlight }: { icon: React.ReactNode; lab
 function Block({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><span className="text-primary [&>svg]:size-4">{icon}</span>{title}</h3><div className="flex flex-col gap-2">{Array.isArray(children) && children.filter(Boolean).length === 0 ? <p className="text-sm text-muted-foreground">暂无记录</p> : (children || <p className="text-sm text-muted-foreground">暂无记录</p>)}</div></section>
 }
+function BillLine({ bill }: { bill: Row }) {
+  const state = billState(bill.amount, bill.paidAmount, bill.dueDate, today())
+  const tones = {
+    '已结清': 'bg-primary/10 text-primary',
+    '待付款': 'bg-chart-2/15 text-chart-2',
+    '即将到期': 'bg-accent text-accent-foreground',
+    '逾期': 'bg-destructive/10 text-destructive',
+    '部分收款': 'bg-secondary text-secondary-foreground',
+  } as const
+  const outstanding = Math.max(0, num(bill.amount) - num(bill.paidAmount))
+  return <div className="rounded-xl bg-muted p-3"><div className="flex flex-wrap items-start justify-between gap-2"><p className="text-sm font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tones[state]}`}>{state}</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">付款日 {day(bill.dueDate)} · 应收 {money(bill.amount)} · 已付 {money(bill.paidAmount)} · 待付 {money(outstanding)}</p>{bill.notes ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{bill.notes}</p> : null}</div>
+}
+
 function Line({ title, detail }: { title: string; detail: string }) {
   return <div className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p></div>
 }

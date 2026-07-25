@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, fromCents, isDueWithin, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, fromCents, isDueWithin, nextOpenBill, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -14,6 +14,27 @@ describe('租赁日期计算', () => {
     expect(isDueWithin('2026-07-29', '2026-07-22')).toBe(true)
     expect(isDueWithin('2026-07-21', '2026-07-22')).toBe(false)
     expect(isDueWithin('2026-07-30', '2026-07-22')).toBe(false)
+  })
+})
+
+describe('预收与续租账单', () => {
+  it('3 月 1 日起租 3 个月覆盖至 6 月 1 日（不含）', () => {
+    expect(billCoverageLabel('2026-03-01', rentalEndDate('2026-03-01', 3, 'monthly'))).toBe('2026-03-01 至 2026-06-01（不含）')
+  })
+  it('优先返回最早的未结清账单', () => {
+    const bills = [
+      { dueDate: '2026-07-01', amount: '100', paidAmount: '0' },
+      { dueDate: '2026-06-01', amount: '200', paidAmount: '200' },
+      { dueDate: '2026-06-15', amount: '300', paidAmount: '100' },
+    ]
+    expect(nextOpenBill(bills)?.dueDate).toBe('2026-06-15')
+  })
+  it('按结清、部分收款、逾期、即将到期和待付款区分状态', () => {
+    expect(billState('100', '100', '2026-06-01', '2026-06-10')).toBe('已结清')
+    expect(billState('100', '20', '2026-06-01', '2026-06-10')).toBe('部分收款')
+    expect(billState('100', '0', '2026-06-01', '2026-06-10')).toBe('逾期')
+    expect(billState('100', '0', '2026-06-15', '2026-06-10')).toBe('即将到期')
+    expect(billState('100', '0', '2026-07-01', '2026-06-10')).toBe('待付款')
   })
 })
 

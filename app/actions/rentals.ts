@@ -183,21 +183,18 @@ function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[]
   return buildChunkedInserts(receivableBills, bills.map((bill) => ({ ...bill, userId })))
 }
 
-function buildMonthlyBills(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, monthlyRent: number) {
-  const result: Array<{ rentalId: number; billNo: string; periodStart: string; periodEnd: string; dueDate: string; amount: string; billType: string; status: string }> = []
-  let periodStart = startDate
-  let index = 1
-  let remaining = Math.round(totalRent * 100)
-  while (periodStart <= endDate && remaining > 0) {
-    const nextMonth = addCalendarMonths(periodStart, 1)
-    const periodEnd = addCalendarDays(nextMonth, -1) < endDate ? addCalendarDays(nextMonth, -1) : endDate
-    const amount = Math.min(remaining, Math.round(monthlyRent * 100))
-    result.push({ rentalId, billNo: `${contractNo}-${String(index).padStart(3, '0')}`, periodStart, periodEnd, dueDate: periodStart, amount: (amount / 100).toFixed(2), billType: '租金', status: '待收' })
-    remaining -= amount
-    periodStart = addCalendarDays(periodEnd, 1)
-    index += 1
-  }
-  return result
+function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, duration: number) {
+  return [{
+    rentalId,
+    billNo: `${contractNo}-001`,
+    periodStart: startDate,
+    periodEnd: endDate,
+    dueDate: startDate,
+    amount: totalRent.toFixed(2),
+    billType: '起租预收',
+    status: '待收',
+    notes: `起租 ${duration} 个月一次预收`,
+  }]
 }
 
 async function createRentalOperation(input: RentalInput, orderType: RentalOrderType) {
@@ -229,7 +226,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     // D1 不支持交互式事务；预先生成有序且低碰撞的安全整数 ID，随后用 batch 原子提交全部关联记录。
     const bills = value.billingType === 'daily'
       ? [{ rentalId, billNo: `${contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
-      : buildMonthlyBills(rentalId, contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
+      : buildPrepaidRentBill(rentalId, contractNo, value.startDate, value.endDate, totalRent, value.duration)
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
     const statements = [
       db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }),
@@ -313,8 +310,9 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[])
         renewedItemId = split.id
       }
       const renewalDate = new Date().toISOString().slice(0, 10)
+      const renewalPeriodStart = addCalendarDays(oldEndDate, 1)
       const [renewal] = await tx.insert(renewalRecords).values({ userId, rentalId, sourceRentalItemId: item.id, renewedRentalItemId: renewedItemId, quantity: value.quantity, renewalMonths: value.billingUnit === 'month' ? value.duration : null, billingUnit: value.billingUnit, duration: value.duration, unitPrice: String(value.unitPrice), oldMonthlyRent: item.monthlyRent, newMonthlyRent: String(effectiveMonthlyRent), oldEndDate, newEndDate, renewalAmount: String(amount), renewalDate, notes: value.notes }).returning({ id: renewalRecords.id })
-      await tx.insert(receivableBills).values({ userId, rentalId, billNo: `RENEW-${rentalId}-${renewal.id}`, periodStart: oldEndDate, periodEnd: newEndDate, dueDate: renewalDate, billType: '续租费', amount: String(amount), paidAmount: '0', status: '待收', notes: `${item.deviceName} ${value.quantity} 台续租` })
+      await tx.insert(receivableBills).values({ userId, rentalId, billNo: `RENEW-${rentalId}-${renewal.id}`, periodStart: renewalPeriodStart, periodEnd: newEndDate, dueDate: renewalPeriodStart, billType: '续租费', amount: String(amount), paidAmount: '0', status: '待收', notes: `${item.deviceName} ${value.quantity} 台续租 ${value.duration}${value.billingUnit === 'month' ? '个月' : '天'}，默认到期日付款` })
       await tx.insert(rentalEvents).values({ userId, rentalId, itemId: renewedItemId, eventType: '续租', status: '已完成', eventDate: renewalDate, beforeSnapshot: { quantity: value.quantity, endDate: oldEndDate, monthlyRent: item.monthlyRent }, afterSnapshot: { quantity: value.quantity, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent) }, feeAdjustment: String(amount), operatorName: access.actorName, notes: value.notes })
     }
     const allItems = await tx.select().from(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
@@ -613,7 +611,7 @@ async function confirmDraftOperation(id: number, access: Awaited<ReturnType<type
   const isDaily = rental.billingType ? rental.billingType === 'daily' : (rental.notes || '').includes('日租')
   const bills = isDaily
     ? [{ rentalId: id, billNo: `${numbers.contractNo}-001`, periodStart: rental.startDate, periodEnd: rental.endDate, dueDate: rental.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
-    : buildMonthlyBills(id, numbers.contractNo, rental.startDate, rental.endDate, totalRent, monthlyRent)
+    : buildPrepaidRentBill(id, numbers.contractNo, rental.startDate, rental.endDate, totalRent, rental.duration)
   const deposit = Number(rental.deposit)
   const allBills = deposit > 0 ? [...bills, { rentalId: id, billNo: `${numbers.contractNo}-DEP`, periodStart: rental.startDate, periodEnd: rental.startDate, dueDate: rental.startDate, amount: deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
   try {

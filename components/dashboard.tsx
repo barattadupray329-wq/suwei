@@ -63,6 +63,7 @@ import {
   type RepairInput,
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
+import { addCalendarDays, billCoverageLabel, billState, nextOpenBill } from "@/lib/rental-calculations";
 import { rentalEndDate } from "@/lib/rental-calculations";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
@@ -2276,6 +2277,19 @@ function Detail({
         <Info l="已收租金" v={money(rental.paidAmount)} />
         <Info l="约定押金" v={money(rental.deposit)} />
       </div>
+      {(() => {
+        const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
+        const nextBill = nextOpenBill(rentBills);
+        const settledBills = rentBills.filter((bill) => billOutstandingCents(bill) === 0).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+        const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
+        return (
+          <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
+            <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
+            <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
+            <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+          </section>
+        );
+      })()}
       <div className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
         {rental.items.map((item) => {
@@ -2330,8 +2344,8 @@ function Detail({
           <section>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-semibold">月度应收账单</h3>
-                <p className="text-sm text-muted-foreground">按账期收款，款项去向更清楚</p>
+                <h3 className="font-semibold">应收账单明细</h3>
+                <p className="text-sm text-muted-foreground">起租期一次预收；续租默认按月收取，可按客户要求选择多个月</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
@@ -2343,11 +2357,12 @@ function Detail({
                 const outstanding = billOutstandingCents(bill);
                 return <div key={bill.id} className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-medium">{bill.periodStart} 至 {bill.periodEnd} · {bill.billType}</p>
-                    <p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
+                    <p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p>
+                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
+                    {bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}
                   </div>
                   <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <span className={outstanding === 0 ? "font-medium text-primary" : "text-muted-foreground"}>{bill.status}</span>
+                    <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, new Date().toISOString().slice(0, 10))} />
                     {bill.billType !== "押金" && outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
                   </div>
                 </div>;
@@ -2653,7 +2668,7 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        勾选需要续租的设备，可分别填写续租数量、续租月数和新月租，新到期日将自动计算。部分数量续租时系统会自动拆分，未续租设备保留原租金和到期日。
+        续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。部分数量续租时系统会自动拆分。
       </div>
       <div className="flex flex-col gap-3">
         {available.map((item) => {
@@ -2751,10 +2766,11 @@ function RenewalForm({
                     onChange={(v) => update(item.id, "unitPrice", Number(v))}
                   />
                   <div className="rounded-lg border bg-muted/50 px-3 py-2">
-                    <p className="text-sm font-medium">新到期日</p>
-                    <p className="mt-1 font-semibold">{row.newEndDate}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      本次 {money(row.quantity * row.unitPrice * row.duration)}
+                    <p className="text-sm font-medium">本次付款与覆盖</p>
+                    <p className="mt-1 font-semibold">{money(row.quantity * row.unitPrice * row.duration)}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      付款日 {addDays(item.endDate || rental.endDate, 1)}<br />
+                      覆盖 {addDays(item.endDate || rental.endDate, 1)} 至 {addDays(row.newEndDate, 1)}（不含）
                     </p>
                   </div>
                 </div>
@@ -3854,6 +3870,17 @@ function Stat({
     </div>
   );
 }
+function BillingStatus({ value }: { value: ReturnType<typeof billState> }) {
+  const tones = {
+    "已结清": "bg-primary/10 text-primary",
+    "待付款": "bg-chart-2/15 text-chart-2",
+    "即将到期": "bg-accent text-accent-foreground",
+    "逾期": "bg-destructive/10 text-destructive",
+    "部分收款": "bg-secondary text-secondary-foreground",
+  } as const;
+  return <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tones[value]}`}>{value}</span>;
+}
+
 function Status({ value }: { value: string }) {
   return (
     <span className="inline-flex w-fit rounded-full bg-muted px-2.5 py-1 text-xs font-medium">

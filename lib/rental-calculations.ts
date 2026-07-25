@@ -46,3 +46,25 @@ export function renewalAdjustment(quantity: number, duration: number, currentAmo
   const differenceCents = correctedAmountCents - toCents(currentAmount)
   return { correctedAmount: fromCents(correctedAmountCents), differenceAmount: fromCents(differenceCents) }
 }
+
+export type BillState = '已结清' | '部分收款' | '逾期' | '即将到期' | '待付款'
+
+export function billState(amount: number | string, paidAmount: number | string, dueDate: string, currentDate: string, warningDays = 7): BillState {
+  const amountCents = toCents(amount)
+  const paidCents = toCents(paidAmount)
+  if (paidCents >= amountCents) return '已结清'
+  if (paidCents > 0) return '部分收款'
+  if (dueDate < currentDate) return '逾期'
+  if (dueDate <= addCalendarDays(currentDate, warningDays)) return '即将到期'
+  return '待付款'
+}
+
+export function billCoverageLabel(periodStart: string, periodEnd: string) {
+  return `${periodStart} 至 ${addCalendarDays(periodEnd, 1)}（不含）`
+}
+
+export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[]) {
+  return bills
+    .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null
+}
