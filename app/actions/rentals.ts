@@ -10,6 +10,9 @@ import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-c
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
+import { safeError } from '@/lib/errors'
+import { chunkRowsForD1 } from '@/lib/d1-batch'
+import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 
@@ -163,6 +166,16 @@ async function resolveRentalAssignee(access: Awaited<ReturnType<typeof getAccess
   return member
 }
 
+// 批量 INSERT 需要按 D1 的绑定变量上限拆分（见 lib/d1-batch.ts），
+// 拆出的多条语句仍放进同一个 batch，以保持原子性。
+function buildChunkedInserts(table: Parameters<typeof db.insert>[0], rows: Record<string, unknown>[]) {
+  return chunkRowsForD1(rows).map((chunk) => db.insert(table).values(chunk as never))
+}
+
+function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[], userId: string) {
+  return buildChunkedInserts(receivableBills, bills.map((bill) => ({ ...bill, userId })))
+}
+
 function buildMonthlyBills(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, monthlyRent: number) {
   const result: Array<{ rentalId: number; billNo: string; periodStart: string; periodEnd: string; dueDate: string; amount: string; billType: string; status: string }> = []
   let periodStart = startDate
@@ -212,9 +225,9 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       : buildMonthlyBills(rentalId, contractNo, value.startDate, value.endDate, totalRent, monthlyRent)
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
     const statements = [
-      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }),
-      db.insert(rentalItems).values(normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
-      ...(allBills.length ? [db.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId })))] : []),
+      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }),
+      ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
+      ...buildBillInsertStatements(allBills, userId),
       db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType } }),
     ]
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
@@ -501,8 +514,7 @@ export async function permanentlyDeleteRental(id: number) {
 
 export const deleteTestRental = moveRentalToTrash
 
-export async function confirmDraftAsOfficial(id: number) {
-  const access = await getAccessContext('租赁操作')
+async function confirmDraftOperation(id: number, access: Awaited<ReturnType<typeof getAccessContext>>) {
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'active')))
   if (!rental) throw new Error('订单不存在或已删除')
   if (rental.orderType === 'official') throw new Error('该合同已经是正式合同')
@@ -512,7 +524,8 @@ export async function confirmDraftAsOfficial(id: number) {
   const numbers = await getNextRentalNumbers(rental.startDate, items.map((item) => ({ deviceType: item.deviceType as RentalItemInput['deviceType'], quantity: item.quantity })))
   const monthlyRent = Number(rental.monthlyRent)
   const totalRent = Number(rental.totalRent)
-  const isDaily = (rental.notes || '').includes('日租')
+  // 计费方式以主表字段为准；旧数据迁移前可能仍只有备注文本，故保留兼容判断。
+  const isDaily = rental.billingType ? rental.billingType === 'daily' : (rental.notes || '').includes('日租')
   const bills = isDaily
     ? [{ rentalId: id, billNo: `${numbers.contractNo}-001`, periodStart: rental.startDate, periodEnd: rental.endDate, dueDate: rental.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
     : buildMonthlyBills(id, numbers.contractNo, rental.startDate, rental.endDate, totalRent, monthlyRent)
@@ -522,7 +535,7 @@ export async function confirmDraftAsOfficial(id: number) {
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
       db.update(rentals).set({ orderType: 'official', contractNo: numbers.contractNo, deviceCode: numbers.deviceCodes[0], confirmedAt: new Date(), confirmedBy: access.actorId, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
       ...items.map((item, index) => db.update(rentalItems).set({ deviceCode: numbers.deviceCodes[index], updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, access.userId)))),
-      ...(allBills.length ? [db.insert(receivableBills).values(allBills.map((bill) => ({ ...bill, userId: access.userId })))] : []),
+      ...buildBillInsertStatements(allBills, access.userId),
       db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '转正式合同', resourceType: '租赁合同', resourceId: String(id), summary: `草稿合同转为正式合同 ${numbers.contractNo}`, metadata: { totalRent, contractNo: numbers.contractNo } }),
     ]
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
@@ -534,6 +547,73 @@ export async function confirmDraftAsOfficial(id: number) {
   revalidatePath('/')
   revalidatePath('/rentals')
   return numbers.contractNo
+}
+
+export async function confirmDraftAsOfficial(id: number) {
+  return toActionResult('草稿转正式合同', async () => {
+    const access = await getAccessContext('租赁操作')
+    return confirmDraftOperation(id, access)
+  })
+}
+
+export type DraftConfirmOutcome = { id: number; contractNo: string | null; message: string }
+
+/**
+ * 批量转正必须串行执行：合同号与设备编号都按当日流水号推导，
+ * 并发调用会读到同一个基准值并产生重复编号。
+ */
+export async function confirmDraftsAsOfficial(ids: number[]) {
+  return toActionResult('批量转正式合同', async () => {
+    const access = await getAccessContext('租赁操作')
+    const unique = [...new Set(z.array(z.coerce.number().int().positive()).min(1, '请先勾选草稿').max(DRAFT_IMPORT_LIMIT).parse(ids))]
+    const succeeded: DraftConfirmOutcome[] = []
+    const failed: DraftConfirmOutcome[] = []
+    for (const id of unique) {
+      try {
+        const contractNo = await confirmDraftOperation(id, access)
+        succeeded.push({ id, contractNo, message: '' })
+      } catch (error) {
+        failed.push({ id, contractNo: null, message: safeError(error).message })
+      }
+    }
+    return { succeeded, failed }
+  })
+}
+
+const draftImportSchema = z.object({
+  rows: z.array(rentalSchema).min(1, '没有可导入的数据').max(DRAFT_IMPORT_LIMIT, `单次最多导入 ${DRAFT_IMPORT_LIMIT} 行`),
+  assigneeUserId: z.string().optional(),
+})
+
+export type DraftImportPayload = z.input<typeof draftImportSchema>
+
+/** 批量导入草稿：逐行独立提交，单行失败不影响其余行，并回传行号便于业务人员修正。 */
+export async function importDraftRentals(payload: DraftImportPayload) {
+  return toActionResult('批量导入草稿', async () => {
+    await getAccessContext('租赁操作')
+    const value = draftImportSchema.parse(payload)
+    const succeeded: number[] = []
+    const failed: Array<{ line: number; message: string }> = []
+    for (const [index, row] of value.rows.entries()) {
+      try {
+        const rentalId = await createRentalOperation({ ...row, contractNo: '', assigneeUserId: row.assigneeUserId || value.assigneeUserId }, 'draft')
+        succeeded.push(rentalId)
+      } catch (error) {
+        failed.push({ line: index + 1, message: safeError(error).message })
+      }
+    }
+    revalidatePath('/rentals')
+    revalidatePath('/rentals/drafts')
+    return { succeeded, failed }
+  })
+}
+
+export async function getDraftRentalDetail(id: number) {
+  const userId = await getUserId()
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active')))
+  if (!rental) return null
+  const items = await db.select().from(rentalItems).where(and(eq(rentalItems.rentalId, id), eq(rentalItems.userId, userId))).orderBy(rentalItems.id)
+  return { ...rental, createdAt: rental.createdAt.toISOString(), confirmedAt: null, deletedAt: null, items }
 }
 
 export async function getRentalTrash() {

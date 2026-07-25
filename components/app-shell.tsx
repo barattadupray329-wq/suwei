@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, BookOpenCheck, ChevronRight, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, BookOpenCheck, ChevronRight, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 
@@ -18,6 +18,7 @@ const groups: NavGroup[] = [
     { href: '/rentals', label: '租赁记录', description: '检索、筛选与合同操作', icon: FileSearch, permission: '租赁操作' },
     { href: '/finance', label: '资金流水', description: '收款、退款与应收', icon: Banknote, permission: '资金查看' },
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
+    { href: '/rentals/drafts', label: '草稿审核', description: '批量导入与转正式合同', icon: ClipboardCheck, permission: '租赁操作' },
   ] },
   { label: '团队与配置', items: [
     { href: '/accounts', label: '账号与权限', description: '客户经理账号和职责', icon: UserRoundCog, permission: '账号管理', managerOnly: true },
@@ -35,7 +36,9 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname(); const router = useRouter(); const [mobileMenu, setMobileMenu] = useState(false); const [signingOut, setSigningOut] = useState(false)
   const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleGroups = groups.map((group) => ({ ...group, items: group.items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && (!item.managerOnly || role !== 'employee') && can(item.permission)) })).filter((group) => group.items.length)
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+  // 子路由（如 /rentals/drafts）必须只高亮最精确的菜单项，否则父级「租赁记录」会同时点亮。
+  const activeHref = visibleGroups.flatMap((group) => group.items).map((item) => item.href).filter((href) => pathname === href || pathname.startsWith(`${href}/`)).sort((left, right) => right.length - left.length)[0]
+  const isActive = (href: string) => href === activeHref
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
   const current = visibleGroups.flatMap((group) => group.items).find((item) => isActive(item.href))
 
@@ -61,7 +64,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
       <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
     </header>
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭菜单" className="absolute inset-0 bg-foreground/35" onClick={() => setMobileMenu(false)}/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,340px)] flex-col bg-card shadow-xl"><div className="flex items-center justify-between border-b p-4"><div><p className="font-bold">全部功能</p><p className="text-xs text-muted-foreground">{userName} · {role === 'employee' ? '客户经理' : role === 'super_admin' ? '平台主管' : '业务主管'}</p></div><button type="button" aria-label="关闭菜单" onClick={() => setMobileMenu(false)} className="icon-button"><X/></button></div><div className="flex-1 overflow-y-auto p-4">{navigation(true)}</div></aside></div>}
-    <div className="flex pb-16 md:pb-0"><aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><Link href="/guide" className="mt-6 rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link></aside><main className="min-w-0 flex-1">{children}</main></div>
+    <div className="flex pb-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:pb-0"><aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><Link href="/guide" className="mt-6 rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link></aside><main className="min-w-0 flex-1">{children}</main></div>
     <nav aria-label="手机快捷导航" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">{visibleGroups[0]?.items.slice(0, 3).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${isActive(href) ? 'text-primary' : 'text-muted-foreground'}`}><Icon className="size-5"/>{label}</Link>)}<button type="button" onClick={() => setMobileMenu(true)} className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium text-muted-foreground"><Menu className="size-5"/>全部</button></nav>
   </div>
 }
