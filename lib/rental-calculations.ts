@@ -40,3 +40,9 @@ export function isDueWithin(endDate: string, today: string, days = 7) {
 export function renewalAmount(quantity: number, unitPrice: number, duration: number) {
   return fromCents(quantity * duration * toCents(unitPrice))
 }
+
+export function renewalAdjustment(quantity: number, duration: number, currentAmount: number | string, correctedUnitPrice: number | string) {
+  const correctedAmountCents = quantity * duration * toCents(correctedUnitPrice)
+  const differenceCents = correctedAmountCents - toCents(currentAmount)
+  return { correctedAmount: fromCents(correctedAmountCents), differenceAmount: fromCents(differenceCents) }
+}

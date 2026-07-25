@@ -5,8 +5,8 @@ import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzl
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { fromCents, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { fromCents, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -72,10 +72,11 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, payments, events, bills, ledger] = await Promise.all([
+  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, ledger] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
+    db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), inArray(renewalAdjustments.rentalId, ids))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
     db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), inArray(rentalEvents.rentalId, ids))).orderBy(desc(rentalEvents.eventDate), desc(rentalEvents.createdAt)),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids))).orderBy(receivableBills.dueDate),
@@ -88,7 +89,10 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   }
   const itemMap = groupByRental(items)
   const buyoutMap = groupByRental(buyouts)
-  const renewalMap = groupByRental(renewals)
+  const correctionsByRenewal = new Map<number, typeof renewalCorrections>()
+  for (const correction of renewalCorrections) correctionsByRenewal.set(correction.renewalRecordId, [...(correctionsByRenewal.get(correction.renewalRecordId) ?? []), correction])
+  const renewalsWithCorrections = renewals.map((renewal) => ({ ...renewal, adjustments: correctionsByRenewal.get(renewal.id) ?? [] }))
+  const renewalMap = groupByRental(renewalsWithCorrections)
   const paymentMap = groupByRental(payments)
   const eventMap = groupByRental(events)
   const billMap = groupByRental(bills)
@@ -325,6 +329,44 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[])
   }
   revalidatePath('/')
   revalidatePath('/audit-logs')
+}
+
+const renewalCorrectionSchema = z.object({ renewalRecordId: z.number().int().positive(), correctedUnitPrice: z.number().positive(), reason: z.string().trim().min(2, '请填写至少 2 个字的更正原因').max(200) })
+export type RenewalCorrectionInput = z.infer<typeof renewalCorrectionSchema>
+
+export async function correctRenewalPrice(input: RenewalCorrectionInput) {
+  const access = await getAccessContext('租赁操作')
+  if (access.role !== 'admin') throw new Error('仅店铺管理员可以更正续租价格')
+  const value = renewalCorrectionSchema.parse(input)
+  const userId = access.userId
+  const [renewal] = await db.select().from(renewalRecords).where(and(eq(renewalRecords.id, value.renewalRecordId), eq(renewalRecords.userId, userId))).limit(1)
+  if (!renewal) throw new Error('续租记录不存在或不属于当前店铺')
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId))).limit(1)
+  if (!rental) throw new Error('合同不存在或不属于当前店铺')
+  assertOfficialRental(rental)
+  const [latest] = await db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), eq(renewalAdjustments.renewalRecordId, renewal.id))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)).limit(1)
+  const previousUnitPrice = Number(latest?.correctedUnitPrice ?? renewal.unitPrice ?? renewal.newMonthlyRent)
+  const duration = renewal.duration ?? renewal.renewalMonths ?? 1
+  const previousAmount = Number(latest?.correctedAmount ?? renewal.renewalAmount)
+  const adjustment = renewalAdjustment(renewal.quantity, duration, previousAmount, value.correctedUnitPrice)
+  const correctedAmount = Number(adjustment.correctedAmount)
+  const differenceAmount = Number(adjustment.differenceAmount)
+  if (toCents(previousUnitPrice) === toCents(value.correctedUnitPrice) || toCents(differenceAmount) === 0) throw new Error('正确价格与当前有效价格相同，无需更正')
+  const correctionDate = new Date().toISOString().slice(0, 10)
+  const newTotalRent = Number((Number(rental.totalRent) + differenceAmount).toFixed(2))
+  if (newTotalRent < 0) throw new Error('更正后合同总额不能小于 0')
+  const paymentStatus = Number(rental.paidAmount) >= newTotalRent ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款'
+  await db.transaction(async (tx) => {
+    await tx.insert(renewalAdjustments).values({ userId, rentalId: renewal.rentalId, renewalRecordId: renewal.id, previousUnitPrice: fromCents(toCents(previousUnitPrice)), correctedUnitPrice: fromCents(toCents(value.correctedUnitPrice)), previousAmount: fromCents(toCents(previousAmount)), correctedAmount: fromCents(toCents(correctedAmount)), differenceAmount: fromCents(toCents(differenceAmount)), reason: value.reason, operatorUserId: access.actorId, operatorName: access.actorName })
+    await tx.insert(receivableBills).values({ userId, rentalId: renewal.rentalId, billNo: `RENEW-ADJ-${renewal.id}-${Date.now()}`, periodStart: renewal.oldEndDate, periodEnd: renewal.newEndDate, dueDate: correctionDate, billType: differenceAmount > 0 ? '续租补差' : '续租减免', amount: fromCents(toCents(differenceAmount)), paidAmount: '0', status: differenceAmount > 0 ? '待收' : '已调整', notes: `续租记录 #${renewal.id} 价格更正：${value.reason}` })
+    await tx.insert(rentalEvents).values({ userId, rentalId: renewal.rentalId, itemId: renewal.renewedRentalItemId, eventType: '续租价格更正', status: '已完成', eventDate: correctionDate, beforeSnapshot: { unitPrice: previousUnitPrice, amount: previousAmount }, afterSnapshot: { unitPrice: value.correctedUnitPrice, amount: correctedAmount }, reason: value.reason, feeAdjustment: fromCents(toCents(differenceAmount)), operatorName: access.actorName, notes: differenceAmount > 0 ? '生成续租补差应收' : '生成续租减免调整' })
+    await tx.update(rentals).set({ totalRent: fromCents(toCents(newTotalRent)), paymentStatus, updatedAt: new Date() }).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId)))
+    await tx.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '更正续租价格', resourceType: '续租记录', resourceId: String(renewal.id), summary: `${rental.contractNo} 续租单价 ${previousUnitPrice.toFixed(2)} 元更正为 ${value.correctedUnitPrice.toFixed(2)} 元，差额 ${differenceAmount.toFixed(2)} 元`, metadata: { rentalId: renewal.rentalId, previousUnitPrice, correctedUnitPrice: value.correctedUnitPrice, previousAmount, correctedAmount, differenceAmount, reason: value.reason } })
+  })
+  revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/audit-logs')
+  return { ok: true }
 }
 
 const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })
