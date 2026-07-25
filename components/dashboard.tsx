@@ -3882,8 +3882,18 @@ function BillingStatus({ value }: { value: ReturnType<typeof billState> }) {
 }
 
 function Status({ value }: { value: string }) {
+  const tone =
+    value === "逾期"
+      ? "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20"
+      : ["在租", "已续租", "已完成", "已结束"].includes(value)
+        ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
+        : ["待审核", "待处理", "即将到期"].includes(value)
+          ? "bg-accent text-accent-foreground ring-1 ring-inset ring-border"
+          : ["买断", "已退租", "已关闭", "丢失"].includes(value)
+            ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
+            : "bg-muted text-muted-foreground ring-1 ring-inset ring-border";
   return (
-    <span className="inline-flex w-fit rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
       {value}
     </span>
   );
