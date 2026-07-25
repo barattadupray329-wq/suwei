@@ -5,7 +5,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
+import { accountLedger, auditLogs, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -57,7 +57,9 @@ export async function changeRentalItem(input: RentalChangeInput) {
 }
 
 export async function createRepairRecord(input: RepairInput) {
-  const { userId, name } = await actor()
+  const context = await getAccessContext('租赁操作')
+  const userId = context.userId
+  const name = context.actorName
   const value = repairSchema.parse(input)
   const [[item], [rental]] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId))),
@@ -67,11 +69,16 @@ export async function createRepairRecord(input: RepairInput) {
   if (!rental) throw new Error('租赁合同不存在')
   const totalRent = Number(rental.totalRent)+value.customerCharge
   const paymentStatus = Number(rental.paidAmount)>=totalRent?'已结清':Number(rental.paidAmount)>0?'部分收款':'待收款'
-  await db.batch([
+  const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
     db.update(rentals).set({totalRent:String(totalRent),paymentStatus,updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
-    db.insert(rentalEvents).values({userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes}),
-  ])
+    db.insert(rentalEvents).values({id:eventId,userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:String(value.repairCost),customerCharge:String(value.customerCharge),completedDate:value.completedDate||null,operatorName:name,notes:value.notes}),
+    db.insert(auditLogs).values({ userId, actorUserId: context.actorId, actorName: name, action: '登记维修', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 登记 ${item.deviceName} 维修，客户承担 ${value.customerCharge.toFixed(2)} 元`, metadata: { eventId, itemId: value.itemId, status: value.status, repairCost: value.repairCost, customerCharge: value.customerCharge } }),
+  ]
+  if (value.customerCharge > 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `REPAIR-${value.rentalId}-${eventId}`, periodStart: value.eventDate, periodEnd: value.completedDate || value.eventDate, dueDate: value.eventDate, billType: '维修费', amount: String(value.customerCharge), paidAmount: '0', status: '待收', notes: `${item.deviceName} 维修客户承担费用` }))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
+  revalidatePath('/audit-logs')
 }
 
 const contractChangeSchema = z.object({
