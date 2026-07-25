@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { MAX_CLOUD_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
-import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 
 export const BACKUP_VERSION = 1
-export const backupTables = { rentals, rentalItems, buyoutRecords, renewalRecords, paymentRecords, receivableBills, paymentAllocations, accountLedger, rentalEvents, returnRecords, lossRecords, businessSettings, contractSnapshots, customerPortals } as const
+export const backupTables = { rentals, rentalItems, buyoutRecords, renewalRecords, renewalAdjustments, paymentRecords, receivableBills, paymentAllocations, accountLedger, rentalEvents, returnRecords, lossRecords, businessSettings, contractSnapshots, customerPortals } as const
 export type BackupPayload = { format: 'suwei-rental-backup'; schemaVersion: number; createdAt: string; userId: string; tables: Record<string, unknown[]> }
 
 export async function buildBackup(userId: string): Promise<BackupPayload> {
@@ -63,7 +63,7 @@ function hydrateBackupRow(row: unknown) {
 export async function restoreBackup(userId: string, rawPayload: unknown) {
   const payload = validateBackup(rawPayload, userId)
   await saveCloudSnapshot(userId, 'pre-restore')
-  const deletionOrder = [paymentAllocations, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
+  const deletionOrder = [paymentAllocations, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalAdjustments, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
   await db.transaction(async (tx) => {
     for (const table of deletionOrder) await tx.delete(table).where(eq(table.userId, userId))
     for (const [name, table] of Object.entries(backupTables)) {
