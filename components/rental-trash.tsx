@@ -16,7 +16,7 @@ export function RentalTrash({ rows }: { rows: TrashRow[] }) {
     try { await action(); toast.success(message); router.refresh() } catch (error) { toast.error(error instanceof Error ? error.message : '操作失败') }
   })
   return <div className="page-container">
-    <header className="page-header"><div><p className="page-eyebrow">数据保护</p><h1 className="page-title">租赁回收站</h1><p className="page-description">草稿和测试合同移入后保留 30 天，可随时恢复。正式合同不会出现在这里。</p></div><Link href="/rentals" className="secondary-button">返回租赁记录</Link></header>
+    <header className="page-header"><div><p className="page-eyebrow">数据保护</p><h1 className="page-title">租赁回收站</h1><p className="page-description">草稿和测试合同移入后保留 30 天，可随时恢复。正式合同不会出现在这里。</p></div><Link href="/rentals" className="secondary-button">返回租赁管理</Link></header>
     <section className="data-shell">
       <div className="toolbar"><div><h2 className="font-semibold">待处理订单</h2><p className="text-sm text-muted-foreground">共 {rows.length} 条。彻底删除前会再次检查业务与资金关联记录。</p></div></div>
       {rows.length ? <div className="divide-y">{rows.map((row) => <article key={row.id} className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">

@@ -14,8 +14,8 @@ type NavGroup = { label: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
   { label: '日常经营', items: [
-    { href: '/dashboard', label: '经营总览', description: '指标、待办与最近合同', icon: LayoutDashboard, permission: '租赁操作' },
-    { href: '/rentals', label: '租赁记录', description: '检索、筛选与合同操作', icon: FileSearch, permission: '租赁操作' },
+    { href: '/dashboard', label: '经营总览', description: '财务、统计、催收与经营提醒', icon: LayoutDashboard, permission: '租赁操作' },
+    { href: '/rentals', label: '租赁管理', description: '登记、修改与合同全生命周期操作', icon: FileSearch, permission: '租赁操作' },
     { href: '/finance', label: '资金流水', description: '收款、退款与应收', icon: Banknote, permission: '资金查看' },
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
     { href: '/rentals/drafts', label: '草稿审核', description: '批量导入与转正式合同', icon: ClipboardCheck, permission: '租赁操作' },
@@ -36,7 +36,7 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
   const pathname = usePathname(); const router = useRouter(); const [mobileMenu, setMobileMenu] = useState(false); const [signingOut, setSigningOut] = useState(false)
   const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleGroups = groups.map((group) => ({ ...group, items: group.items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && (!item.managerOnly || role !== 'employee') && can(item.permission)) })).filter((group) => group.items.length)
-  // 子路由（如 /rentals/drafts）必须只高亮最精确的菜单项，否则父级「租赁记录」会同时点亮。
+  // 子路由（如 /rentals/drafts）必须只高亮最精确的菜单项，否则父级「租赁管理」会同时点亮。
   const activeHref = visibleGroups.flatMap((group) => group.items).map((item) => item.href).filter((href) => pathname === href || pathname.startsWith(`${href}/`)).sort((left, right) => right.length - left.length)[0]
   const isActive = (href: string) => href === activeHref
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')

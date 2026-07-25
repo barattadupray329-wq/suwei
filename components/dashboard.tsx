@@ -313,6 +313,8 @@ export function Dashboard({
   assignees,
   summary,
   rentals,
+  mode = "overview",
+  initialNew = false,
 }: {
   role: "super_admin" | "admin" | "employee";
   permissions: string[];
@@ -321,6 +323,8 @@ export function Dashboard({
   assignees: RentalAssignee[];
   summary: Summary;
   rentals: Rental[];
+  mode?: "overview" | "management";
+  initialNew?: boolean;
 }) {
   const canManageContracts =
     role === "super_admin" || permissions.includes("合同管理");
@@ -355,7 +359,7 @@ export function Dashboard({
   | "delete-confirm"
   | "confirm-draft"
     | null
-  >(linkedRental ? "detail" : null);
+  >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
@@ -436,6 +440,10 @@ export function Dashboard({
       }
     });
   const openDetail = (r: Rental) => {
+    if (mode === "overview") {
+      router.push(`/rentals?rental=${r.id}`);
+      return;
+    }
     setSelected(r);
     setDialog("detail");
   };
@@ -545,13 +553,13 @@ export function Dashboard({
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <p className="text-sm font-medium text-primary">每日工作台</p>
-              <h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1>
+              <p className="text-sm font-medium text-primary">{mode === "overview" ? "经营分析中心" : "合同全生命周期"}</p>
+              <h1 className="mt-1 text-2xl font-bold text-balance">{mode === "overview" ? "经营总览" : "租赁管理"}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                集中查看经营情况并处理合同、收款、到期与售后事项
+                {mode === "overview" ? "集中查看财务、统计、催收和经营提醒；合同办理统一前往租赁管理" : "统一办理租机登记、修改、续租、退租、买断和售后事项"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {mode === "management" && <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={!checked.length || pending}
@@ -569,9 +577,9 @@ export function Dashboard({
                 className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
               >
                 <Plus className="size-4" />
-                新增租赁合同
+                登记新租赁
               </button>
-            </div>
+            </div>}
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
             <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
@@ -691,7 +699,7 @@ export function Dashboard({
               <div>
                 <h2 className="font-semibold">最近租赁合同</h2>
                 <p className="text-sm text-muted-foreground">
-                  展示最近录入的合同，完整历史请前往租赁记录
+                  仅作经营摘要，查看详情或办理业务请前往租赁管理
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -752,7 +760,7 @@ export function Dashboard({
                 )}
               </div>
             </div>
-            {checked.length > 0 && (
+            {mode === "management" && checked.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 border-b bg-muted/50 px-4 py-3">
                 <CheckSquare className="size-4 text-primary" />
                 <span className="mr-auto text-sm font-medium">
