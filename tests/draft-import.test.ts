@@ -39,11 +39,22 @@ describe('parseDraftImport', () => {
     expect(result.rows).toEqual([])
   })
 
-  it('超过单次上限时截断并标记', () => {
-    const row = draftTemplateRows(TODAY)[0].join(',')
-    const result = parseDraftImport(csv(...Array.from({ length: DRAFT_IMPORT_LIMIT + 5 }, () => row)), TODAY)
+  it('超过单次上限时截断并按合同标识合并', () => {
+    const source = draftTemplateRows(TODAY)[0]
+    const rows = Array.from({ length: DRAFT_IMPORT_LIMIT + 5 }, (_, index) => [
+      `HT${index + 1}`, ...source.slice(1),
+    ].join(','))
+    const result = parseDraftImport(csv(...rows), TODAY)
     expect(result.truncated).toBe(true)
     expect(result.rows).toHaveLength(DRAFT_IMPORT_LIMIT)
+  })
+
+  it('相同合同标识的多行设备合并为一份合同', () => {
+    const text = csv(...draftTemplateRows(TODAY).slice(0, 2).map((row) => row.join(',')))
+    const result = parseDraftImport(text, TODAY)
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0].lines).toEqual([2, 3])
+    expect(result.rows[0].value?.items).toHaveLength(2)
   })
 
   it('行号从表格第 2 行开始，便于业务人员定位', () => {
