@@ -18,7 +18,7 @@ type AliyunSmsResponse = {
 const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
 
 const ALIYUN_SMS_ERROR_MESSAGES: Record<string, string> = {
-  SignatureDoesNotMatch: '短信服务密钥校验失败，请联系管理员更新阿里云 AccessKey 后重试',
+  SignatureDoesNotMatch: '短信请求签名计算失败，请稍后重试或联系管理员检查接口签名',
   InvalidAccessKeyIdNotFound: '短信服务 AccessKey 已失效或不存在，请联系管理员更新配置',
   isv: '短信服务商拒绝了本次发送，请检查短信签名、模板和接收号码',
   'isv.BUSINESS_LIMIT_CONTROL': '短信发送过于频繁，请稍后重试',
@@ -37,6 +37,13 @@ export function getAliyunSmsErrorMessage(code?: string, providerMessage?: string
   return providerMessage ? `短信发送失败：${providerMessage}` : `短信发送失败（错误码：${code}）`
 }
 
+export function buildAliyunCanonicalQuery(parameters: Record<string, string>) {
+  return Object.entries(parameters)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, value]) => `${encode(key)}=${encode(value)}`)
+    .join('&')
+}
+
 export async function sendAliyunSms(input: SendAliyunSmsInput) {
   const parameters: Record<string, string> = {
     AccessKeyId: input.accessKeyId,
@@ -53,7 +60,7 @@ export async function sendAliyunSms(input: SendAliyunSmsInput) {
     Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     Version: '2017-05-25',
   }
-  const canonical = Object.entries(parameters).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${encode(key)}=${encode(value)}`).join('&')
+  const canonical = buildAliyunCanonicalQuery(parameters)
   const signature = createHmac('sha1', `${input.accessKeySecret}&`).update(`POST&${encode('/')}&${encode(canonical)}`).digest('base64')
   const body = new URLSearchParams({ ...parameters, Signature: signature })
   const response = await fetch('https://dysmsapi.aliyuncs.com/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=utf-8' }, body, signal: AbortSignal.timeout(10_000) })
