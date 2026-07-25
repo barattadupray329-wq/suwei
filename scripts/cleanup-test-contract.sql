@@ -15,5 +15,5 @@ DELETE FROM rental_items WHERE rentalId = 1784892723233564;
 DELETE FROM rentals WHERE id = 1784892723233564;
 DELETE FROM customer_phone_sessions WHERE phone = '18039825452';
 DELETE FROM customer_otp_challenges WHERE phone = '18039825452';
-DELETE FROM sms_delivery_logs WHERE phone = '18039825452';
+DELETE FROM sms_delivery_logs WHERE rental_id = 1784892723233564;
 DELETE FROM customer_portals WHERE phone = '18039825452';
