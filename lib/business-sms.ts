@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { sendAliyunSms } from '@/lib/aliyun-sms'
+import { getAliyunSmsErrorMessage, sendAliyunSms } from '@/lib/aliyun-sms'
 import { db } from '@/lib/db'
 import { smsDeliveryLogs } from '@/lib/db/schema'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
@@ -35,7 +35,7 @@ export async function sendBusinessSms(input: SendInput) {
     const response = await sendAliyunSms({ accessKeyId: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID!, accessKeySecret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET!, phone: input.phone, signName: process.env.ALIYUN_SMS_SIGN_NAME!, templateCode: readiness.templateCode, templateParams: input.params })
     const ok = response.code === 'OK'
     await db.update(smsDeliveryLogs).set({ status: ok ? 'sent' : 'failed', providerRequestId: response.requestId, providerCode: response.code, errorMessage: ok ? null : response.message?.slice(0, 200), sentAt: ok ? new Date() : null, updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey), eq(smsDeliveryLogs.userId, input.userId)))
-    return { ok, message: ok ? '发送成功' : '短信服务商未接受本次发送', providerCode: response.code }
+    return { ok, message: ok ? '发送成功' : getAliyunSmsErrorMessage(response.code, response.message), providerCode: response.code }
   } catch (error) {
     await db.update(smsDeliveryLogs).set({ status: 'failed', errorMessage: error instanceof Error ? error.message.slice(0, 200) : '短信请求失败', updatedAt: new Date() }).where(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey))
     return { ok: false, message: '短信服务请求失败，请稍后重试' }
