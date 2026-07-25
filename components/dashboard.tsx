@@ -359,12 +359,16 @@ export function Dashboard({
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [form, setForm] = useState<RentalInput>(emptyRental());
+  const todayValue = today();
+  const isRentalOverdue = (r: Rental) =>
+    r.endDate < todayValue && !["买断", "已退租", "已结束", "已关闭", "丢失"].includes(r.status);
+  const displayStatus = (r: Rental) => isRentalOverdue(r) ? "逾期" : r.status;
   const filtered = useMemo(
     () =>
       rentals
         .filter(
           (r) =>
-            (status === "全部" || r.status === status) &&
+            (status === "全部" || displayStatus(r) === status) &&
             `${r.contractNo}${r.customerCompany || ""}${r.customerName}${r.customerPhone}${r.deviceName}${r.items.map((i) => `${i.deviceCode || ""}${i.deviceConfig || ""}`).join("")}`
               .toLowerCase()
               .includes(query.toLowerCase()),
@@ -378,6 +382,26 @@ export function Dashboard({
         ),
     [rentals, query, status, sort],
   );
+  const overdueCustomers = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; phone: string; company: string | null; overdueAmount: number; totalOutstanding: number; contracts: Array<Rental & { overdueDays: number; overdueAmount: number; outstandingAmount: number }> }>();
+    for (const rental of rentals) {
+      const phone = rental.customerPhone.replace(/\D/g, "");
+      const key = phone || rental.customerCompany?.trim().toLowerCase() || rental.customerName.trim().toLowerCase();
+      const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) }));
+      const outstandingAmount = bills.reduce((sum, bill) => sum + bill.outstanding, 0);
+      const overdueAmount = bills.filter((bill) => bill.dueDate < todayValue && bill.outstanding > 0).reduce((sum, bill) => sum + bill.outstanding, 0);
+      const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, overdueAmount: 0, totalOutstanding: 0, contracts: [] };
+      current.totalOutstanding += outstandingAmount;
+      if (isRentalOverdue(rental) || overdueAmount > 0) {
+        current.overdueAmount += overdueAmount;
+        current.contracts.push({ ...rental, overdueDays: Math.max(0, Math.floor((Date.parse(`${todayValue}T00:00:00+08:00`) - Date.parse(`${rental.endDate}T00:00:00+08:00`)) / 86400000)), overdueAmount, outstandingAmount });
+      }
+      groups.set(key, current);
+    }
+    return [...groups.values()]
+      .filter((customer) => customer.contracts.length > 0 && `${customer.company || ""}${customer.name}${customer.phone}${customer.contracts.map((rental) => rental.contractNo).join("")}`.toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => b.overdueAmount - a.overdueAmount || b.totalOutstanding - a.totalOutstanding);
+  }, [rentals, query, todayValue]);
   const pageSize = 8;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
@@ -751,7 +775,39 @@ export function Dashboard({
                 </button>
               </div>
             )}
-            <div className="divide-y md:hidden">
+            {status === "逾期" && (
+              <div className="flex flex-col gap-3 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
+                  <div>
+                    <p className="font-semibold">客户催收汇总</p>
+                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，逾期应收用于当前催收，全部待收包含尚未到期款项。</p>
+                  </div>
+                  <div className="flex gap-6 text-right">
+                    <div><p className="text-xs text-muted-foreground">逾期客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
+                    <div><p className="text-xs text-muted-foreground">逾期应收</p><p className="text-xl font-bold text-destructive">{money(overdueCustomers.reduce((sum, customer) => sum + customer.overdueAmount, 0))}</p></div>
+                  </div>
+                </div>
+                {overdueCustomers.map((customer) => (
+                  <article key={customer.key} className="overflow-hidden rounded-xl border">
+                    <div className="flex flex-col justify-between gap-3 bg-card p-4 sm:flex-row sm:items-center">
+                      <div><p className="font-semibold">{customer.company || customer.name}</p><p className="mt-1 text-sm text-muted-foreground">{customer.company ? `${customer.name} · ` : ""}{customer.phone} · {customer.contracts.length} 份逾期合同</p></div>
+                      <div className="flex gap-6 sm:text-right"><div><p className="text-xs text-muted-foreground">逾期应收</p><p className="font-bold text-destructive">{money(customer.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">全部待收</p><p className="font-bold">{money(customer.totalOutstanding)}</p></div></div>
+                    </div>
+                    <div className="divide-y border-t">
+                      {customer.contracts.sort((a, b) => b.overdueDays - a.overdueDays).map((rental) => (
+                        <button key={rental.id} type="button" onClick={() => openDetail(rental)} className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center">
+                          <div><p className="text-sm font-medium">{rental.contractNo}</p><p className="text-xs text-muted-foreground">{rental.quantity} 台 · {rental.items.map((item) => item.deviceName).join("、")}</p></div>
+                          <div className="text-sm"><p>{rental.startDate} 至 {rental.endDate}</p><p className="text-xs font-medium text-destructive">已逾期 {rental.overdueDays} 天</p></div>
+                          <div className="flex gap-5 sm:text-right"><div><p className="text-xs text-muted-foreground">本单逾期</p><p className="font-semibold text-destructive">{money(rental.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">本单待收</p><p className="font-semibold">{money(rental.outstandingAmount)}</p></div></div>
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+                {!overdueCustomers.length && <p className="p-10 text-center text-sm text-muted-foreground">暂无逾期客户</p>}
+              </div>
+            )}
+            {status !== "逾期" && <div className="divide-y md:hidden">
               {visible.map((r) => (
                 <button
                   type="button"
@@ -768,7 +824,7 @@ export function Dashboard({
                         {r.contractNo} · {r.customerPhone}
                       </p>
                     </div>
-                    <Status value={r.status} />
+                    <Status value={displayStatus(r)} />
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -787,8 +843,8 @@ export function Dashboard({
                   </p>
                 </button>
               ))}
-            </div>
-            <div className="hidden overflow-x-auto md:block">
+            </div>}
+            {status !== "逾期" && <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[900px] text-left text-sm">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>
@@ -871,7 +927,7 @@ export function Dashboard({
                       </td>
                       <td className="p-3">{money(r.totalRent)}</td>
                       <td className="p-3">
-                        <Status value={r.status} />
+                        <Status value={displayStatus(r)} />
                       </td>
                     </tr>
                   ))}
@@ -882,8 +938,8 @@ export function Dashboard({
                   暂无符合条件的租赁记录
                 </p>
               )}
-            </div>
-            {filtered.length > pageSize && (
+            </div>}
+            {status !== "逾期" && filtered.length > pageSize && (
               <div className="flex items-center justify-between border-t px-4 py-3">
                 <p className="text-xs text-muted-foreground">
                   第 {page} / {pageCount} 页
