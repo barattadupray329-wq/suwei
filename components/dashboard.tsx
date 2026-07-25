@@ -313,6 +313,8 @@ export function Dashboard({
   assignees,
   summary,
   rentals,
+  mode = "overview",
+  initialNew = false,
 }: {
   role: "super_admin" | "admin" | "employee";
   permissions: string[];
@@ -321,6 +323,8 @@ export function Dashboard({
   assignees: RentalAssignee[];
   summary: Summary;
   rentals: Rental[];
+  mode?: "overview" | "management";
+  initialNew?: boolean;
 }) {
   const canManageContracts =
     role === "super_admin" || permissions.includes("合同管理");
@@ -355,7 +359,7 @@ export function Dashboard({
   | "delete-confirm"
   | "confirm-draft"
     | null
-  >(linkedRental ? "detail" : null);
+  >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
@@ -384,25 +388,32 @@ export function Dashboard({
     [rentals, query, status, sort],
   );
   const overdueCustomers = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; phone: string; company: string | null; overdueAmount: number; totalOutstanding: number; contracts: Array<Rental & { overdueDays: number; overdueAmount: number; outstandingAmount: number }> }>();
+    const groups = new Map<string, { key: string; name: string; phone: string; company: string | null; dueAmount: number; contracts: Array<Rental & { overdueDays: number; dueAmount: number; dueBills: Array<Bill & { outstanding: number }> }> }>();
     for (const rental of rentals) {
       const phone = rental.customerPhone.replace(/\D/g, "");
       const key = phone || rental.customerCompany?.trim().toLowerCase() || rental.customerName.trim().toLowerCase();
       const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) }));
-      const outstandingAmount = bills.reduce((sum, bill) => sum + bill.outstanding, 0);
-      const overdueAmount = bills.filter((bill) => bill.dueDate < todayValue && bill.outstanding > 0).reduce((sum, bill) => sum + bill.outstanding, 0);
-      const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, overdueAmount: 0, totalOutstanding: 0, contracts: [] };
-      current.totalOutstanding += outstandingAmount;
-      if (isRentalOverdue(rental) || overdueAmount > 0) {
-        current.overdueAmount += overdueAmount;
-        current.contracts.push({ ...rental, overdueDays: Math.max(0, Math.floor((Date.parse(`${todayValue}T00:00:00+08:00`) - Date.parse(`${rental.endDate}T00:00:00+08:00`)) / 86400000)), overdueAmount, outstandingAmount });
+      const dueBills = bills.filter((bill) => bill.dueDate <= todayValue && bill.outstanding > 0);
+      const dueAmount = dueBills.reduce((sum, bill) => sum + bill.outstanding, 0);
+      const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, dueAmount: 0, contracts: [] };
+      if (dueAmount > 0) {
+        current.dueAmount += dueAmount;
+        current.contracts.push({ ...rental, overdueDays: Math.max(0, Math.floor((Date.parse(`${todayValue}T00:00:00+08:00`) - Date.parse(`${rental.endDate}T00:00:00+08:00`)) / 86400000)), dueAmount, dueBills });
       }
       groups.set(key, current);
     }
     return [...groups.values()]
       .filter((customer) => customer.contracts.length > 0 && `${customer.company || ""}${customer.name}${customer.phone}${customer.contracts.map((rental) => rental.contractNo).join("")}`.toLowerCase().includes(query.toLowerCase()))
-      .sort((a, b) => b.overdueAmount - a.overdueAmount || b.totalOutstanding - a.totalOutstanding);
+      .sort((a, b) => b.dueAmount - a.dueAmount);
   }, [rentals, query, todayValue]);
+  const copyCollectionMessage = async (customer: (typeof overdueCustomers)[number]) => {
+    const lines = customer.contracts.flatMap((rental) => rental.dueBills.map((bill) =>
+      `合同 ${rental.contractNo}｜${rental.items.map((item) => `${item.deviceName}×${item.quantity}`).join("、")}｜账期 ${bill.periodStart} 至 ${bill.periodEnd}｜付款日 ${bill.dueDate}｜待付 ${money(bill.outstanding)}`,
+    ));
+    const message = `${customer.name}您好，您当前有以下已到付款日的租赁账单待支付：\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}\n本次合计应付：${money(customer.dueAmount)}。尚未到付款日的账单未计入本次应付，请您核对并安排付款，谢谢。`;
+    await navigator.clipboard.writeText(message);
+    toast.success("微信催款文案已复制");
+  };
   const pageSize = 8;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
@@ -429,6 +440,10 @@ export function Dashboard({
       }
     });
   const openDetail = (r: Rental) => {
+    if (mode === "overview") {
+      router.push(`/rentals?rental=${r.id}`);
+      return;
+    }
     setSelected(r);
     setDialog("detail");
   };
@@ -538,13 +553,13 @@ export function Dashboard({
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <p className="text-sm font-medium text-primary">每日工作台</p>
-              <h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1>
+              <p className="text-sm font-medium text-primary">{mode === "overview" ? "经营分析中心" : "合同全生命周期"}</p>
+              <h1 className="mt-1 text-2xl font-bold text-balance">{mode === "overview" ? "经营总览" : "租赁管理"}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                集中查看经营情况并处理合同、收款、到期与售后事项
+                {mode === "overview" ? "集中查看财务、统计、催收和经营提醒；合同办理统一前往租赁管理" : "统一办理租机登记、修改、续租、退租、买断和售后事项"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {mode === "management" && <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={!checked.length || pending}
@@ -562,9 +577,9 @@ export function Dashboard({
                 className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
               >
                 <Plus className="size-4" />
-                新增租赁合同
+                登记新租赁
               </button>
-            </div>
+            </div>}
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
             <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
@@ -684,7 +699,7 @@ export function Dashboard({
               <div>
                 <h2 className="font-semibold">最近租赁合同</h2>
                 <p className="text-sm text-muted-foreground">
-                  展示最近录入的合同，完整历史请前往租赁记录
+                  仅作经营摘要，查看详情或办理业务请前往租赁管理
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -745,7 +760,7 @@ export function Dashboard({
                 )}
               </div>
             </div>
-            {checked.length > 0 && (
+            {mode === "management" && checked.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 border-b bg-muted/50 px-4 py-3">
                 <CheckSquare className="size-4 text-primary" />
                 <span className="mr-auto text-sm font-medium">
@@ -781,25 +796,25 @@ export function Dashboard({
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
                     <p className="font-semibold">客户催收汇总</p>
-                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，逾期应收用于当前催收，全部待收包含尚未到期款项。</p>
+                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
-                    <div><p className="text-xs text-muted-foreground">逾期客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
-                    <div><p className="text-xs text-muted-foreground">逾期应收</p><p className="text-xl font-bold text-destructive">{money(overdueCustomers.reduce((sum, customer) => sum + customer.overdueAmount, 0))}</p></div>
+                    <div><p className="text-xs text-muted-foreground">当前待催客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
+                    <div><p className="text-xs text-muted-foreground">截至今日应付</p><p className="text-xl font-bold text-destructive">{money(overdueCustomers.reduce((sum, customer) => sum + customer.dueAmount, 0))}</p></div>
                   </div>
                 </div>
                 {overdueCustomers.map((customer) => (
                   <article key={customer.key} className="overflow-hidden rounded-xl border">
                     <div className="flex flex-col justify-between gap-3 bg-card p-4 sm:flex-row sm:items-center">
                       <div><p className="font-semibold">{customer.company || customer.name}</p><p className="mt-1 text-sm text-muted-foreground">{customer.company ? `${customer.name} · ` : ""}{customer.phone} · {customer.contracts.length} 份待催合同</p></div>
-                      <div className="flex gap-6 sm:text-right"><div><p className="text-xs text-muted-foreground">逾期应收</p><p className="font-bold text-destructive">{money(customer.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">全部待收</p><p className="font-bold">{money(customer.totalOutstanding)}</p></div></div>
+                      <div className="flex flex-wrap items-center gap-3 sm:justify-end"><div className="sm:text-right"><p className="text-xs text-muted-foreground">截至今日应付</p><p className="font-bold text-destructive">{money(customer.dueAmount)}</p></div><button type="button" onClick={() => copyCollectionMessage(customer)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"><Copy className="size-4" />复制微信催款</button></div>
                     </div>
                     <div className="divide-y border-t">
                       {customer.contracts.sort((a, b) => b.overdueDays - a.overdueDays).map((rental) => (
                         <button key={rental.id} type="button" onClick={() => openDetail(rental)} className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center">
                           <div><p className="text-sm font-medium">{rental.contractNo}</p><p className="text-xs text-muted-foreground">{rental.quantity} 台 · {rental.items.map((item) => item.deviceName).join("、")}</p></div>
-                          <div className="text-sm"><p>{rental.startDate} 至 {rental.endDate}</p><p className="text-xs font-medium text-destructive">{rental.overdueDays > 0 ? `合同已逾期 ${rental.overdueDays} 天` : "账单已逾期"}</p></div>
-                          <div className="flex gap-5 sm:text-right"><div><p className="text-xs text-muted-foreground">本单逾期</p><p className="font-semibold text-destructive">{money(rental.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">本单待收</p><p className="font-semibold">{money(rental.outstandingAmount)}</p></div></div>
+                          <div className="text-sm"><p>{rental.dueBills.length} 笔已到付款日</p><p className="text-xs text-muted-foreground">{rental.dueBills.map((bill) => `${bill.dueDate} · ${bill.billType} ${money(bill.outstanding)}`).join("；")}</p></div>
+                          <div className="sm:text-right"><p className="text-xs text-muted-foreground">本合同当前应付</p><p className="font-semibold text-destructive">{money(rental.dueAmount)}</p></div>
                         </button>
                       ))}
                     </div>

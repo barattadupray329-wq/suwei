@@ -68,3 +68,9 @@ export function nextOpenBill<T extends { amount: string | number; paidAmount: st
     .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null
 }
+
+export function dueBillsAsOf<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[], currentDate: string) {
+  return bills
+    .filter((bill) => bill.dueDate <= currentDate && toCents(bill.amount) > toCents(bill.paidAmount))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+}

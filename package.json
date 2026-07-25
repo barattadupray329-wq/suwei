@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "verify:data-integrity": "vitest run tests/data-integrity-policy.test.ts tests/backup-policy.test.ts tests/payment-allocation.test.ts tests/rental-lifecycle.test.ts tests/tenant-policy.test.ts",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",

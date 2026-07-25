@@ -5,7 +5,7 @@ import { Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone, ShieldChe
 import { toast } from 'sonner'
 import { loginCustomerPortal, logoutCustomerPortal } from '@/app/actions/portal-auth'
 import { userErrorMessage } from '@/lib/errors'
-import { addCalendarDays, billCoverageLabel, billState } from '@/lib/rental-calculations'
+import { addCalendarDays, billCoverageLabel, billState, dueBillsAsOf } from '@/lib/rental-calculations'
 
 const money = (value: string | number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value || 0))
 const day = (value?: string | Date | null) => (value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value)) : '—')
@@ -34,15 +34,14 @@ function contractRank(contract: Row) {
 
 // 当前待付：已到付款日（含逾期）且未结清的应收账单；下期预告：最近一期未到付款日的账单
 function billing(bills: Row[]) {
-  const open: Row[] = bills.map((bill) => ({ ...bill, due: Math.max(0, num(bill.amount) - num(bill.paidAmount)) })).filter((bill) => bill.due > 0)
+  const open = bills.map((bill) => ({ ...bill, amount: String(bill.amount), paidAmount: String(bill.paidAmount), dueDate: String(bill.dueDate), due: Math.max(0, num(bill.amount) - num(bill.paidAmount)) })).filter((bill) => bill.due > 0)
   const now = today()
-  const currentDue = open.filter((bill) => bill.dueDate <= now).reduce((sum, bill) => sum + bill.due, 0)
-  const upcoming = open.filter((bill) => bill.dueDate > now).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
-  const nextOpen = open.sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
+  const dueNow = dueBillsAsOf(open, now)
+  const currentDue = dueNow.reduce((sum, bill) => sum + bill.due, 0)
   const settled = bills.filter((bill) => num(bill.paidAmount) >= num(bill.amount) && bill.billType !== '押金').sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0]
   return {
     currentDue,
-    next: nextOpen ? { date: nextOpen.dueDate, amount: nextOpen.due } : upcoming ? { date: upcoming.dueDate, amount: upcoming.due } : null,
+    dueBills: dueNow,
     paidThrough: settled ? addCalendarDays(settled.periodEnd, 1) : null,
   }
 }
@@ -79,6 +78,8 @@ export function PortalDashboard({ token, data }: { token: string; data: Row }) {
 
       <section className="flex items-center gap-4 rounded-2xl border bg-card p-4 shadow-sm"><span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><UserRound className="size-5"/></span><div className="flex-1"><p className="text-sm text-muted-foreground">专属{data.manager?.title || '客户经理'}</p><p className="font-semibold">{data.manager?.name || '门店客服'}</p></div>{data.manager?.phone ? <a href={`tel:${data.manager.phone}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"><Phone className="size-4"/>{data.manager.phone}</a> : null}</section>
 
+      {currentDueTotal > 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 shadow-sm"><div><p className="text-sm font-semibold text-destructive">当前已到付款日</p><h2 className="mt-1 text-xl font-bold">本次应付 {money(currentDueTotal)}</h2><p className="mt-1 text-sm text-muted-foreground">仅显示截至今天已到付款日的账单，未来账单不会提前显示。</p></div>{active.flatMap((contract) => billing(rowsBy(data.bills, contract.id)).dueBills.map((bill: Row) => <div key={bill.id} className="rounded-xl bg-card p-3"><p className="text-sm font-semibold">{contract.contractNo} · {bill.billType}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">付款日 {day(bill.dueDate)} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)} · 待付 {money(bill.due)}</p></div>))}</section> : <section className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground shadow-sm">今天暂无已到付款日的账单。</section>}
+
       {active.length ? <section className="flex flex-col gap-3"><h2 className="text-lg font-bold">进行中的租赁 <span className="text-sm font-normal text-muted-foreground">（{active.length} 份，快到期已置顶）</span></h2>{active.map((contract) => <ContractCard key={contract.id} contract={contract} data={data} devices={allDevices.filter((item) => item.rentalId === contract.id)}/>)}</section> : <div className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">当前没有进行中的租赁</div>}
 
       {ended.length ? <details className="rounded-2xl border bg-card"><summary className="flex cursor-pointer items-center justify-between gap-3 p-4 font-semibold">已结束 / 已退租（{ended.length} 份）<ChevronDown className="size-5"/></summary><div className="flex flex-col gap-3 border-t p-4">{ended.map((contract) => <ContractCard key={contract.id} contract={contract} data={data} devices={allDevices.filter((item) => item.rentalId === contract.id)} archived/>)}</div></details> : null}
@@ -93,10 +94,10 @@ function ContractCard({ contract, data, devices, archived }: { contract: Row; da
   const bill = billing(rowsBy(data.bills, contract.id))
   const rentingCount = devices.reduce((sum, item) => sum + item.renting, 0)
   return <details className="group rounded-2xl border bg-card shadow-sm open:ring-1 open:ring-border" open={!archived && (overdue || soon)}>
-    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap gap-x-5 gap-y-1 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">已付覆盖至 {day(bill.paidThrough)}（不含）</span> : null}{bill.next ? <span className="text-muted-foreground">下次付款 {day(bill.next.date)} · {money(bill.next.amount)}</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
+    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap gap-x-5 gap-y-1 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">已付覆盖至 {day(bill.paidThrough)}（不含）</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
     <div className="flex flex-col gap-5 border-t p-4">
       <Block title="设备状态" icon={<Monitor/>}>{devices.map((item) => <div key={item.id} className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{item.deviceType} · {item.deviceName} × {item.quantity}</p><div className="mt-2 flex flex-wrap gap-2 text-xs">{item.renting > 0 ? <Tag tone="primary">在租 {item.renting}</Tag> : null}{item.returned > 0 ? <Tag>已归还 {item.returned}</Tag> : null}{item.bought > 0 ? <Tag>已买断 {item.bought}</Tag> : null}{item.lost > 0 ? <Tag tone="destructive">丢失 {item.lost}</Tag> : null}</div></div>)}</Block>
-      <Block title="租金账单" icon={<Banknote/>}>{rowsBy(data.bills, contract.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((item: Row) => <BillLine key={item.id} bill={item}/>)}</Block>
+      <Block title="当前应付账单" icon={<Banknote/>}>{billing(rowsBy(data.bills, contract.id)).dueBills.map((item: Row) => <BillLine key={item.id} bill={item}/>)}</Block>
       <Block title="付款记录" icon={<Banknote/>}>{rowsBy(data.payments, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.paymentDate)} · ${item.feeType}`} detail={`${money(item.amount)} · ${item.paymentMethod}`}/>)}</Block>
       {rowsBy(data.returns, contract.id).length ? <Block title="归还记录" icon={<Monitor/>}>{rowsBy(data.returns, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.returnDate)} 归还 ${item.quantity} 台`} detail={`成色 ${item.condition}`}/>)}</Block> : null}
       {rowsBy(data.events, contract.id).length ? <Block title="服务记录" icon={<Monitor/>}>{rowsBy(data.events, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.eventDate)} · ${item.eventType}`} detail={item.faultDescription || item.notes || item.status}/>)}</Block> : null}
