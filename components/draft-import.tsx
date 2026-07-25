@@ -134,7 +134,7 @@ export function DraftImport({ assignees }: { assignees: RentalAssignee[] }) {
             {parsed.rows.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[880px] text-left text-sm">
-                  <thead className="bg-muted text-muted-foreground"><tr><th className="p-2">行号</th><th className="p-2">客户</th><th className="p-2">设备</th><th className="p-2">租期</th><th className="p-2">金额</th><th className="p-2">校验</th></tr></thead>
+                  <thead className="bg-muted text-muted-foreground"><tr><th className="p-2">行号</th><th className="p-2">客户</th><th className="p-2">设备</th><th className="p-2">租期</th><th className="p-2">金额</th><th className="w-[280px] p-2">校验</th></tr></thead>
                   <tbody>
                     {parsed.rows.map((row) => {
                       const item = row.value?.items[0]
@@ -145,7 +145,7 @@ export function DraftImport({ assignees }: { assignees: RentalAssignee[] }) {
                           <td className="p-2">{item ? `${item.deviceName || item.deviceType} × ${item.quantity}` : `${row.raw.deviceName || row.raw.deviceType || '—'} × ${row.raw.quantity || '—'}`}</td>
                           <td className="p-2">{row.value ? `${row.value.startDate} 起 ${row.value.duration}${row.value.billingType === 'daily' ? '天' : '个月'}，至 ${row.value.endDate}` : `${row.raw.startDate || '—'} / ${row.raw.duration || '—'}`}</td>
                           <td className="p-2">{row.value ? `${row.value.items[0].totalRent.toFixed(2)} 元` : '—'}</td>
-                          <td className="p-2">{row.errors.length ? <span className="text-destructive">{row.errors.join('；')}</span> : <span className="text-muted-foreground">通过</span>}</td>
+                          <td className="w-[280px] p-2 leading-relaxed break-words whitespace-normal">{row.errors.length ? <span className="text-destructive">{row.errors.join('；')}</span> : <span className="text-muted-foreground">通过</span>}</td>
                         </tr>
                       )
                     })}
