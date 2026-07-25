@@ -10,7 +10,7 @@ import { confirmDraftsAsOfficial, getDraftRentalDetail, moveRentalToTrash } from
 type DraftRow = { id: number; contractNo: string; customerCompany: string | null; customerName: string; customerPhone: string; deviceName: string; quantity: number; startDate: string; endDate: string; totalRent: string; assigneeName: string | null }
 type Detail = Awaited<ReturnType<typeof getDraftRentalDetail>>
 
-export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]; total: number; page: number; pageCount: number }) {
+export function DraftReview({ rows, total, page, pageCount, query, sort }: { rows: DraftRow[]; total: number; page: number; pageCount: number; query: string; sort: 'newest' | 'oldest' | 'due' | 'amount' }) {
   const router = useRouter()
   const [selected, setSelected] = useState<number[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -42,19 +42,22 @@ export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]
     })
   }
 
-  const discard = (row: DraftRow) => {
-    if (!window.confirm(`将草稿 ${row.customerName} 移入回收站？回收站保留 30 天。`)) return
+  const discardIds = (ids: number[], label = '所选草稿') => {
+    if (!ids.length) { toast.error('请先勾选要删除的草稿'); return }
+    if (!window.confirm(`将${label}移入回收站？回收站保留 30 天。`)) return
     start(async () => {
-      try {
-        await moveRentalToTrash(row.id, '草稿审核不通过')
-        toast.success('草稿已移入回收站')
-        setSelected((current) => current.filter((id) => id !== row.id))
-        router.refresh()
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : '操作失败')
+      let succeeded = 0
+      for (const id of ids) {
+        try { await moveRentalToTrash(id, '草稿审核不通过'); succeeded += 1 } catch { /* 继续处理其余草稿 */ }
       }
+      if (succeeded === ids.length) toast.success(`已将 ${succeeded} 份草稿移入回收站`)
+      else toast.warning(`成功删除 ${succeeded} 份，${ids.length - succeeded} 份未处理`)
+      setSelected([])
+      router.refresh()
     })
   }
+
+  const discard = (row: DraftRow) => discardIds([row.id], `草稿“${row.customerName}”`)
 
   return (
     <div className="flex flex-col gap-4">
@@ -74,7 +77,20 @@ export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]
       </section>
 
       <section className="surface">
-        <div className="surface-content">
+        <div className="surface-content flex flex-col gap-4">
+          <form className="flex flex-wrap items-end gap-2" action="/rentals/drafts">
+            <label className="flex min-w-56 flex-1 flex-col gap-1 text-sm font-medium">搜索草稿
+              <input name="query" defaultValue={query} placeholder="客户、手机号、设备或草稿号" className="h-10 rounded-lg border bg-background px-3 font-normal" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium">排序
+              <select name="sort" defaultValue={sort} className="h-10 rounded-lg border bg-background px-3 font-normal">
+                <option value="newest">最新创建</option><option value="oldest">最早创建</option><option value="due">最早到期</option><option value="amount">金额最高</option>
+              </select>
+            </label>
+            <button type="submit" className="rounded-lg border bg-background px-4 py-2 text-sm font-medium">筛选</button>
+            {query && <Link href="/rentals/drafts" className="rounded-lg border bg-background px-4 py-2 text-sm font-medium">重置</Link>}
+            <button type="button" disabled={pending || !selected.length} onClick={() => discardIds(selected)} className="rounded-lg border bg-background px-4 py-2 text-sm font-medium text-destructive disabled:opacity-50">批量删除（{selected.length}）</button>
+          </form>
           {rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">暂无草稿。可在经营总览新建合同时保存为草稿，或使用批量导入。</p>
           ) : (
@@ -199,9 +215,9 @@ export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]
           )}
           {pageCount > 1 && (
             <nav className="flex items-center justify-center gap-2 pt-4 text-sm">
-              {page > 1 && <Link href={`/rentals/drafts?page=${page - 1}`} className="rounded-lg border bg-background px-3 py-1.5">上一页</Link>}
+              {page > 1 && <Link href={`/rentals/drafts?page=${page - 1}&query=${encodeURIComponent(query)}&sort=${sort}`} className="rounded-lg border bg-background px-3 py-1.5">上一页</Link>}
               <span className="text-muted-foreground">第 {page} / {pageCount} 页</span>
-              {page < pageCount && <Link href={`/rentals/drafts?page=${page + 1}`} className="rounded-lg border bg-background px-3 py-1.5">下一页</Link>}
+              {page < pageCount && <Link href={`/rentals/drafts?page=${page + 1}&query=${encodeURIComponent(query)}&sort=${sort}`} className="rounded-lg border bg-background px-3 py-1.5">下一页</Link>}
             </nav>
           )}
         </div>
