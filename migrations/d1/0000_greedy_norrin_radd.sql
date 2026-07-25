@@ -322,6 +322,7 @@ CREATE TABLE `rental_items` (
 CREATE TABLE `rentals` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`userId` text NOT NULL,
+	`assignedEmployeeId` text,
 	`contractNo` text NOT NULL,
 	`customer_company` text,
 	`customerName` text NOT NULL,
