@@ -790,14 +790,14 @@ export function Dashboard({
                 {overdueCustomers.map((customer) => (
                   <article key={customer.key} className="overflow-hidden rounded-xl border">
                     <div className="flex flex-col justify-between gap-3 bg-card p-4 sm:flex-row sm:items-center">
-                      <div><p className="font-semibold">{customer.company || customer.name}</p><p className="mt-1 text-sm text-muted-foreground">{customer.company ? `${customer.name} · ` : ""}{customer.phone} · {customer.contracts.length} 份逾期合同</p></div>
+                      <div><p className="font-semibold">{customer.company || customer.name}</p><p className="mt-1 text-sm text-muted-foreground">{customer.company ? `${customer.name} · ` : ""}{customer.phone} · {customer.contracts.length} 份待催合同</p></div>
                       <div className="flex gap-6 sm:text-right"><div><p className="text-xs text-muted-foreground">逾期应收</p><p className="font-bold text-destructive">{money(customer.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">全部待收</p><p className="font-bold">{money(customer.totalOutstanding)}</p></div></div>
                     </div>
                     <div className="divide-y border-t">
                       {customer.contracts.sort((a, b) => b.overdueDays - a.overdueDays).map((rental) => (
                         <button key={rental.id} type="button" onClick={() => openDetail(rental)} className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center">
                           <div><p className="text-sm font-medium">{rental.contractNo}</p><p className="text-xs text-muted-foreground">{rental.quantity} 台 · {rental.items.map((item) => item.deviceName).join("、")}</p></div>
-                          <div className="text-sm"><p>{rental.startDate} 至 {rental.endDate}</p><p className="text-xs font-medium text-destructive">已逾期 {rental.overdueDays} 天</p></div>
+                          <div className="text-sm"><p>{rental.startDate} 至 {rental.endDate}</p><p className="text-xs font-medium text-destructive">{rental.overdueDays > 0 ? `合同已逾期 ${rental.overdueDays} 天` : "账单已逾期"}</p></div>
                           <div className="flex gap-5 sm:text-right"><div><p className="text-xs text-muted-foreground">本单逾期</p><p className="font-semibold text-destructive">{money(rental.overdueAmount)}</p></div><div><p className="text-xs text-muted-foreground">本单待收</p><p className="font-semibold">{money(rental.outstandingAmount)}</p></div></div>
                         </button>
                       ))}
