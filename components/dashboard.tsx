@@ -34,6 +34,7 @@ import {
   getCustomerHistory,
   getCustomerOfferSuggestion,
   getNextRentalNumbers,
+  getRentalFormSuggestions,
   recordDepositAction,
   renewRentalItems,
   reversePayment,
@@ -1459,6 +1460,19 @@ function RentalForm({
   const [numbersLoading, setNumbersLoading] = useState(false);
   const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
+  const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {} });
+  useEffect(() => {
+    let active = true;
+    getRentalFormSuggestions().then((value) => { if (active) setHistorySuggestions(value); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const applyContact = (name: string) => {
+    const matches = historySuggestions.contacts.filter((contact) => contact.name === name.trim());
+    if (!matches.length) return;
+    const selected = matches[0];
+    setForm((current) => ({ ...current, customerName: selected.name, customerPhone: selected.phone, customerCompany: selected.company, customerAddress: selected.address }));
+    setCustomerOffer(null);
+  };
   const checkCustomerOffer = async () => {
     if (!/^1\d{10}$/.test(form.customerPhone.trim())) { setCustomerOffer(null); return; }
     setOfferLoading(true);
@@ -1676,13 +1690,8 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
               required={false}
               placeholder="选填，如某某科技有限公司"
             />
-            <Field
-              label="联系人姓名"
-              value={form.customerName}
-              onChange={(v) => setForm({ ...form, customerName: v })}
-              placeholder="必填，请输入联系人姓名"
-            />
-            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系电话<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" value={form.customerPhone} inputMode="numeric" onChange={(event) => { setCustomerOffer(null); setForm({ ...form, customerPhone: event.target.value.replace(/\D/g, "").slice(0, 11) }); }} onBlur={checkCustomerOffer} placeholder="必填，请输入 11 位手机号" /></label>
+            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系人姓名<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" list="rental-contact-history" value={form.customerName} onChange={(event) => { const name = event.target.value; setForm({ ...form, customerName: name }); const matches = historySuggestions.contacts.filter((contact) => contact.name === name.trim()); if (matches.length === 1 && !form.customerPhone) applyContact(name); }} onBlur={(event) => applyContact(event.currentTarget.value)} placeholder="输入或选择历史联系人" /><datalist id="rental-contact-history">{[...new Set(historySuggestions.contacts.map((contact) => contact.name))].map((name) => <option key={name} value={name} />)}</datalist></label>
+            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系电话<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" list="rental-phone-history" value={form.customerPhone} inputMode="numeric" onChange={(event) => { setCustomerOffer(null); setForm({ ...form, customerPhone: event.target.value.replace(/\D/g, "").slice(0, 11) }); }} onBlur={checkCustomerOffer} placeholder="输入或选择历史电话" /><datalist id="rental-phone-history">{historySuggestions.contacts.filter((contact) => !form.customerName.trim() || contact.name === form.customerName.trim()).map((contact) => <option key={`${contact.name}-${contact.phone}`} value={contact.phone}>{contact.name}</option>)}</datalist></label>
             <div className="flex flex-col justify-center rounded-lg border bg-muted/40 px-4 py-3" aria-live="polite">{offerLoading ? <p className="text-sm text-muted-foreground">正在查询客户等级…</p> : customerOffer ? <><p className="text-sm font-medium">{customerOffer.name} · {customerOffer.label}客户</p><p className="mt-1 text-xs text-muted-foreground">本单优惠建议：{customerOffer.suggestion}。仅供业务参考，合同金额仍由经办人确认。</p>{customerOffer.note ? <p className="mt-1 text-xs text-muted-foreground">等级备注：{customerOffer.note}</p> : null}</> : <><p className="text-sm font-medium">客户优惠建议</p><p className="mt-1 text-xs text-muted-foreground">输入已登记客户手机号后自动显示等级与建议折扣。</p></>}</div>
             <Field
               label="客户地址"
@@ -1817,6 +1826,8 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
                           value={String(item[key] || "")}
                           placeholder={placeholder}
                           onChange={(v) => updateItem(index, key, v)}
+                          suggestions={historySuggestions.configurations[key] || []}
+                          listId={`rental-config-${index}-${key}`}
                           required={
                             item.deviceType !== "显示器" || key === "screenSize"
                           }
@@ -1830,6 +1841,8 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
                     label="其他配置"
                     value={item.deviceConfig || ""}
                     onChange={(v) => updateItem(index, "deviceConfig", v)}
+                    suggestions={historySuggestions.configurations.deviceConfig || []}
+                    listId={`rental-config-${index}-deviceConfig`}
                     required={false}
                   />
                 </div>
@@ -2046,6 +2059,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [customerName, setCustomerName] = useState(rental.customerName);
   const [customerPhone, setCustomerPhone] = useState(rental.customerPhone);
+  const [startDate, setStartDate] = useState(rental.startDate);
   const [endDate, setEndDate] = useState(rental.endDate);
   const routes = [
     { title: "客户少要或全部不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
@@ -2057,19 +2071,19 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史账目，不要直接覆盖或删除正式业务记录。</p></div>
     <div className="grid gap-3 sm:grid-cols-2">
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
-      <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改所有设备的有效到期日，并单独登记账务差额。</span></button>
+      <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
       <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
     </div>
     <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
   </div>;
   const submitChange = (event: FormEvent) => {
     event.preventDefault();
-    submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
+    submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, startDate: scenario === "租期调整" ? startDate : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
   };
   return <form onSubmit={submitChange} className="flex flex-col gap-5">
     <div className="flex items-start justify-between gap-3 rounded-xl bg-muted p-4"><div><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div><button type="button" onClick={() => setScenario(null)} className="shrink-0 text-sm font-medium text-primary">更换情境</button></div>
     <div className="grid gap-4 sm:grid-cols-2">
-      {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} />}
+      {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <><Field label="新起租日期" type="date" value={startDate} onChange={setStartDate} /><Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} /></>}
       <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
       <Field label="费用差额（补收填正数，减免/退款填负数）" type="number" value={feeAdjustment} onChange={setFeeAdjustment} />
     </div>
@@ -3711,6 +3725,8 @@ function Field({
   required = true,
   placeholder,
   readOnly = false,
+  suggestions = [],
+  listId,
 }: {
   label: string;
   value: string | number;
@@ -3719,6 +3735,8 @@ function Field({
   required?: boolean;
   placeholder?: string;
   readOnly?: boolean;
+  suggestions?: string[];
+  listId?: string;
 }) {
   const integer = type === "number" && /(数量|月数|天数)/.test(label);
   return (
@@ -3738,6 +3756,7 @@ function Field({
           integer ? "numeric" : type === "number" ? "decimal" : undefined
         }
         value={value}
+        list={suggestions.length && listId ? listId : undefined}
         onChange={(e) => {
           if (integer && e.target.value !== "" && !/^\d+$/.test(e.target.value))
             return;
@@ -3750,12 +3769,13 @@ function Field({
         readOnly={readOnly}
         placeholder={placeholder}
         min={
-          type === "number" && label !== "本次应收调整（可填负数）"
+          type === "number" && !/(差额|可填负数)/.test(label)
             ? "0"
             : undefined
         }
         step={type === "number" ? (integer ? "1" : "0.01") : undefined}
       />
+      {suggestions.length > 0 && listId && <datalist id={listId}>{suggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}</datalist>}
     </label>
   );
 }
