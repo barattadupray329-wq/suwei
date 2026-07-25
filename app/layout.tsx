@@ -31,5 +31,5 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const content = shell && session?.user
     ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions}>{children}</AppShell>
     : children
-  return <html lang="zh-CN" className="bg-background"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>{content}<Toaster richColors position="top-center" /></body></html>
+  return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>{content}<Toaster richColors position="top-center" /></body></html>
 }

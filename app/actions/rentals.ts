@@ -562,7 +562,7 @@ export async function confirmDraftsAsOfficial(ids: number[]) {
         const contractNo = await confirmDraftOperation(id, access)
         succeeded.push({ id, contractNo, message: '' })
       } catch (error) {
-        failed.push({ id, contractNo: null, message: safeError(error).message })
+        failed.push({ id, contractNo: null, message: `[v0-debug] ${error instanceof Error ? error.message : String(error)}` })
       }
     }
     return { succeeded, failed }

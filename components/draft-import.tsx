@@ -132,7 +132,7 @@ export function DraftImport({ assignees }: { assignees: RentalAssignee[] }) {
             {parsed.missing.length > 0 && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">缺少必填列：{parsed.missing.join('、')}。请使用模板表头，或检查首行是否为表头。</p>}
             {parsed.truncated && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">数据超过 {DRAFT_IMPORT_LIMIT} 行，仅解析前 {DRAFT_IMPORT_LIMIT} 行，其余请分批导入。</p>}
             {parsed.rows.length > 0 && (
-              <div className="overflow-x-auto">
+              <><div className="hidden overflow-x-auto md:block">
                 <table className="w-full min-w-[880px] text-left text-sm">
                   <thead className="bg-muted text-muted-foreground"><tr><th className="p-2">行号</th><th className="p-2">客户</th><th className="p-2">设备</th><th className="p-2">租期</th><th className="p-2">金额</th><th className="w-[280px] p-2">校验</th></tr></thead>
                   <tbody>
@@ -152,6 +152,30 @@ export function DraftImport({ assignees }: { assignees: RentalAssignee[] }) {
                   </tbody>
                 </table>
               </div>
+              <div className="flex flex-col gap-3 md:hidden">
+                {parsed.rows.map((row) => {
+                  const item = row.value?.items[0]
+                  return (
+                    <article key={row.line} className={`rounded-xl border p-3 text-sm ${row.errors.length ? 'border-destructive/40 bg-destructive/5' : ''}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">{row.raw.customerName || '—'}</p>
+                          <p className="text-xs text-muted-foreground">{row.raw.customerPhone || '—'}{row.raw.customerCompany ? ` · ${row.raw.customerCompany}` : ''}</p>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground">第 {row.line} 行</span>
+                      </div>
+                      <div className="mt-2 flex flex-col gap-1 text-xs">
+                        <span>设备：{item ? `${item.deviceName || item.deviceType} × ${item.quantity}` : `${row.raw.deviceName || row.raw.deviceType || '—'} × ${row.raw.quantity || '—'}`}</span>
+                        <span>租期：{row.value ? `${row.value.startDate} 起 ${row.value.duration}${row.value.billingType === 'daily' ? '天' : '个月'}，至 ${row.value.endDate}` : `${row.raw.startDate || '—'} / ${row.raw.duration || '—'}`}</span>
+                        <span>金额：{row.value ? `${row.value.items[0].totalRent.toFixed(2)} 元` : '—'}</span>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed break-words">
+                        {row.errors.length ? <span className="text-destructive">{row.errors.join('；')}</span> : <span className="text-muted-foreground">校验通过</span>}
+                      </p>
+                    </article>
+                  )
+                })}
+              </div></>
             )}
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={pending || !validRows.length} onClick={submit} className="primary-button disabled:opacity-50">

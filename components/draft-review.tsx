@@ -78,7 +78,7 @@ export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]
           {rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">暂无草稿。可在经营总览新建合同时保存为草稿，或使用批量导入。</p>
           ) : (
-            <div className="overflow-x-auto">
+            <><div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[880px] text-left text-sm">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>
@@ -151,6 +151,51 @@ export function DraftReview({ rows, total, page, pageCount }: { rows: DraftRow[]
                 </tbody>
               </table>
             </div>
+            <div className="flex flex-col gap-3 md:hidden">
+              {rows.map((row) => (
+                <article key={row.id} className="rounded-xl border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <label className="flex flex-1 items-start gap-2">
+                      <input type="checkbox" className="mt-1" checked={selected.includes(row.id)} onChange={() => toggle(row.id)} />
+                      <span>
+                        <span className="block font-semibold">{row.customerCompany || row.customerName}</span>
+                        <span className="block text-xs text-muted-foreground">{row.customerName} · {row.customerPhone}</span>
+                      </span>
+                    </label>
+                    <span className="text-sm font-semibold">{Number(row.totalRent).toFixed(2)} 元</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div><p className="text-xs text-muted-foreground">设备</p><p>{row.deviceName} × {row.quantity}</p></div>
+                    <div><p className="text-xs text-muted-foreground">租期</p><p>{row.startDate} ~ {row.endDate}</p></div>
+                  </div>
+                  {expanded === row.id && (
+                    <div className="mt-3 rounded-lg bg-muted/40 p-3 text-xs leading-relaxed">
+                      {!detail || detail.id !== row.id ? <span className="text-muted-foreground">正在加载明细…</span> : (
+                        <div className="flex flex-col gap-2">
+                          <span>计费方式：{detail.billingType === 'daily' ? '日租' : '月租'}</span>
+                          <span>租赁时长：{detail.duration}{detail.billingType === 'daily' ? ' 天' : ' 个月'}</span>
+                          <span>押金：{Number(detail.deposit).toFixed(2)} 元</span>
+                          <span>维护负责人：{detail.assigneeName || '未分配'}</span>
+                          <span>客户地址：{detail.customerAddress || '未填写'}</span>
+                          <span>起租原因：{detail.startDateReason || '当天起租'}</span>
+                          {detail.items.map((item) => (
+                            <span key={item.id} className="text-muted-foreground">{item.deviceName} · {item.quantity} 台 · 单价 {Number(item.monthlyRent).toFixed(2)} · 小计 {Number(item.totalRent).toFixed(2)}</span>
+                          ))}
+                          {detail.notes && <span className="whitespace-pre-line text-muted-foreground">备注：{detail.notes}</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => toggleDetail(row.id)} className="flex flex-1 items-center justify-center gap-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium">
+                      {expanded === row.id ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}明细
+                    </button>
+                    <button type="button" disabled={pending} onClick={() => confirm([row.id])} className="flex-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium disabled:opacity-50">转正式</button>
+                    <button type="button" disabled={pending} onClick={() => discard(row)} className="flex flex-1 items-center justify-center gap-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium text-destructive disabled:opacity-50"><Trash2 className="size-3.5" />删除</button>
+                  </div>
+                </article>
+              ))}
+            </div></>
           )}
           {pageCount > 1 && (
             <nav className="flex items-center justify-center gap-2 pt-4 text-sm">
