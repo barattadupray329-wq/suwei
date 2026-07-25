@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, fromCents, isDueWithin, nextOpenBill, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -28,6 +28,19 @@ describe('预收与续租账单', () => {
       { dueDate: '2026-06-15', amount: '300', paidAmount: '100' },
     ]
     expect(nextOpenBill(bills)?.dueDate).toBe('2026-06-15')
+  })
+  it('6 日只显示 5 日已到付款日账单，隐藏 20 日账单', () => {
+    const bills = [
+      { dueDate: '2026-08-05', amount: '100', paidAmount: '0' },
+      { dueDate: '2026-08-20', amount: '200', paidAmount: '0' },
+    ]
+    expect(dueBillsAsOf(bills, '2026-08-06')).toEqual([bills[0]])
+  })
+  it('付款日当天计入当前应付，次日才为逾期', () => {
+    const bill = { dueDate: '2026-08-05', amount: '100', paidAmount: '0' }
+    expect(dueBillsAsOf([bill], '2026-08-05')).toEqual([bill])
+    expect(billState('100', '0', '2026-08-05', '2026-08-05')).not.toBe('逾期')
+    expect(billState('100', '0', '2026-08-05', '2026-08-06')).toBe('逾期')
   })
   it('按结清、部分收款、逾期、即将到期和待付款区分状态', () => {
     expect(billState('100', '100', '2026-06-01', '2026-06-10')).toBe('已结清')
