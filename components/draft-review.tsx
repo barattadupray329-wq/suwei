@@ -64,8 +64,11 @@ export function DraftReview({ rows, total, page, pageCount, query, sort }: { row
       <section className="surface">
         <div className="surface-content flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="text-lg font-semibold">草稿审核</h1>
-            <p className="text-sm text-muted-foreground">共 {total} 份待审核草稿，核对无误后转为正式合同。草稿不计入经营与财务数据。</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold">草稿订单审核</h1>
+              <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">{total} 份待转正式</span>
+            </div>
+            <p className="text-sm text-muted-foreground">这里的订单都还是草稿，不计入经营、收款和应收账单。核对无误后点击“转为正式合同”。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/rentals/drafts/import" className="flex items-center gap-2 rounded-lg border bg-background px-4 py-2 text-sm font-medium"><FileUp className="size-4" />批量导入</Link>
@@ -111,7 +114,7 @@ export function DraftReview({ rows, total, page, pageCount, query, sort }: { row
                     <Fragment key={row.id}>
                       <tr className="border-t align-top">
                         <td className="p-3"><label className="flex items-center gap-2"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggle(row.id)} /><span className="sr-only">选择 {row.customerName}</span></label></td>
-                        <td className="p-3"><div className="font-medium">{row.customerCompany || row.customerName}</div><div className="text-xs text-muted-foreground">{row.customerName} · {row.customerPhone}</div></td>
+                        <td className="p-3"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{row.customerCompany || row.customerName}</span><span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">草稿 · 待转正式</span></div><div className="text-xs text-muted-foreground">{row.customerName} · {row.customerPhone}</div></td>
                         <td className="p-3">{row.deviceName} × {row.quantity}</td>
                         <td className="p-3">{row.startDate} ~ {row.endDate}</td>
                         <td className="p-3">{Number(row.totalRent).toFixed(2)} 元</td>
@@ -120,7 +123,7 @@ export function DraftReview({ rows, total, page, pageCount, query, sort }: { row
                             <button type="button" onClick={() => toggleDetail(row.id)} className="flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium">
                               {expanded === row.id ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}明细
                             </button>
-                            <button type="button" disabled={pending} onClick={() => confirm([row.id])} className="rounded-lg border bg-background px-3 py-1.5 text-xs font-medium disabled:opacity-50">转正式</button>
+                            <button type="button" disabled={pending} onClick={() => confirm([row.id])} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">转为正式合同</button>
                             <button type="button" disabled={pending} onClick={() => discard(row)} className="flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-destructive disabled:opacity-50"><Trash2 className="size-3.5" />删除</button>
                           </div>
                         </td>
@@ -174,7 +177,7 @@ export function DraftReview({ rows, total, page, pageCount, query, sort }: { row
                     <label className="flex flex-1 items-start gap-2">
                       <input type="checkbox" className="mt-1" checked={selected.includes(row.id)} onChange={() => toggle(row.id)} />
                       <span>
-                        <span className="block font-semibold">{row.customerCompany || row.customerName}</span>
+                        <span className="flex flex-wrap items-center gap-2"><span className="font-semibold">{row.customerCompany || row.customerName}</span><span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">草稿 · 待转正式</span></span>
                         <span className="block text-xs text-muted-foreground">{row.customerName} · {row.customerPhone}</span>
                       </span>
                     </label>
@@ -206,7 +209,7 @@ export function DraftReview({ rows, total, page, pageCount, query, sort }: { row
                     <button type="button" onClick={() => toggleDetail(row.id)} className="flex flex-1 items-center justify-center gap-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium">
                       {expanded === row.id ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}明细
                     </button>
-                    <button type="button" disabled={pending} onClick={() => confirm([row.id])} className="flex-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium disabled:opacity-50">转正式</button>
+                    <button type="button" disabled={pending} onClick={() => confirm([row.id])} className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">转为正式合同</button>
                     <button type="button" disabled={pending} onClick={() => discard(row)} className="flex flex-1 items-center justify-center gap-1 rounded-lg border bg-background px-3 py-2 text-xs font-medium text-destructive disabled:opacity-50"><Trash2 className="size-3.5" />删除</button>
                   </div>
                 </article>

@@ -27,6 +27,7 @@ import {
   buyoutRentalItem,
   changeStatus,
   collectPayment,
+  confirmDraftsAsOfficial,
   createRental,
   deleteTestRental,
   getCustomerHistory,
@@ -216,6 +217,7 @@ type Rental = {
 type Summary = {
   total: number;
   active: number;
+  draft: number;
   overdue: number;
   dueSoon: number;
   repairPending: number;
@@ -388,6 +390,27 @@ export function Dashboard({
     setSelected(r);
     setDialog("detail");
   };
+  const confirmSelectedDraft = () => {
+    if (!selected || selected.orderType !== "draft") return;
+    if (!window.confirm("确认将这份草稿转为正式合同？转正后会生成正式合同号与应收账单，且不能再删除。")) return;
+    start(async () => {
+      const result = await confirmDraftsAsOfficial([selected.id]);
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      const outcome = result.data?.succeeded[0];
+      if (!outcome) {
+        toast.error(result.data?.failed[0]?.message || "转为正式合同失败");
+        return;
+      }
+      toast.success(`已转为正式合同：${outcome.contractNo}`);
+      setDialog(null);
+      setSelected(null);
+      router.push("/rentals");
+      router.refresh();
+    });
+  };
   const selectedRentals = rentals.filter((r) => checked.includes(r.id));
   const reminderText = selectedRentals
     .map(
@@ -502,8 +525,22 @@ export function Dashboard({
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Stat label="租赁合同" value={summary.total} icon={<Monitor />} />
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+            <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
+            <Link
+              href="/rentals/drafts"
+              className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary hover:bg-primary/10"
+              aria-label={`查看 ${summary.draft} 份待审核草稿`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-primary">待审核草稿</p>
+                  <p className="mt-2 text-2xl font-bold">{summary.draft}</p>
+                </div>
+                <ClipboardPenLine className="size-5 text-primary" />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">点击审核并转为正式合同</p>
+            </Link>
             <Stat
               label="在租合同"
               value={summary.active}
@@ -914,6 +951,7 @@ canViewFinance={canViewFinance}
               )
             }
             onDelete={() => setDialog("delete-confirm")}
+            onConfirmDraft={confirmSelectedDraft}
             onRentalChange={() => setDialog("change-guide")}
             onPayment={(target) => {
               setPaymentTarget(target);
@@ -1953,6 +1991,7 @@ function Detail({
   onSendNotice,
   onAssignee,
   onDelete,
+  onConfirmDraft,
   onRentalChange,
   onPayment,
   onRenew,
@@ -1975,6 +2014,7 @@ function Detail({
   onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
+  onConfirmDraft: () => void;
   onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
@@ -1991,6 +2031,23 @@ function Detail({
 }) {
   return (
     <div className="flex flex-col gap-5">
+      {rental.orderType === "draft" && (
+        <section className="flex flex-col gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <ClipboardPenLine className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold">这是一份草稿订单</h3>
+                <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">待审核 · 未转正式</span>
+              </div>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">草稿不计入经营数据、收款和应收账单。核对客户、设备、租期和金额后，再转为正式合同。</p>
+            </div>
+          </div>
+          <button type="button" onClick={onConfirmDraft} className="h-11 shrink-0 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
+            转为正式合同
+          </button>
+        </section>
+      )}
       {role !== "employee" && canManageContracts && (
         <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -2038,6 +2095,7 @@ function Detail({
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
+        <Info l="订单类型" v={rental.orderType === "draft" ? "草稿订单（待转正式）" : rental.orderType === "test" ? "测试订单" : "正式合同"} />
         <Info l="联系人" v={rental.customerName} />
         <Info l="联系电话" v={rental.customerPhone} />
         <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
