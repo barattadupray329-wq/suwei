@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DRAFT_IMPORT_COLUMNS, DRAFT_IMPORT_LIMIT, draftTemplateRows, parseDelimitedText, parseDraftImport, validateDraftRow } from '@/lib/draft-import'
+import { DRAFT_IMPORT_COLUMNS, DRAFT_IMPORT_LIMIT, draftTemplateRows, parseDelimitedText, parseDraftImport, validateDraftRow } from '../lib/draft-import'
 
 const TODAY = '2026-07-25'
 const HEADER = DRAFT_IMPORT_COLUMNS.map((column) => (column.required ? `${column.label}*` : column.label)).join(',')
