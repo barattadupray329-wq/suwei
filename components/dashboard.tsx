@@ -305,6 +305,54 @@ const emptyRental = (): RentalInput => {
   };
 };
 
+export function BusinessOverview({ summary }: { summary: Summary }) {
+  const priorities = [
+    { label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期", detail: "进入租赁管理跟进逾期合同" },
+    { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due", detail: "按到期时间查看近期合同" },
+    { label: "维修处理中", value: summary.repairPending, href: "/rentals?query=维修", detail: "查看设备服务事项" },
+  ];
+
+  return (
+    <main className="bg-background p-4 md:p-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <header>
+          <p className="text-sm font-medium text-primary">经营分析中心</p>
+          <h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1>
+          <p className="mt-1 text-sm text-muted-foreground">集中查看财务、统计、催收和经营提醒；合同办理统一前往租赁管理。</p>
+        </header>
+
+        <section aria-label="经营指标" className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
+          <Link href="/rentals/drafts" className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary hover:bg-primary/10">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">待审核草稿</p><p className="mt-2 text-2xl font-bold">{summary.draft}</p></div><ClipboardPenLine className="size-5 text-primary" /></div>
+            <p className="mt-2 text-xs text-muted-foreground">前往租赁管理审核</p>
+          </Link>
+          <Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} />
+          <Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} />
+          <Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} />
+          <Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} />
+        </section>
+
+        <section className="rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold">经营待办</h2><p className="text-sm text-muted-foreground">只展示需要关注的经营事项，具体办理在租赁管理完成。</p></div><BellRing className="size-5 text-primary" /></div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {priorities.map((item) => <Link key={item.label} href={item.href} className="rounded-xl bg-muted p-4 transition-colors hover:bg-border"><p className="text-2xl font-bold">{item.value}</p><p className="mt-1 font-medium">{item.label}</p><p className="mt-1 text-xs text-muted-foreground">{item.detail}</p></Link>)}
+          </div>
+        </section>
+
+        <section className="grid gap-3 md:grid-cols-2">
+          <Link href="/rentals?status=逾期" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 transition-colors hover:border-destructive/60">
+            <p className="text-sm font-semibold text-destructive">应收催收</p><p className="mt-2 text-xl font-bold">{summary.overdue} 份逾期合同</p><p className="mt-1 text-sm text-muted-foreground">进入租赁管理查看按客户汇总的当前到期账单并复制微信催款文案。</p>
+          </Link>
+          <Link href="/rentals" className="rounded-xl border bg-card p-5 transition-colors hover:border-primary">
+            <p className="text-sm font-semibold text-primary">租赁管理</p><p className="mt-2 text-xl font-bold">办理合同业务</p><p className="mt-1 text-sm text-muted-foreground">登记、修改、续租、退租、买断、收款及设备售后统一在此办理。</p>
+          </Link>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export function Dashboard({
   role,
   permissions,
