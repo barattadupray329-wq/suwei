@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, like, lt, lte, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -136,7 +136,17 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const pattern = `%${value.query}%`
     filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern), like(rentals.deviceCode, pattern))!)
   }
-  if (value.status !== '全部') filters.push(eq(rentals.status, value.status))
+  if (value.status === '逾期') {
+    filters.push(or(
+      eq(rentals.status, '逾期'),
+      and(
+        lt(rentals.endDate, sql`current_date`),
+        inArray(rentals.status, ['在租', '部分买断', '部分退租', '部分丢失']),
+      ),
+    )!)
+  } else if (value.status !== '全部') {
+    filters.push(eq(rentals.status, value.status))
+  }
   if (value.startDate) filters.push(gte(rentals.startDate, value.startDate))
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))

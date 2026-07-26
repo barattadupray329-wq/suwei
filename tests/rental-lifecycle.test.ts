@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
+
+const rentalActions = readFileSync(new URL('../app/actions/rentals.ts', import.meta.url), 'utf8')
 
 const item = (overrides: Partial<Parameters<typeof availableQuantity>[0]> = {}) => ({
   quantity: 5,
@@ -28,5 +31,11 @@ describe('租赁生命周期规则', () => {
     [[item({ returnedQuantity: 4, lostQuantity: 1 })], '已结束'],
   ])('根据设备处置数量得到合同状态', (items, expected) => {
     expect(rentalLifecycleStatus(items)).toBe(expected)
+  })
+
+  it('逾期筛选同时包含显式逾期和已到期未结束合同', () => {
+    expect(rentalActions).toMatch(/value\.status === '逾期'/)
+    expect(rentalActions).toMatch(/lt\(rentals\.endDate, sql`current_date`\)/)
+    expect(rentalActions).toMatch(/inArray\(rentals\.status, \['在租', '部分买断', '部分退租', '部分丢失'\]\)/)
   })
 })
