@@ -495,6 +495,11 @@ export function Dashboard({
     setSelected(r);
     setDialog("detail");
   };
+  const closeDetail = () => {
+    setDialog(null);
+    setSelected(null);
+    if (searchParams.has("rental")) router.replace("/rentals", { scroll: false });
+  };
   const confirmSelectedDraft = () => {
     if (!selected || selected.orderType !== "draft") return;
     start(async () => {
@@ -949,7 +954,8 @@ export function Dashboard({
                   {visible.map((r) => (
                     <tr
                       key={r.id}
-                      onClick={() => openDetail(r)}
+                      onDoubleClick={() => openDetail(r)}
+                      title="双击查看租赁详情"
                       className="cursor-pointer border-t hover:bg-muted/50"
                     >
                       <td
@@ -1067,7 +1073,7 @@ export function Dashboard({
         open={dialog === "detail"}
         title={selected?.contractNo || "租赁详情"}
         wide
-        onClose={() => setDialog(null)}
+        onClose={closeDetail}
       >
         {selected && (
           <Detail
