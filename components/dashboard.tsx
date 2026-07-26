@@ -437,6 +437,12 @@ onCloseDetails,
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | "contract_gap" | null>(null);
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const [newRentalPayment, setNewRentalPayment] = useState<{ rentalId: number; contractNo: string; totalRent: number; deposit: number } | null>(null);
+  const returnToRentalList = () => {
+    setNewRentalPayment(null);
+    setDialog(null);
+    router.replace("/rentals");
+    router.refresh();
+  };
   const todayValue = today();
   const isRentalOverdue = (r: Rental) =>
     r.endDate < todayValue && !["买断", "已退租", "已结束", "已关闭", "丢失"].includes(r.status);
@@ -1096,7 +1102,7 @@ onCloseDetails,
         open={dialog === "new"}
         title="新增租赁合同"
         wide
-        onClose={() => setDialog(null)}
+        onClose={() => initialNew ? returnToRentalList() : setDialog(null)}
       >
         <RentalForm
           form={form}
@@ -1118,13 +1124,12 @@ onCloseDetails,
                   if (orderType === "official" && created.data) {
                     setNewRentalPayment({ rentalId: created.data, contractNo: form.contractNo || "新正式合同", totalRent: form.items.reduce((sum, item) => sum + item.quantity * form.duration * Number(item.monthlyRent || 0), 0), deposit: Number(form.deposit || 0) });
                     setDialog("initial-payment");
-                  } else setDialog(null);
-                  router.refresh();
+                  } else returnToRentalList();
                 })}
         />
       </Dialog>
-      <Dialog open={dialog === "initial-payment"} title="是否登记首款" onClose={() => { setNewRentalPayment(null); setDialog(null); }}>
-        {newRentalPayment && <InitialPaymentForm rental={newRentalPayment} pending={pending} skip={() => { setNewRentalPayment(null); setDialog(null); toast.success("合同已创建，暂未登记收款"); }} submit={(value) => start(async () => { try { await recordInitialPayment({ rentalId: newRentalPayment.rentalId, ...value }); toast.success("首期租金与押金已分别登记"); setNewRentalPayment(null); setDialog(null); router.refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : "首款登记失败"); } })} />}
+      <Dialog open={dialog === "initial-payment"} title="是否登记首款" onClose={returnToRentalList}>
+        {newRentalPayment && <InitialPaymentForm rental={newRentalPayment} pending={pending} skip={() => { toast.success("合同已创建，暂未登记收款"); returnToRentalList(); }} submit={(value) => start(async () => { try { await recordInitialPayment({ rentalId: newRentalPayment.rentalId, ...value }); toast.success("首期租金与押金已分别登记"); returnToRentalList(); } catch (error) { toast.error(error instanceof Error ? error.message : "首款登记失败"); } })} />}
       </Dialog>
   <Dialog
   open={dialog === "detail"}
