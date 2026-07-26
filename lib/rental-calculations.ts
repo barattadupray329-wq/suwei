@@ -59,6 +59,19 @@ export function projectedMonthlyRent(items: Array<{ quantity: number; boughtOutQ
   return fromCents(cents)
 }
 
+export function paymentRentAdjustment(billOutstanding: string | number, paymentAmount: string | number, activeQuantity: number) {
+  const outstandingCents = toCents(billOutstanding)
+  const paymentCents = toCents(paymentAmount)
+  if (!Number.isInteger(activeQuantity) || activeQuantity <= 0) throw new Error('当前没有可调整租金的在租设备')
+  if (paymentCents <= 0 || paymentCents >= outstandingCents) throw new Error('联动调价仅适用于少于本期待收的有效收款')
+  if (paymentCents % activeQuantity !== 0) throw new Error('收款金额无法按在租台数精确分摊到分，请调整金额')
+  return {
+    newUnitPrice: fromCents(paymentCents / activeQuantity),
+    discountAmount: fromCents(outstandingCents - paymentCents),
+    newMonthlyTotal: fromCents(paymentCents),
+  }
+}
+
 export function effectiveOutstandingAmount(totalRent: string | number, paidAmount: string | number, billOutstanding: string | number) {
   const contractOutstandingCents = Math.max(0, toCents(totalRent) - toCents(paidAmount))
   return fromCents(Math.max(contractOutstandingCents, toCents(billOutstanding)))

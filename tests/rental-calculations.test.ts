@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, overdueMonthlyPeriods, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, shouldSyncBillPeriod, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, overdueMonthlyPeriods, projectedMonthlyRent, paymentRentAdjustment, renewalAdjustment, renewalAmount, rentalEndDate, shouldSyncBillPeriod, toCents } from '../lib/rental-calculations'
+
+describe('收款联动调整后续月租', () => {
+  it('5 台应收 600 实收 500 时每台调整为 100 元', () => {
+    expect(paymentRentAdjustment(600, 500, 5)).toEqual({ newUnitPrice: '100.00', discountAmount: '100.00', newMonthlyTotal: '500.00' })
+  })
+  it('按分无法整除时拒绝自动调整', () => expect(() => paymentRentAdjustment(600, 500, 3)).toThrow('无法按在租台数精确分摊'))
+  it('没有在租设备时拒绝调整', () => expect(() => paymentRentAdjustment(600, 500, 0)).toThrow('没有可调整租金'))
+  it('全额或超额收款时拒绝调整', () => {
+    expect(() => paymentRentAdjustment(600, 600, 5)).toThrow('仅适用于少于本期待收')
+    expect(() => paymentRentAdjustment(600, 700, 5)).toThrow('仅适用于少于本期待收')
+  })
+})
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))

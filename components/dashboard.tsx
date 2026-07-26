@@ -65,7 +65,7 @@ import {
   type RepairInput,
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
-import { addCalendarDays, billCoverageLabel, billState, nextOpenBill, toCents } from "@/lib/rental-calculations";
+import { addCalendarDays, billCoverageLabel, billState, nextOpenBill, paymentRentAdjustment, toCents } from "@/lib/rental-calculations";
 import { rentalEndDate } from "@/lib/rental-calculations";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
@@ -715,7 +715,7 @@ onCloseDetails,
           {mode === "overview" && <section className="rounded-xl border bg-card p-4">
             <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
               <div>
-                <h2 className="font-semibold">应收账龄</h2>
+                <h2 className="font-semibold">应收账款</h2>
                 <p className="text-sm text-muted-foreground">按账单到期日拆分未结清金额，优先处理账龄更长的欠款</p>
               </div>
               <p className="text-sm font-medium text-primary">本月实际收款 {money(summary.monthRevenue)}</p>
@@ -1307,6 +1307,7 @@ canViewFinance={canViewFinance}
         {selected && (
           <PaymentForm
             pending={pending}
+ rental={selected}
  bills={selected.bills}
  contractGap={selected.supplementalBills?.find((bill) => bill.kind === "contract_gap")}
  target={paymentTarget}
@@ -2065,7 +2066,7 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
         <>
           <FormSection
             title="租期与费用"
-            description="选择计费方式并填写租赁时间，到期日和合同金额将自动计算"
+            description="选择计费模式并填写租赁时间，到期日和合同金额将自动计算"
           >
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <label className="flex flex-col gap-2 text-sm font-medium">
@@ -2993,11 +2994,18 @@ function InitialPaymentForm({ rental, pending, submit, skip }: { rental: { renta
   </form>;
 }
 
-function PaymentForm({ submit, pending, bills, contractGap, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; contractGap?: SupplementalBill; target: number | "all" | "contract_gap" | null }) {
+function PaymentForm({ submit, pending, rental, bills, contractGap, target }: { submit: (value: PaymentInput) => void; pending: boolean; rental: Rental; bills: Bill[]; contractGap?: SupplementalBill; target: number | "all" | "contract_gap" | null }) {
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
   const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : target === "contract_gap" && contractGap ? toCents(contractGap.amount) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, materializeContractGap: target === "contract_gap", notes: "" });
+  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, materializeContractGap: target === "contract_gap", adjustFutureRent: false, rentAdjustmentReason: "", notes: "" });
+  const activeItems = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const activeQuantity = activeItems.reduce((sum, item) => sum + item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, 0);
+  const uniformPrice = new Set(activeItems.map((item) => toCents(item.monthlyRent))).size === 1;
+  const canAdjustRent = Boolean(targetBill && value.feeType === "原合同租金" && ["租金", "原合同租金", "起租预收", "日租租金"].includes(targetBill.billType) && toCents(value.amount) > 0 && toCents(value.amount) < billOutstandingCents(targetBill) && activeQuantity > 0 && uniformPrice);
+  let adjustmentPreview: ReturnType<typeof paymentRentAdjustment> | null = null;
+  let adjustmentError = "";
+  if (canAdjustRent) try { adjustmentPreview = paymentRentAdjustment(centsToMoney(billOutstandingCents(targetBill!)), value.amount, activeQuantity); } catch (error) { adjustmentError = error instanceof Error ? error.message : "无法计算后续月租"; }
   let preview: ReturnType<typeof allocatePayment> = [];
   let previewError = "";
   if (value.amount > 0 && value.feeType !== "押金" && target !== "contract_gap") {
@@ -3014,9 +3022,14 @@ function PaymentForm({ submit, pending, bills, contractGap, target }: { submit: 
       <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select className="h-10 rounded-lg border bg-background px-3" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
       <label className="flex flex-col gap-2 text-sm font-medium">费用类型<select disabled={target !== null} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60" value={value.feeType} onChange={(e) => setValue({ ...value, feeType: e.target.value as PaymentInput["feeType"] })}>{["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
     </div>
+    {canAdjustRent && <section className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <label className="flex items-start gap-3"><input type="checkbox" checked={Boolean(value.adjustFutureRent)} onChange={(e) => setValue({ ...value, adjustFutureRent: e.target.checked, rentAdjustmentReason: e.target.checked ? value.rentAdjustmentReason : "" })} className="mt-1 size-5 accent-primary" /><span><span className="block font-semibold">同时调整后续月租</span><span className="mt-1 block text-sm leading-6 text-muted-foreground">勾选后，本期少收部分作为协商减免并结清；下一账期起按本次实收重新计算每台月租。</span></span></label>
+      {value.adjustFutureRent && adjustmentPreview && <div className="mt-4 flex flex-col gap-3 rounded-lg bg-background p-3 text-sm"><p><strong>本期减免 {money(adjustmentPreview.discountAmount)}</strong>，收款后本期结清</p><p>{targetBill ? addCalendarDays(targetBill.periodEnd, 1) : "下一期"} 起：{activeQuantity} 台 × {money(adjustmentPreview.newUnitPrice)}/台/月 = {money(adjustmentPreview.newMonthlyTotal)}/月</p><label className="flex flex-col gap-2 font-medium">调价原因<span className="font-normal text-muted-foreground">至少填写 2 个字，便于业务记录追溯</span><textarea className="min-h-16 rounded-lg border bg-background p-3" value={value.rentAdjustmentReason || ""} onChange={(e) => setValue({ ...value, rentAdjustmentReason: e.target.value })} placeholder="例如：协商下调月租" /></label></div>}
+      {adjustmentError && <p className="mt-3 text-sm text-destructive">{adjustmentError}</p>}
+    </section>}
     {value.feeType !== "押金" && value.amount > 0 && target !== "contract_gap" && <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">分配 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">分配后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
     <label className="flex flex-col gap-2 text-sm font-medium">备注<textarea className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} /></label>
-    <button disabled={pending || value.amount <= 0 || Boolean(previewError)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
+    <button disabled={pending || value.amount <= 0 || Boolean(previewError) || Boolean(value.adjustFutureRent && (!adjustmentPreview || adjustmentError || (value.rentAdjustmentReason?.trim().length ?? 0) < 2))} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
   </form>;
 }
 function CustomerHistory({ phone }: { phone: string }) {
