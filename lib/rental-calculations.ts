@@ -58,6 +58,34 @@ export function effectiveOutstandingAmount(totalRent: string | number, paidAmoun
   return fromCents(Math.max(contractOutstandingCents, toCents(billOutstanding)))
 }
 
+export type SupplementalBill = {
+  id: string
+  kind: 'contract_gap' | 'projected_renewal'
+  billType: string
+  periodStart: string
+  periodEnd: string
+  dueDate: string
+  amount: string
+  paidAmount: string
+  status: string
+  notes: string
+  isSupplemental: true
+}
+
+export function buildSupplementalBills(rental: { orderType: string; startDate: string; endDate: string; totalRent: string | number; paidAmount: string | number; status: string }, items: Array<{ quantity: number; boughtOutQuantity: number; returnedQuantity: number; lostQuantity: number; monthlyRent: string | number }>, bills: Array<{ billType: string; amount: string | number; paidAmount: string | number }>, currentDate: string): SupplementalBill[] {
+  const result: SupplementalBill[] = []
+  const realOutstandingCents = bills.filter((bill) => bill.billType !== '押金').reduce((sum, bill) => sum + Math.max(0, toCents(bill.amount) - toCents(bill.paidAmount)), 0)
+  const contractOutstandingCents = Math.max(0, toCents(rental.totalRent) - toCents(rental.paidAmount))
+  const contractGapCents = Math.max(0, contractOutstandingCents - realOutstandingCents)
+  if (contractGapCents > 0) result.push({ id: 'supplemental-contract-gap', kind: 'contract_gap', billType: '原合同欠款补算', periodStart: rental.startDate, periodEnd: rental.endDate, dueDate: rental.endDate, amount: fromCents(contractGapCents), paidAmount: '0.00', status: '待付款', notes: '根据合同总额减累计已收自动补算，仅用于展示。', isSupplemental: true })
+  const activeStatuses = ['在租', '逾期', '部分买断', '部分退租', '部分丢失']
+  const projectedAmount = projectedMonthlyRent(items)
+  const period = nextMonthlyPeriod(rental.endDate)
+  const hasRealRenewalBill = bills.some((bill) => bill.billType === '续租费')
+  if (rental.orderType === 'official' && rental.endDate < currentDate && activeStatuses.includes(rental.status) && toCents(projectedAmount) > 0 && !hasRealRenewalBill) result.push({ id: 'supplemental-projected-renewal', kind: 'projected_renewal', billType: '预计续租应收', periodStart: period.periodStart, periodEnd: period.periodEnd, dueDate: period.periodStart, amount: projectedAmount, paidAmount: '0.00', status: '预计', notes: '到期后默认按一个自然月预测，办理续租后以正式账单为准。', isSupplemental: true })
+  return result
+}
+
 export function renewalAdjustment(quantity: number, duration: number, currentAmount: number | string, correctedUnitPrice: number | string) {
   const correctedAmountCents = quantity * duration * toCents(correctedUnitPrice)
   const differenceCents = correctedAmountCents - toCents(currentAmount)

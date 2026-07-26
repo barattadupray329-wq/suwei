@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { effectiveOutstandingAmount, fromCents, nextMonthlyPeriod, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { buildSupplementalBills, effectiveOutstandingAmount, fromCents, nextMonthlyPeriod, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -109,7 +109,13 @@ async function loadRentalRelations(userId: string, rows: Array<typeof rentals.$i
   const eventMap = groupByRental(events)
   const billMap = groupByRental(bills)
   const ledgerMap = groupByRental(ledger)
-  return rows.map((row) => ({ ...row, items: itemMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: billMap.get(row.id) ?? [], ledger: ledgerMap.get(row.id) ?? [] }))
+  const currentDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  return rows.map((row) => {
+    const rowItems = itemMap.get(row.id) ?? []
+    const realBills = billMap.get(row.id) ?? []
+    const supplementalBills = buildSupplementalBills(row, rowItems, realBills, currentDate)
+    return { ...row, items: rowItems, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: realBills, supplementalBills, ledger: ledgerMap.get(row.id) ?? [] }
+  })
 }
 
 const rentalQuerySchema = z.object({

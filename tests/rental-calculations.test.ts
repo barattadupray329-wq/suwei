@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -65,6 +65,20 @@ describe('租赁金额计算', () => {
   it('历史账单缺失时按合同总额减已收计算欠款', () => expect(effectiveOutstandingAmount('900', '720', '0')).toBe('180.00'))
   it('账单完整时不重复累计合同欠款', () => expect(effectiveOutstandingAmount('900', '720', '180')).toBe('180.00'))
   it('续租账单高于原合同欠款时采用账单未收', () => expect(effectiveOutstandingAmount('900', '900', '90')).toBe('90.00'))
+  it('生成原合同欠款和预计续租两条只读明细', () => {
+    const rental = { orderType: 'official', startDate: '2026-03-13', endDate: '2026-07-12', totalRent: '900', paidAmount: '720', status: '部分退租' }
+    const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '90' }]
+    expect(buildSupplementalBills(rental, items, [], '2026-07-26').map((bill) => ({ kind: bill.kind, amount: bill.amount }))).toEqual([
+      { kind: 'contract_gap', amount: '180.00' },
+      { kind: 'projected_renewal', amount: '90.00' },
+    ])
+  })
+  it('已有完整原合同账单时不重复补算', () => {
+    const rental = { orderType: 'official', startDate: '2026-03-13', endDate: '2026-07-12', totalRent: '900', paidAmount: '720', status: '部分退租' }
+    const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '90' }]
+    const bills = [{ billType: '原合同租金', amount: '900', paidAmount: '720' }]
+    expect(buildSupplementalBills(rental, items, bills, '2026-07-26').some((bill) => bill.kind === 'contract_gap')).toBe(false)
+  })
   it('使用整数分避免浮点误差', () => expect(fromCents(toCents(0.1) + toCents(0.2))).toBe('0.30'))
   it('续租按数量、单价和时长计算', () => expect(renewalAmount(3, 99.99, 2)).toBe('599.94'))
   it('续租涨价生成补收差额', () => expect(renewalAdjustment(2, 3, 600, 120)).toEqual({ correctedAmount: '720.00', differenceAmount: '120.00' }))

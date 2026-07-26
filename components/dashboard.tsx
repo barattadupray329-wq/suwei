@@ -186,6 +186,11 @@ type Bill = {
   status: string;
   notes: string | null;
 };
+type SupplementalBill = Omit<Bill, "id" | "billNo"> & {
+  id: string;
+  kind: "contract_gap" | "projected_renewal";
+  isSupplemental: true;
+};
 type Ledger = {
   id: number;
   entryType: string;
@@ -227,6 +232,7 @@ type Rental = {
   paymentRecords: Payment[];
   events: RentalEvent[];
   bills: Bill[];
+  supplementalBills: SupplementalBill[];
   ledger: Ledger[];
 };
 type Summary = {
@@ -2450,7 +2456,7 @@ function Detail({
           );
         })}
       </div>
-      {rental.bills.length > 0 && (
+      {(rental.bills.length > 0 || (rental.supplementalBills?.length ?? 0) > 0) && (
           <section>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -2477,6 +2483,14 @@ function Detail({
                   </div>
                 </div>;
               })}
+              {(rental.supplementalBills ?? []).map((bill) => <div key={bill.id} className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{bill.kind === "projected_renewal" ? "预计" : "补算"}</span></div>
+                  <p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(bill.amount)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>
+                </div>
+                <button type="button" onClick={() => onPayment(null)} className="self-end rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground sm:self-auto">登记收款</button>
+              </div>)}
             </div>
           </section>
       )}
