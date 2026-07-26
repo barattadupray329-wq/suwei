@@ -416,6 +416,11 @@ export function Dashboard({
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
+  useEffect(() => {
+    if (!detailsOnly) return;
+    setSelected(linkedRental);
+    setDialog(linkedRental ? "detail" : null);
+  }, [detailsOnly, linkedRental]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [form, setForm] = useState<RentalInput>(emptyRental());

@@ -6,6 +6,11 @@ import { RentalRecords } from '@/components/rental-records'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 
+const detailSummary = {
+  total: 0, active: 0, draft: 0, overdue: 0, dueSoon: 0, repairPending: 0,
+  revenue: '0', monthRevenue: '0', receivable: '0', currentDue: '0', overdue30: '0', overdue60: '0', overdue90: '0',
+}
+
 export default async function RentalsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/sign-in')
@@ -41,18 +46,17 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
     page: Math.max(1, Number(value('page')) || 1),
   }
 
-  const [result, assignees, linkedRental, summary, access] = await Promise.all([
+  const [result, assignees, linkedRental, access] = await Promise.all([
     getRentalPage({ ...filters, pageSize: 20 }),
     getRentalAssignees(),
     hasRental ? getRentalById(rentalId) : null,
-    hasRental ? getDashboard() : null,
     hasRental ? getAccessContext('租赁操作') : null,
   ])
 
-  if (hasRental && (!linkedRental || !summary || !access)) redirect('/rentals')
+  if (hasRental && (!linkedRental || !access)) redirect('/rentals')
 
   return <>
     <RentalRecords {...result} filters={filters} assignees={assignees} />
-    {linkedRental && summary && access && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={[linkedRental]} mode="management" detailsOnly />}
+    {linkedRental && access && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={detailSummary} rentals={[linkedRental]} mode="management" detailsOnly />}
   </>
 }

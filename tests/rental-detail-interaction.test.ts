@@ -18,3 +18,9 @@ test('租赁管理桌面合同列表双击打开详情', () => {
   expect(dashboard).toMatch(/onDoubleClick=\{\(\) => openDetail\(r\)\}/)
   expect(records).toMatch(/onDoubleClick=\{\(\) => openDetail\(row\.id\)\}/)
 })
+
+test('详情组件在地址参数再次变化时重新同步抽屉状态', () => {
+  expect(dashboard).toMatch(/if \(!detailsOnly\) return;\s*setSelected\(linkedRental\);\s*setDialog\(linkedRental \? "detail" : null\);/)
+  expect(records).toMatch(/正在加载租赁详情/)
+  expect(records).toMatch(/setOpeningRentalId\(row\.id\)/)
+})
