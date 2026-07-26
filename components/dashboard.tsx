@@ -34,6 +34,7 @@ import {
   getCustomerHistory,
   getCustomerOfferSuggestion,
   getNextRentalNumbers,
+  getRentalById,
   getRentalFormSuggestions,
   recordDepositAction,
   recordInitialPayment,
@@ -1303,9 +1304,19 @@ canViewFinance={canViewFinance}
  bills={selected.bills}
  contractGap={selected.supplementalBills?.find((bill) => bill.kind === "contract_gap")}
  target={paymentTarget}
-            submit={(value) =>
-              run(() => collectPayment(selected.id, value), "收款已登记")
-            }
+  submit={(value) => start(async () => {
+    try {
+      await collectPayment(selected.id, value);
+      const refreshedRental = await getRentalById(selected.id);
+      if (refreshedRental) setSelected(refreshedRental);
+      setPaymentTarget(null);
+      setDialog("detail");
+      toast.success("收款已登记");
+      router.refresh();
+    } catch (error) {
+      toast.error(userErrorMessage(error));
+    }
+  })}
           />
         )}
       </Dialog>
