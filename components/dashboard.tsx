@@ -2813,7 +2813,7 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。部分数量续租时系统会自动拆分。
+        续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。因服务问题赠送租期时，单价可填 0，系统只延长日期、不产生待收账单，也不会改变后续正常月租。部分数量续租时系统会自动拆分。
       </div>
       <div className="flex flex-col gap-3">
         {available.map((item) => {
