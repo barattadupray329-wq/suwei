@@ -1,13 +1,19 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, LoaderCircle, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { getRentalById } from '@/app/actions/rentals'
+import { Dashboard } from '@/components/dashboard'
+import { toast } from 'sonner'
 
 type Row = { id: number; orderType: string; lifecycleStatus: string; deletedAt: Date | null; contractNo: string; customerCompany: string | null; customerName: string; customerPhone: string; deviceName: string; quantity: number; startDate: string; endDate: string; totalRent: string; paidAmount: string; outstandingAmount: string; overdueAmount: string; paymentStatus: string; status: string; assigneeName: string | null }
 type Filters = { query: string; status: string; startDate: string; endDate: string; assignee: string; orderType: string; lifecycleStatus: string; sort: string; page: number }
-type Assignee = { id: string; name: string }
+type Assignee = { id: string; name: string; role: 'admin' | 'employee' }
+type Access = { role: 'super_admin' | 'admin' | 'employee'; permissions: string[]; actorId: string; actorName: string }
+type RentalDetail = Awaited<ReturnType<typeof getRentalById>>
+const detailSummary = { total: 0, active: 0, draft: 0, overdue: 0, dueSoon: 0, repairPending: 0, revenue: '0', monthRevenue: '0', receivable: '0', currentDue: '0', overdue30: '0', overdue60: '0', overdue90: '0' }
 
 const money = (value: string) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 0 }).format(Number(value))
 const daysUntil = (date: string) => Math.ceil((new Date(`${date}T00:00:00Z`).getTime() - Date.now()) / 86_400_000)
@@ -23,10 +29,12 @@ function RentalHealth({ row }: { row: Row }) {
   </div>
 }
 
-export function RentalRecords({ rows, total, page, pageCount, filters, assignees }: { rows: Row[]; total: number; page: number; pageCount: number; filters: Filters; assignees: Assignee[] }) {
+export function RentalRecords({ rows, total, page, pageCount, filters, assignees, access }: { rows: Row[]; total: number; page: number; pageCount: number; filters: Filters; assignees: Assignee[]; access: Access }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const cache = useRef(new Map<number, NonNullable<RentalDetail>>())
   const [openingRentalId, setOpeningRentalId] = useState<number | null>(null)
+  const [selectedRental, setSelectedRental] = useState<NonNullable<RentalDetail> | null>(null)
   const activeRentalId = searchParams.get('rental')
   useEffect(() => setOpeningRentalId(null), [activeRentalId])
   const detailHref = (id: number) => {
@@ -35,9 +43,39 @@ export function RentalRecords({ rows, total, page, pageCount, filters, assignees
     params.set('rental', String(id))
     return `/rentals?${params.toString()}`
   }
-  const openDetail = (id: number) => {
-    setOpeningRentalId(id)
-    router.push(detailHref(id), { scroll: false })
+  const loadDetail = async (id: number, showLoading = false) => {
+    const cached = cache.current.get(id)
+    if (cached) return cached
+    if (showLoading) setOpeningRentalId(id)
+    try {
+      const detail = await getRentalById(id)
+      if (detail) cache.current.set(id, detail)
+      return detail
+    } catch {
+      return null
+    } finally {
+      if (showLoading) setOpeningRentalId(null)
+    }
+  }
+  const openDetail = async (id: number) => {
+    const cached = cache.current.get(id)
+    if (cached) {
+      setSelectedRental(cached)
+    } else {
+      const detail = await loadDetail(id, true)
+      if (!detail) {
+        toast.error('租赁详情加载失败，请重试')
+        return
+      }
+      setSelectedRental(detail)
+    }
+    window.history.pushState(null, '', detailHref(id))
+  }
+  const closeDetail = () => {
+    setSelectedRental(null)
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('rental')
+    window.history.replaceState(null, '', `/rentals${params.size ? `?${params}` : ''}`)
   }
   const pageHref = (nextPage: number) => {
     const params = new URLSearchParams()
@@ -48,13 +86,9 @@ export function RentalRecords({ rows, total, page, pageCount, filters, assignees
   }
 
   return <div className="page-container">
-    {openingRentalId !== null && <div className="fixed inset-0 z-40 flex justify-end bg-foreground/10" role="status" aria-live="polite">
-      <div className="flex h-svh w-full items-center justify-center border-l bg-card/95 shadow-xl md:max-w-4xl">
-        <div className="flex items-center gap-3 rounded-xl border bg-background px-5 py-4 shadow-sm">
-          <LoaderCircle className="size-5 animate-spin text-primary" />
-          <span className="font-medium">正在加载租赁详情…</span>
-        </div>
-      </div>
+    {openingRentalId !== null && <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm font-medium shadow-lg" role="status" aria-live="polite">
+      <LoaderCircle className="size-4 animate-spin text-primary" />
+      正在打开详情…
     </div>}
     <header className="page-header">
       <div><p className="page-eyebrow">合同全生命周期</p><h1 className="page-title">租赁管理</h1><p className="page-description">统一办理租赁业务，并直接掌握每份合同的待收、逾期与到期风险。</p></div>
@@ -79,11 +113,12 @@ export function RentalRecords({ rows, total, page, pageCount, filters, assignees
           <td className="p-3">{row.deviceName}<p className="text-xs text-muted-foreground">共 {row.quantity} 台</p></td>
           <td className="p-3">{row.startDate}<p className="text-xs text-muted-foreground">至 {row.endDate}</p></td>
           <td className="p-3"><p className="font-semibold">待收 {money(row.outstandingAmount)}</p><p className="text-xs text-muted-foreground">合同 {money(row.totalRent)} · 已收 {money(row.paidAmount)}</p></td>
-          <td className="p-3"><RentalHealth row={row}/></td><td className="p-3">{row.assigneeName || '未分配'}</td><td className="p-3 text-right"><Link className="font-semibold text-primary hover:underline" href={detailHref(row.id)} onClick={() => setOpeningRentalId(row.id)} aria-label={`查看合同 ${row.contractNo} 详情`}>{openingRentalId === row.id ? '加载中…' : '查看详情'}</Link></td>
+          <td className="p-3"><RentalHealth row={row}/></td><td className="p-3">{row.assigneeName || '未分配'}</td><td className="p-3 text-right"><Link className="font-semibold text-primary hover:underline" href={detailHref(row.id)} onPointerEnter={() => void loadDetail(row.id)} onFocus={() => void loadDetail(row.id)} onClick={(event) => { event.preventDefault(); void openDetail(row.id) }} aria-label={`查看合同 ${row.contractNo} 详情`}>{openingRentalId === row.id ? '打开中…' : '查看详情'}</Link></td>
         </tr>)}</tbody></table></div>
-        <div className="flex flex-col gap-3 p-3 md:hidden">{rows.map((row) => <article key={row.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{row.contractNo}</p><p className="text-sm">{row.customerCompany || row.customerName}</p></div><RentalHealth row={row}/></div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-muted-foreground">设备</p><p>{row.deviceName} · {row.quantity} 台</p></div><div><p className="text-muted-foreground">负责人</p><p>{row.assigneeName || '未分配'}</p></div><div><p className="text-muted-foreground">待收</p><p className="font-semibold">{money(row.outstandingAmount)}</p></div><div><p className="text-muted-foreground">到期日</p><p>{row.endDate}</p></div></div><Link href={detailHref(row.id)} onClick={() => setOpeningRentalId(row.id)} className="secondary-button mt-4 w-full justify-center">{openingRentalId === row.id ? '加载中…' : '查看详情'}</Link></article>)}</div>
+        <div className="flex flex-col gap-3 p-3 md:hidden">{rows.map((row) => <article key={row.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{row.contractNo}</p><p className="text-sm">{row.customerCompany || row.customerName}</p></div><RentalHealth row={row}/></div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-muted-foreground">设备</p><p>{row.deviceName} · {row.quantity} 台</p></div><div><p className="text-muted-foreground">负责人</p><p>{row.assigneeName || '未分配'}</p></div><div><p className="text-muted-foreground">待收</p><p className="font-semibold">{money(row.outstandingAmount)}</p></div><div><p className="text-muted-foreground">到期日</p><p>{row.endDate}</p></div></div><Link href={detailHref(row.id)} onClick={(event) => { event.preventDefault(); void openDetail(row.id) }} className="secondary-button mt-4 w-full justify-center">{openingRentalId === row.id ? '打开中…' : '查看详情'}</Link></article>)}</div>
       </> : <div className="p-10 text-center text-muted-foreground">没有符合条件的租赁合同</div>}
       <footer className="flex items-center justify-between border-t p-4"><p className="text-sm text-muted-foreground">第 {total ? (page - 1) * 20 + 1 : 0}–{Math.min(page * 20, total)} 条</p><div className="flex gap-2"><Link aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} href={pageHref(Math.max(1, page - 1))} className={`secondary-button ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}><ChevronLeft className="size-4"/>上一页</Link><Link aria-disabled={page >= pageCount} tabIndex={page >= pageCount ? -1 : 0} href={pageHref(Math.min(pageCount, page + 1))} className={`secondary-button ${page >= pageCount ? 'pointer-events-none opacity-50' : ''}`}>下一页<ChevronRight className="size-4"/></Link></div></footer>
     </section>
+    {selectedRental && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={detailSummary} rentals={[selectedRental]} mode="management" detailsOnly onCloseDetails={closeDetail} />}
   </div>
 }

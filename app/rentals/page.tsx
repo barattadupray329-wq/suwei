@@ -50,13 +50,13 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
     getRentalPage({ ...filters, pageSize: 20 }),
     getRentalAssignees(),
     hasRental ? getRentalById(rentalId) : null,
-    hasRental ? getAccessContext('租赁操作') : null,
+    getAccessContext('租赁操作'),
   ])
 
-  if (hasRental && (!linkedRental || !access)) redirect('/rentals')
+  if (hasRental && !linkedRental) redirect('/rentals')
 
   return <>
-    <RentalRecords {...result} filters={filters} assignees={assignees} />
+    <RentalRecords {...result} filters={filters} assignees={assignees} access={access} />
     {linkedRental && access && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={detailSummary} rentals={[linkedRental]} mode="management" detailsOnly />}
   </>
 }

@@ -368,8 +368,9 @@ export function Dashboard({
   rentals,
   mode = "overview",
   initialNew = false,
-  detailsOnly = false,
-}: {
+detailsOnly = false,
+onCloseDetails,
+  }: {
   role: "super_admin" | "admin" | "employee";
   permissions: string[];
   currentActorId: string;
@@ -380,7 +381,8 @@ export function Dashboard({
   mode?: "overview" | "management";
   initialNew?: boolean;
   detailsOnly?: boolean;
-}) {
+  onCloseDetails?: () => void;
+  }) {
   const canManageContracts =
     role === "super_admin" || permissions.includes("合同管理");
   const canViewFinance =
@@ -507,10 +509,14 @@ export function Dashboard({
     setSelected(r);
     setDialog("detail");
   };
-  const closeDetail = () => {
-    setDialog(null);
-    setSelected(null);
-    if (searchParams.has("rental")) {
+ const closeDetail = () => {
+  setDialog(null);
+  setSelected(null);
+  if (onCloseDetails) {
+    onCloseDetails();
+    return;
+  }
+  if (searchParams.has("rental")) {
       const next = new URLSearchParams(searchParams.toString());
       next.delete("rental");
       router.replace(`/rentals${next.size ? `?${next.toString()}` : ""}`, { scroll: false });
