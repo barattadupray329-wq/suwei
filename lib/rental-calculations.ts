@@ -41,6 +41,18 @@ export function renewalAmount(quantity: number, unitPrice: number, duration: num
   return fromCents(quantity * duration * toCents(unitPrice))
 }
 
+export function nextMonthlyPeriod(endDate: string) {
+  return { periodStart: endDate, periodEnd: addCalendarMonths(endDate, 1) }
+}
+
+export function projectedMonthlyRent(items: Array<{ quantity: number; boughtOutQuantity: number; returnedQuantity: number; lostQuantity: number; monthlyRent: string | number }>) {
+  const cents = items.reduce((total, item) => {
+    const activeQuantity = Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity)
+    return total + activeQuantity * toCents(item.monthlyRent)
+  }, 0)
+  return fromCents(cents)
+}
+
 export function renewalAdjustment(quantity: number, duration: number, currentAmount: number | string, correctedUnitPrice: number | string) {
   const correctedAmountCents = quantity * duration * toCents(correctedUnitPrice)
   const differenceCents = correctedAmountCents - toCents(currentAmount)

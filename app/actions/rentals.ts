@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { fromCents, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { fromCents, nextMonthlyPeriod, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -158,21 +158,33 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const rentalIds = rows.map((row) => row.id)
-  const billMetrics = rentalIds.length
-    ? await db.select({
-        rentalId: receivableBills.rentalId,
-        outstanding: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)`,
-        overdue: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < current_date then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
-      }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))).groupBy(receivableBills.rentalId)
-    : []
+  const activeStatuses = ['在租', '逾期', '部分买断', '部分退租', '部分丢失']
+  const [billMetrics, itemMetrics, [allBills], [allProjected]] = await Promise.all([
+    rentalIds.length
+      ? db.select({
+          rentalId: receivableBills.rentalId,
+          outstanding: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)`,
+          overdue: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < current_date then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+        }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))).groupBy(receivableBills.rentalId)
+      : Promise.resolve([]),
+    rentalIds.length
+      ? db.select({ rentalId: rentalItems.rentalId, projected: sql<string>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity}) * cast(${rentalItems.monthlyRent} as real)), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rentalIds))).groupBy(rentalItems.rentalId)
+      : Promise.resolve([]),
+    db.select({ amount: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)` }).from(receivableBills).innerJoin(rentals, and(eq(rentals.id, receivableBills.rentalId), eq(rentals.userId, receivableBills.userId))).where(and(where, eq(receivableBills.userId, userId))),
+    db.select({ amount: sql<string>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity}) * cast(${rentalItems.monthlyRent} as real)), 0)` }).from(rentalItems).innerJoin(rentals, and(eq(rentals.id, rentalItems.rentalId), eq(rentals.userId, rentalItems.userId))).where(and(where, eq(rentalItems.userId, userId), eq(rentals.orderType, 'official'), lt(rentals.endDate, sql`current_date`), inArray(rentals.status, activeStatuses))),
+  ])
   const metricsByRental = new Map(billMetrics.map((item) => [item.rentalId, item]))
-  const enrichedRows = rows.map((row) => ({
-    ...row,
-    outstandingAmount: metricsByRental.get(row.id)?.outstanding ?? '0',
-    overdueAmount: metricsByRental.get(row.id)?.overdue ?? '0',
-  }))
+  const projectedByRental = new Map(itemMetrics.map((item) => [item.rentalId, item.projected]))
+  const enrichedRows = rows.map((row) => {
+    const shouldProject = row.orderType === 'official' && row.endDate < new Date().toISOString().slice(0, 10) && activeStatuses.includes(row.status)
+    const projectedAmount = shouldProject ? projectedByRental.get(row.id) ?? '0' : '0'
+    const period = shouldProject ? nextMonthlyPeriod(row.endDate) : null
+    const outstandingAmount = metricsByRental.get(row.id)?.outstanding ?? '0'
+    return { ...row, outstandingAmount, overdueAmount: metricsByRental.get(row.id)?.overdue ?? '0', projectedAmount, projectedPeriodStart: period?.periodStart ?? null, projectedPeriodEnd: period?.periodEnd ?? null, totalDueAmount: fromCents(toCents(outstandingAmount) + toCents(projectedAmount)) }
+  })
   const total = Number(countRow?.count ?? 0)
-  return { rows: enrichedRows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+  const totalDueAmount = fromCents(toCents(allBills?.amount ?? '0') + toCents(allProjected?.amount ?? '0'))
+  return { rows: enrichedRows, total, totalDueAmount, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
 }
 
 export async function getRentalById(id: number) {
