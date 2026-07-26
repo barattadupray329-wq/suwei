@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, shouldSyncBillPeriod, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, overdueMonthlyPeriods, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, shouldSyncBillPeriod, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -67,6 +67,21 @@ describe('租期调整账单同步', () => {
 })
 
 describe('租赁金额计算', () => {
+  it('5 月 12 日到期至 7 月 26 日累计三个续租账期', () => {
+    expect(overdueMonthlyPeriods('2026-05-12', '2026-07-26')).toEqual([
+      { periodStart: '2026-05-12', periodEnd: '2026-06-12' },
+      { periodStart: '2026-06-12', periodEnd: '2026-07-12' },
+      { periodStart: '2026-07-12', periodEnd: '2026-08-12' },
+    ])
+    const rental = { orderType: 'official', startDate: '2025-06-24', endDate: '2026-05-12', totalRent: '1500', paidAmount: '1500', status: '在租' }
+    const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '150' }]
+    expect(buildSupplementalBills(rental, items, [], '2026-07-26').find((bill) => bill.kind === 'projected_renewal')).toMatchObject({ amount: '450.00', periodStart: '2026-05-12', periodEnd: '2026-08-11', periodCount: 3 })
+  })
+  it('付款日当天已经进入新一期', () => expect(overdueMonthlyPeriods('2026-05-12', '2026-05-12')).toHaveLength(1))
+  it('月底与闰年逐期衔接', () => expect(overdueMonthlyPeriods('2028-01-31', '2028-03-01')).toEqual([
+    { periodStart: '2028-01-31', periodEnd: '2028-02-29' },
+    { periodStart: '2028-02-29', periodEnd: '2028-03-29' },
+  ]))
   it('到期后默认预测下一个自然月', () => {
     expect(nextMonthlyPeriod('2026-07-03')).toEqual({ periodStart: '2026-07-03', periodEnd: '2026-08-03' })
     expect(nextMonthlyPeriod('2026-01-31')).toEqual({ periodStart: '2026-01-31', periodEnd: '2026-02-28' })

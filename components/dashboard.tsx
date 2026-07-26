@@ -192,6 +192,7 @@ type SupplementalBill = Omit<Bill, "id" | "billNo"> & {
   id: string;
   kind: "contract_gap" | "projected_renewal";
   isSupplemental: true;
+  periodCount?: number;
 };
 type Ledger = {
   id: number;
@@ -2770,6 +2771,8 @@ function RenewalForm({
   const available = rental.items.filter(
     (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
   );
+  const projectedRenewal = rental.supplementalBills?.find((bill) => bill.kind === "projected_renewal");
+  const defaultDuration = Math.max(1, projectedRenewal?.periodCount ?? 1);
   const [rows, setRows] = useState<Record<number, RenewalInput>>({});
   const toggle = (item: Item) =>
     setRows((current) => {
@@ -2781,9 +2784,9 @@ function RenewalForm({
           rentalItemId: item.id,
           quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
           billingUnit: "month",
-          duration: 1,
+          duration: defaultDuration,
           unitPrice: Number(item.monthlyRent),
-          newEndDate: addMonths(end, 1),
+          newEndDate: addMonths(end, defaultDuration),
           notes: "",
         };
       }
