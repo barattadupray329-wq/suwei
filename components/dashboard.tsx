@@ -2232,7 +2232,621 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   </form>;
 }
 
-function Detail({
+type DetailProps = {
+  rental: Rental;
+  role: "super_admin" | "admin" | "employee";
+  assignees: RentalAssignee[];
+  canManageContracts: boolean;
+  canViewFinance: boolean;
+  onSendNotice: () => void;
+  onAssignee: (assigneeId: string) => void;
+  onDelete: () => void;
+  onConfirmDraft: () => void;
+  onRentalChange: () => void;
+  onPayment: (target: number | "all" | null) => void;
+  onRenew: () => void;
+  onCorrectRenewal: (record: Renewal) => void;
+  onBuyout: () => void;
+  onHistory: () => void;
+  onReturn: () => void;
+  onLoss: () => void;
+  onChange: () => void;
+  onRepair: () => void;
+  onDeposit: () => void;
+  onExchange: () => void;
+  onReverse: (paymentId: number) => void;
+  onStatus: (s: string) => void;
+};
+
+type DetailTab = "overview" | "finance" | "records" | "manage";
+
+function Detail(props: DetailProps) {
+  const {
+    rental,
+    role,
+    assignees,
+    canManageContracts,
+    canViewFinance,
+    onSendNotice,
+    onAssignee,
+    onDelete,
+    onConfirmDraft,
+    onRentalChange,
+    onPayment,
+    onRenew,
+    onCorrectRenewal,
+    onBuyout,
+    onHistory,
+    onReturn,
+    onLoss,
+    onChange,
+    onRepair,
+    onDeposit,
+    onExchange,
+    onReverse,
+    onStatus,
+  } = props;
+  const [tab, setTab] = useState<DetailTab>("overview");
+  const [actionOpen, setActionOpen] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
+  const outstandingBills = rentBills.filter((bill) => billOutstandingCents(bill) > 0);
+  const outstandingCents = rentBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
+  const overdueBills = outstandingBills.filter(
+    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, today) === "逾期",
+  );
+  const nextBill = nextOpenBill(rentBills);
+  const settledBills = rentBills
+    .filter((bill) => billOutstandingCents(bill) === 0)
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+  const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
+  const remainingDevices = rental.items.reduce(
+    (sum, item) =>
+      sum + Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity),
+    0,
+  );
+  const openRepairs = rental.events.filter(
+    (event) => event.eventType === "维修" && !["已完成", "已结束"].includes(event.status),
+  );
+  const daysToExpiry = Math.ceil(
+    (new Date(`${rental.endDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) /
+      86_400_000,
+  );
+  const recordCount =
+    rental.events.length +
+    rental.renewalRecords.length +
+    rental.buyoutRecords.length;
+  const canBuyout = rental.items.some((i) => i.boughtOutQuantity < i.quantity);
+  const isDraft = rental.orderType === "draft";
+
+  const todos: { tone: "danger" | "warn"; text: string }[] = [];
+  if (overdueBills.length > 0)
+    todos.push({ tone: "danger", text: `${overdueBills.length} 期逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+  if (openRepairs.length > 0)
+    todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
+  if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
+    todos.push({ tone: "warn", text: `合同 ${daysToExpiry === 0 ? "今日到期" : `${daysToExpiry} 天后到期`}，可提醒客户续租` });
+  if (isDraft) todos.push({ tone: "warn", text: "草稿未转正式，暂不计入经营数据" });
+
+  const tabs: { key: DetailTab; label: string; badge?: string }[] = [
+    { key: "overview", label: "概览" },
+    { key: "finance", label: "账务", badge: outstandingBills.length ? `${outstandingBills.length} 待收` : undefined },
+    { key: "records", label: "业务记录", badge: recordCount ? String(recordCount) : undefined },
+    { key: "manage", label: "合同与管理" },
+  ];
+
+  return (
+    <div className="flex flex-col">
+      <section className="rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold">{rental.customerCompany || rental.customerName}</h3>
+              <Status value={rental.status} />
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                {rental.orderType === "draft" ? "草稿" : rental.orderType === "test" ? "测试" : "正式合同"}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {rental.contractNo} · {rental.customerName} · {rental.customerPhone}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <Info l="剩余在租" v={`${remainingDevices} 台`} />
+            <Info l="待收金额" v={money(centsToMoney(outstandingCents))} />
+            <Info l="下次付款" v={nextBill?.dueDate ?? "无待付"} />
+          </div>
+        </div>
+        {todos.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {todos.map((todo, index) => (
+              <div
+                key={index}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                  todo.tone === "danger"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-accent text-accent-foreground"
+                }`}
+              >
+                <ClockAlert className="size-4 shrink-0" />
+                <span>{todo.text}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary">当前暂无待办事项</p>
+        )}
+        {isDraft && (
+          <button
+            type="button"
+            onClick={onConfirmDraft}
+            className="mt-3 h-10 w-full rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto"
+          >
+            转为正式合同
+          </button>
+        )}
+      </section>
+
+      <div className="sticky top-0 z-10 -mx-1 mt-4 flex gap-1 overflow-x-auto border-b bg-background px-1 pb-px">
+        {tabs.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setTab(item.key)}
+            className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+              tab === item.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {item.label}
+            {item.badge && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                  tab === item.key ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {item.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-4 pb-24">
+        {tab === "overview" && (
+          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} />
+        )}
+        {tab === "finance" && (
+          <DetailFinance
+            rental={rental}
+            canViewFinance={canViewFinance}
+            onPayment={onPayment}
+            onReverse={onReverse}
+          />
+        )}
+        {tab === "records" && (
+          <DetailRecords rental={rental} role={role} onCorrectRenewal={onCorrectRenewal} />
+        )}
+        {tab === "manage" && (
+          <DetailManage
+            rental={rental}
+            role={role}
+            assignees={assignees}
+            canManageContracts={canManageContracts}
+            onSendNotice={onSendNotice}
+            onAssignee={onAssignee}
+            onHistory={onHistory}
+            onDeposit={onDeposit}
+            onDelete={onDelete}
+            onStatus={onStatus}
+          />
+        )}
+      </div>
+
+      <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        <button
+          type="button"
+          onClick={() => onPayment(null)}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"
+        >
+          <WalletCards className="size-4" />
+          登记收款
+        </button>
+        <button
+          type="button"
+          disabled={remainingDevices === 0}
+          onClick={onRenew}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-primary px-4 text-sm font-semibold text-primary disabled:opacity-40"
+        >
+          <ClipboardPenLine className="size-4" />
+          办理续租
+        </button>
+        <div className="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => setActionOpen((prev) => !prev)}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium"
+          >
+            办理业务
+            <ChevronRight className={`size-4 transition-transform ${actionOpen ? "-rotate-90" : "rotate-90"}`} />
+          </button>
+          {actionOpen && (
+            <>
+              <button
+                type="button"
+                aria-label="关闭操作菜单"
+                className="fixed inset-0 z-20 cursor-default"
+                onClick={() => setActionOpen(false)}
+              />
+              <div className="absolute bottom-12 right-0 z-30 w-72 rounded-xl border bg-card p-3 shadow-lg">
+                <ActionGroup title="设备流转">
+                  <ActionItem label="办理退租" hint="客户退还部分或全部设备" disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onReturn(); }} />
+                  <ActionItem label="办理买断" hint="设备转为客户所有" disabled={!canBuyout} disabledHint="无可买断设备" onClick={() => { setActionOpen(false); onBuyout(); }} />
+                  <ActionItem label="设备换机" hint="更换整台设备" disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onExchange(); }} />
+                  <ActionItem label="登记丢失" hint="设备遗失，按数量处理" danger disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onLoss(); }} />
+                </ActionGroup>
+                <ActionGroup title="合同调整">
+                  <ActionItem label="配置 / 租金变更" hint="调整设备配置或月租" onClick={() => { setActionOpen(false); onChange(); }} />
+                  <ActionItem label="其他合同变更" hint="调整租期或客户联系资料" onClick={() => { setActionOpen(false); onRentalChange(); }} />
+                </ActionGroup>
+                <ActionGroup title="售后与资金">
+                  <ActionItem label="登记维修" hint="记录故障与客户承担费用" onClick={() => { setActionOpen(false); onRepair(); }} />
+                  <ActionItem label="押金处理" hint="退还或抵扣押金" onClick={() => { setActionOpen(false); onDeposit(); }} />
+                  <ActionItem label="登记其他金额" hint="补收 / 减免等非账单金额" onClick={() => { setActionOpen(false); onPayment(null); }} />
+                </ActionGroup>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-2 last:mb-0">
+      <p className="px-1 pb-1 text-xs font-semibold text-muted-foreground">{title}</p>
+      <div className="flex flex-col">{children}</div>
+    </div>
+  );
+}
+
+function ActionItem({
+  label,
+  hint,
+  onClick,
+  disabled = false,
+  disabledHint,
+  danger = false,
+}: {
+  label: string;
+  hint: string;
+  onClick: () => void;
+  disabled?: boolean;
+  disabledHint?: string;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      <span className={`block text-sm font-medium ${danger ? "text-destructive" : ""}`}>{label}</span>
+      <span className="mt-0.5 block text-xs text-muted-foreground">
+        {disabled && disabledHint ? disabledHint : hint}
+      </span>
+    </button>
+  );
+}
+
+function DetailOverview({
+  rental,
+  paidThrough,
+  nextBill,
+}: {
+  rental: Rental;
+  paidThrough: string | null;
+  nextBill: Rental["bills"][number] | null;
+}) {
+  return (
+    <>
+      <section className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
+        <Info l="订单来源人" v={rental.sourceName || "历史订单"} />
+        <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
+        <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
+        <Info l="设备总数" v={`${rental.quantity} 台`} />
+        <Info l="租金总额" v={money(rental.totalRent)} />
+        <Info l="已收租金" v={money(rental.paidAmount)} />
+        <Info l="约定押金" v={money(rental.deposit)} />
+        <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
+      </section>
+      <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
+        <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
+        <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
+        <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+      </section>
+      <section className="flex flex-col gap-3">
+        <h3 className="font-semibold">设备明细</h3>
+        {rental.items.map((item) => {
+          const remain = item.quantity - item.boughtOutQuantity;
+          return (
+            <article key={item.id} className="rounded-xl border p-4">
+              <div className="flex flex-col justify-between gap-2 sm:flex-row">
+                <div>
+                  <p className="font-semibold">{item.deviceType} · {item.deviceName}</p>
+                  <p className="text-sm text-muted-foreground">{item.deviceCode || ""}</p>
+                </div>
+                <Status value={remain === 0 ? "已买断" : item.boughtOutQuantity > 0 ? "部分买断" : "在租"} />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <Info l="原数量" v={`${item.quantity} 台`} />
+                <Info l="已买断" v={`${item.boughtOutQuantity} 台`} />
+                <Info l="剩余在租" v={`${remain} 台`} />
+                <Info l="买断金额" v={money(item.buyoutAmount)} />
+                <Info l="月租单价 / 台" v={money(item.monthlyRent)} />
+                <Info l="设备租期" v={`${item.startDate || rental.startDate} 至 ${item.endDate || rental.endDate}`} />
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
+                {getDeviceConfigRows(item).map((row) => (
+                  <div key={row.label}>
+                    <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                    <dd className="min-h-5">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
+          );
+        })}
+      </section>
+    </>
+  );
+}
+
+function DetailFinance({
+  rental,
+  canViewFinance,
+  onPayment,
+  onReverse,
+}: {
+  rental: Rental;
+  canViewFinance: boolean;
+  onPayment: (target: number | "all" | null) => void;
+  onReverse: (paymentId: number) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const hasOutstanding = rental.bills.some(
+    (bill) => bill.billType !== "押金" && billOutstandingCents(bill) > 0,
+  );
+  return (
+    <>
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">应收账单</h3>
+            <p className="text-sm text-muted-foreground">起租期一次预收；续租默认按月收取，可按客户要求选择多个月</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
+            <button type="button" disabled={!hasOutstanding} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部</button>
+          </div>
+        </div>
+        {rental.bills.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {rental.bills.map((bill) => {
+              const outstanding = billOutstandingCents(bill);
+              return (
+                <div key={bill.id} className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p>
+                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
+                    {bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}
+                  </div>
+                  <div className="flex items-center gap-3 self-end sm:self-auto">
+                    <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} />
+                    {bill.billType !== "押金" && outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无应收账单</p>
+        )}
+      </section>
+      <section>
+        <h3 className="mb-3 font-semibold">收款与冲正</h3>
+        {rental.paymentRecords.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {rental.paymentRecords.map((payment) => (
+              <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm">
+                <span>{payment.paymentDate} · {payment.feeType} · {money(payment.amount)}</span>
+                {canViewFinance && Number(payment.amount) > 0 && (
+                  <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无收款记录</p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function DetailRecords({
+  rental,
+  role,
+  onCorrectRenewal,
+}: {
+  rental: Rental;
+  role: "super_admin" | "admin" | "employee";
+  onCorrectRenewal: (record: Renewal) => void;
+}) {
+  const hasRecords =
+    rental.renewalRecords.length > 0 || rental.events.length > 0 || rental.buyoutRecords.length > 0;
+  if (!hasRecords) {
+    return <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无续租、变更、维修或买断记录</p>;
+  }
+  return (
+    <>
+      {rental.renewalRecords.length > 0 && (
+        <section>
+          <h3 className="mb-3 font-semibold">续租记录</h3>
+          <div className="flex flex-col gap-2">
+            {rental.renewalRecords.map((record) => {
+              const item =
+                rental.items.find((i) => i.id === record.renewedRentalItemId) ||
+                rental.items.find((i) => i.id === record.sourceRentalItemId);
+              return (
+                <div key={record.id} className="rounded-lg border p-3 text-sm">
+                  <div className="flex flex-col justify-between gap-1 sm:flex-row">
+                    <strong>{item?.deviceName || "设备明细"} · {record.quantity} 台 · 续租 {record.renewalMonths || "—"} 个月</strong>
+                    <span>{record.renewalDate}</span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">
+                    {record.billingUnit === "day" ? "日租" : "月租"} {money(record.unitPrice || record.newMonthlyRent)} · 到期 {record.oldEndDate} → {record.newEndDate} · 原续租金额 {money(record.renewalAmount)}
+                  </p>
+                  {record.adjustments.length > 0 && (
+                    <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted p-3">
+                      <p className="font-medium">当前有效单价 {money(record.adjustments[0].correctedUnitPrice)} · 累计差额 {money(record.adjustments.reduce((sum, adj) => sum + Number(adj.differenceAmount), 0))}</p>
+                      {record.adjustments.map((adj) => (
+                        <p key={adj.id} className="text-xs leading-5 text-muted-foreground">
+                          {money(adj.previousUnitPrice)} → {money(adj.correctedUnitPrice)}，差额 {money(adj.differenceAmount)} · {adj.reason} · {adj.operatorName}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {role === "admin" && (
+                    <button type="button" onClick={() => onCorrectRenewal(record)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正价格</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {rental.events.length > 0 && (
+        <section>
+          <h3 className="mb-3 font-semibold">变更与维修</h3>
+          <div className="flex flex-col gap-2">
+            {rental.events.map((event) => (
+              <article key={event.id} className="rounded-lg border p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong>{event.eventType} · {event.eventDate}</strong>
+                  <Status value={event.status} />
+                </div>
+                <p className="mt-1 text-muted-foreground">
+                  {event.eventType === "维修"
+                    ? `${event.faultDescription || "维修记录"} · 客户承担 ${money(event.customerCharge)}`
+                    : `${event.reason || "配置调整"} · 应收调整 ${money(event.feeAdjustment)}`}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">经办人：{event.operatorName}{event.notes ? ` · ${event.notes}` : ""}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      {rental.buyoutRecords.length > 0 && (
+        <section>
+          <h3 className="mb-3 font-semibold">买断记录</h3>
+          <div className="flex flex-col gap-2">
+            {rental.buyoutRecords.map((record) => (
+              <div key={record.id} className="flex justify-between rounded-lg border p-3 text-sm">
+                <span>{record.buyoutDate} · {record.quantity} 台 × {money(record.unitPrice)}</span>
+                <strong>{money(record.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function DetailManage({
+  rental,
+  role,
+  assignees,
+  canManageContracts,
+  onSendNotice,
+  onAssignee,
+  onHistory,
+  onDeposit,
+  onDelete,
+  onStatus,
+}: {
+  rental: Rental;
+  role: "super_admin" | "admin" | "employee";
+  assignees: RentalAssignee[];
+  canManageContracts: boolean;
+  onSendNotice: () => void;
+  onAssignee: (assigneeId: string) => void;
+  onHistory: () => void;
+  onDeposit: () => void;
+  onDelete: () => void;
+  onStatus: (s: string) => void;
+}) {
+  return (
+    <>
+      <section className="grid gap-2 sm:grid-cols-2">
+        <Link href={`/contracts/${rental.id}`} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+          <FileText className="size-4 text-primary" />
+          查看合同
+        </Link>
+        <button type="button" onClick={onHistory} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+          <Search className="size-4 text-primary" />
+          客户历史
+        </button>
+        <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+          <BellRing className="size-4 text-primary" />
+          发送初始租赁通知
+        </button>
+        <button type="button" onClick={onDeposit} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+          <WalletCards className="size-4 text-primary" />
+          押金处理
+        </button>
+      </section>
+      {!["在租", "买断"].includes(rental.status) && (
+        <button type="button" onClick={() => onStatus("在租")} className="rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary">恢复为在租状态</button>
+      )}
+      {role !== "employee" && canManageContracts && (
+        <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+          <div>
+            <h3 className="font-semibold">业务主管订单管理</h3>
+            <p className="text-sm text-muted-foreground">正式合同永久禁止删除；草稿与测试合同只会先移入回收站。</p>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="shrink-0 font-medium">维护负责人</span>
+            <select className="h-9 rounded-lg border bg-background px-3" value={rental.assigneeUserId || ""} onChange={(event) => onAssignee(event.target.value)}>
+              {assignees.map((person) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={rental.status === "已关闭"} onClick={() => onStatus("已关闭")} className="rounded-lg border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
+              {rental.status === "已关闭" ? "订单已关闭" : "关闭订单"}
+            </button>
+            {rental.orderType !== "official" && (
+              <button type="button" onClick={onDelete} className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
+                <Trash2 className="size-4" />
+                移入回收站
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function LegacyDetail({
   rental,
   role,
   assignees,
