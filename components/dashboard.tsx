@@ -64,6 +64,8 @@ import {
   type RepairInput,
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
+import { RentalOperationWizard } from "@/components/rental-operation-wizard";
+import type { RentalOperationType } from "@/lib/rental-operation-hub";
 import { addCalendarDays, billCoverageLabel, billState, nextOpenBill } from "@/lib/rental-calculations";
 import { rentalEndDate } from "@/lib/rental-calculations";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
@@ -638,7 +640,7 @@ export function Dashboard({
               </button>
             </div>}
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <div className={mode === "management" ? "hidden" : "grid grid-cols-2 gap-3 lg:grid-cols-6"}>
             <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
             <Link
               href="/rentals/drafts"
@@ -677,7 +679,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <section className="rounded-xl border bg-card p-4">
+          <section className={mode === "management" ? "hidden" : "rounded-xl border bg-card p-4"}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">经营待办</h2>
@@ -727,6 +729,15 @@ export function Dashboard({
               </button>
             </div>
           </section>
+          {mode === "management" && (
+            <section aria-label="租赁任务摘要" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
+              <span className="mr-1 text-sm font-semibold">当前任务</span>
+              <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {summary.overdue}</button>
+              <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
+              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
+              <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
+            </section>
+          )}
           <div
             className="flex gap-2 overflow-x-auto pb-1"
             aria-label="合同快捷筛选"
@@ -754,9 +765,9 @@ export function Dashboard({
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="font-semibold">最近租赁合同</h2>
+                <h2 className="font-semibold">{mode === "management" ? "租赁任务列表" : "最近租赁合同"}</h2>
                 <p className="text-sm text-muted-foreground">
-                  仅作经营摘要，查看详情或办理业务请前往租赁管理
+                  {mode === "management" ? "按风险和下一节点处理；点击合同进入唯一业务工作台" : "仅作经营摘要，具体业务请进入租赁管理"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -2287,7 +2298,7 @@ function Detail(props: DetailProps) {
     onStatus,
   } = props;
   const [tab, setTab] = useState<DetailTab>("overview");
-  const [actionOpen, setActionOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
@@ -2456,51 +2467,43 @@ function Detail(props: DetailProps) {
         </button>
         <button
           type="button"
-          disabled={remainingDevices === 0}
-          onClick={onRenew}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-primary px-4 text-sm font-semibold text-primary disabled:opacity-40"
+          onClick={() => setWizardOpen(true)}
+          className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg border border-primary px-4 text-sm font-semibold text-primary"
         >
           <ClipboardPenLine className="size-4" />
-          办理续租
+          业务办理中心
         </button>
-        <div className="relative ml-auto">
-          <button
-            type="button"
-            onClick={() => setActionOpen((prev) => !prev)}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium"
-          >
-            办理业务
-            <ChevronRight className={`size-4 transition-transform ${actionOpen ? "-rotate-90" : "rotate-90"}`} />
-          </button>
-          {actionOpen && (
-            <>
-              <button
-                type="button"
-                aria-label="关闭操作菜单"
-                className="fixed inset-0 z-20 cursor-default"
-                onClick={() => setActionOpen(false)}
-              />
-              <div className="absolute bottom-12 right-0 z-30 w-72 rounded-xl border bg-card p-3 shadow-lg">
-                <ActionGroup title="设备流转">
-                  <ActionItem label="办理退租" hint="客户退还部分或全部设备" disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onReturn(); }} />
-                  <ActionItem label="办理买断" hint="设备转为客户所有" disabled={!canBuyout} disabledHint="无可买断设备" onClick={() => { setActionOpen(false); onBuyout(); }} />
-                  <ActionItem label="设备换机" hint="更换整台设备" disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onExchange(); }} />
-                  <ActionItem label="登记丢失" hint="设备遗失，按数量处理" danger disabled={remainingDevices === 0} disabledHint="无在租设备" onClick={() => { setActionOpen(false); onLoss(); }} />
-                </ActionGroup>
-                <ActionGroup title="合同调整">
-                  <ActionItem label="配置 / 租金变更" hint="调整设备配置或月租" onClick={() => { setActionOpen(false); onChange(); }} />
-                  <ActionItem label="其他合同变更" hint="调整租期或客户联系资料" onClick={() => { setActionOpen(false); onRentalChange(); }} />
-                </ActionGroup>
-                <ActionGroup title="售后与资金">
-                  <ActionItem label="登记维修" hint="记录故障与客户承担费用" onClick={() => { setActionOpen(false); onRepair(); }} />
-                  <ActionItem label="押金处理" hint="退还或抵扣押金" onClick={() => { setActionOpen(false); onDeposit(); }} />
-                  <ActionItem label="登记其他金额" hint="补收 / 减免等非账单金额" onClick={() => { setActionOpen(false); onPayment(null); }} />
-                </ActionGroup>
-              </div>
-            </>
-          )}
-        </div>
       </div>
+      {wizardOpen && (
+        <RentalOperationWizard
+          contractNo={rental.contractNo}
+          customerName={rental.customerName}
+          customerPhone={rental.customerPhone}
+          endDate={rental.endDate}
+          items={rental.items.map((item) => ({
+            id: item.id,
+            name: `${item.deviceType} · ${item.deviceName}`,
+            code: item.deviceCode,
+            quantity: item.quantity,
+            boughtOutQuantity: item.boughtOutQuantity,
+            returnedQuantity: item.returnedQuantity,
+            lostQuantity: item.lostQuantity,
+            monthlyRent: Number(item.monthlyRent),
+          }))}
+          onClose={() => setWizardOpen(false)}
+          onStart={(type: RentalOperationType) => {
+            setWizardOpen(false);
+            if (type === "renewal") onRenew();
+            else if (type === "return") onReturn();
+            else if (type === "buyout") onBuyout();
+            else if (type === "loss") onLoss();
+            else if (type === "exchange") onExchange();
+            else if (type === "repair") onRepair();
+            else if (type === "pricing_change") onChange();
+            else onRentalChange();
+          }}
+        />
+      )}
     </div>
   );
 }

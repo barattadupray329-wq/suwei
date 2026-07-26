@@ -121,10 +121,44 @@ export const smsDeliveryLogs = sqliteTable('sms_delivery_logs', {
   errorMessage: text('error_message'),
   triggerType: text('trigger_type').notNull(),
   actorUserId: text('actor_user_id'),
+  operationId: integer('operation_id'),
+  retryOfId: integer('retry_of_id'),
   sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
+
+export const rentalOperations = sqliteTable('rental_operations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  rentalId: integer('rental_id').notNull(),
+  operationNo: text('operation_no').notNull(),
+  operationType: text('operation_type').notNull(),
+  status: text('status').notNull().default('completed'),
+  idempotencyKey: text('idempotency_key').notNull(),
+  actorUserId: text('actor_user_id').notNull(),
+  actorName: text('actor_name').notNull(),
+  summary: text('summary').notNull(),
+  resultJson: text('result_json', { mode: 'json' }).notNull().default({}),
+  completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [
+  unique('rental_operations_user_no_uidx').on(table.userId, table.operationNo),
+  unique('rental_operations_user_idempotency_uidx').on(table.userId, table.idempotencyKey),
+  index('rental_operations_user_rental_created_idx').on(table.userId, table.rentalId, table.createdAt),
+])
+
+export const notificationPolicies = sqliteTable('notification_policies', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  scene: text('scene').notNull(),
+  mode: text('mode').notNull().default('default_on'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  daysBefore: integer('days_before'),
+  overdueIntervalDays: integer('overdue_interval_days'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [unique('notification_policies_user_scene_uidx').on(table.userId, table.scene)])
 
 export type Rental = typeof rentals.$inferSelect
 export type RentalItem = typeof rentalItems.$inferSelect
