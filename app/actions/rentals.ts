@@ -595,9 +595,9 @@ export async function collectPayment(id: number, input: PaymentInput) {
   let activeItems: typeof rentalItems.$inferSelect[] = []
   let targetBill: typeof receivableBills.$inferSelect | undefined
   if (value.adjustFutureRent) {
-    if (!value.billId || value.feeType !== '原合同租金' || value.materializeContractGap || value.renewalRecordId) throw new Error('仅支持单个原合同租金账单联动调整后续月租')
+    if (!value.billId || !['原合同租金', '续租费'].includes(value.feeType) || value.materializeContractGap || value.renewalRecordId) throw new Error('仅支持单个租金或续租费账单联动调整后续月租')
     targetBill = bills.find((bill) => bill.id === value.billId)
-    if (!targetBill || !['租金', '原合同租金', '起租预收', '日租租金'].includes(targetBill.billType)) throw new Error('当前账单不支持联动调整后续月租')
+    if (!targetBill || !['租金', '原合同租金', '起租预收', '日租租金', '续租费'].includes(targetBill.billType)) throw new Error('当前账单不支持联动调整后续月租')
     const items = await db.select().from(rentalItems).where(and(eq(rentalItems.rentalId, id), eq(rentalItems.userId, userId)))
     activeItems = items.filter((item) => availableQuantity(item) > 0)
     if (new Set(activeItems.map((item) => toCents(item.monthlyRent))).size !== 1) throw new Error('合同包含多种月租单价，请使用配置/租金变更逐项调整')
