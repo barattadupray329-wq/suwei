@@ -53,6 +53,11 @@ export function projectedMonthlyRent(items: Array<{ quantity: number; boughtOutQ
   return fromCents(cents)
 }
 
+export function effectiveOutstandingAmount(totalRent: string | number, paidAmount: string | number, billOutstanding: string | number) {
+  const contractOutstandingCents = Math.max(0, toCents(totalRent) - toCents(paidAmount))
+  return fromCents(Math.max(contractOutstandingCents, toCents(billOutstanding)))
+}
+
 export function renewalAdjustment(quantity: number, duration: number, currentAmount: number | string, correctedUnitPrice: number | string) {
   const correctedAmountCents = quantity * duration * toCents(correctedUnitPrice)
   const differenceCents = correctedAmountCents - toCents(currentAmount)
