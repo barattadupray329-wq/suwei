@@ -5,8 +5,17 @@ export type RentalItemQuantities = {
   lostQuantity: number
 }
 
+export function assertQuantityInvariant(item: RentalItemQuantities) {
+  const values = [item.quantity, item.boughtOutQuantity, item.returnedQuantity, item.lostQuantity]
+  if (values.some(value => !Number.isInteger(value) || value < 0)) throw new Error('设备数量必须是非负整数')
+  const handled = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity
+  if (handled > item.quantity) throw new Error('已退、已买断和已丢失数量之和不能超过原数量')
+  return item
+}
+
 export function availableQuantity(item: RentalItemQuantities) {
-  return Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity)
+  assertQuantityInvariant(item)
+  return item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity
 }
 
 export function rentalLifecycleStatus(items: RentalItemQuantities[]) {

@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest'
+import { assertDateOrder, dateOnly, inclusiveDays, rentalEndDate } from '../lib/rental-calculations'
+import { assertQuantityInvariant, availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
+import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, paymentStatusFromCents } from '../lib/rental-reconciliation'
+
+describe('全流程业务不变量', () => {
+  it('拒绝不存在的日期并正确处理闰年', () => {
+    expect(() => dateOnly('2026-02-29')).toThrow('日期不存在')
+    expect(dateOnly('2028-02-29').toISOString().slice(0, 10)).toBe('2028-02-29')
+    expect(inclusiveDays('2028-02-28', '2028-03-01')).toBe(3)
+    expect(() => assertDateOrder('2026-03-02', '2026-03-01')).toThrow()
+  })
+
+  it('月底月租按目标月末对齐且结束日为下一周期前一天', () => {
+    expect(rentalEndDate('2026-01-31', 1, 'monthly')).toBe('2026-02-27')
+    expect(rentalEndDate('2028-01-31', 1, 'monthly')).toBe('2028-02-28')
+  })
+
+  it('拒绝处置数量超过原始数量', () => {
+    expect(() => assertQuantityInvariant({ quantity: 2, returnedQuantity: 1, boughtOutQuantity: 1, lostQuantity: 1 })).toThrow()
+    expect(availableQuantity({ quantity: 4, returnedQuantity: 1, boughtOutQuantity: 1, lostQuantity: 1 })).toBe(1)
+  })
+
+  it('合同可用数量和生命周期来自所有设备明细', () => {
+    const items = [
+      { quantity: 3, returnedQuantity: 1, boughtOutQuantity: 0, lostQuantity: 0 },
+      { quantity: 2, returnedQuantity: 0, boughtOutQuantity: 1, lostQuantity: 1 },
+    ]
+    expect(contractAvailableQuantity(items)).toBe(2)
+    expect(rentalLifecycleStatus(items)).toBe('部分退租')
+  })
+
+  it('账单余额与支付状态统一使用整数分', () => {
+    const bills = [{ amount: '100.10', paidAmount: '20.05' }, { amount: '-10.00', paidAmount: '0.00' }]
+    expect(billsOutstandingCents(bills)).toBe(8005)
+    expect(paymentStatusFromCents(10010, 2005)).toBe('部分收款')
+  })
+
+  it('对账拒绝合同、账单和收款不一致', () => {
+    expect(assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '100.10', paidAmount: '20.05' }], payments: [{ amount: '20.05', feeType: '租金' }], allocations: [{ amount: '20.05' }] })).toBe(true)
+    expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同应收与账单应收不一致')
+  })
+})
