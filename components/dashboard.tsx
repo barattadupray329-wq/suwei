@@ -63,7 +63,7 @@ import {
   type RepairInput,
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
-import { addCalendarDays, billCoverageLabel, billState, nextOpenBill } from "@/lib/rental-calculations";
+import { addCalendarDays, billCoverageLabel, billState, nextOpenBill, toCents } from "@/lib/rental-calculations";
 import { rentalEndDate } from "@/lib/rental-calculations";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
@@ -430,7 +430,7 @@ onCloseDetails,
     setDialog(linkedRental ? "detail" : null);
   }, [detailsOnly, linkedRental]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<number | "all" | "contract_gap" | null>(null);
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
   const isRentalOverdue = (r: Rental) =>
@@ -1291,8 +1291,9 @@ canViewFinance={canViewFinance}
         {selected && (
           <PaymentForm
             pending={pending}
-            bills={selected.bills}
-            target={paymentTarget}
+ bills={selected.bills}
+ contractGap={selected.supplementalBills?.find((bill) => bill.kind === "contract_gap")}
+ target={paymentTarget}
             submit={(value) =>
               run(() => collectPayment(selected.id, value), "收款已登记")
             }
@@ -2303,7 +2304,7 @@ function Detail({
   onDelete: () => void;
   onConfirmDraft: () => void;
   onRentalChange: () => void;
-  onPayment: (target: number | "all" | null) => void;
+  onPayment: (target: number | "all" | "contract_gap" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
   onBuyout: () => void;
@@ -2489,7 +2490,7 @@ function Detail({
                   <p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(bill.amount)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>
                 </div>
-                <button type="button" onClick={() => onPayment(null)} className="self-end rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground sm:self-auto">登记收款</button>
+                {bill.kind === "contract_gap" ? <button type="button" onClick={() => onPayment("contract_gap")} className="self-end rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground sm:self-auto">登记收款</button> : <button type="button" onClick={onRenew} className="self-end rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground sm:self-auto">先办理续租</button>}
               </div>)}
             </div>
           </section>
@@ -2941,19 +2942,20 @@ function RenewalForm({
     </form>
   );
 }
-function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | null }) {
+function PaymentForm({ submit, pending, bills, contractGap, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; contractGap?: SupplementalBill; target: number | "all" | "contract_gap" | null }) {
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
-  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
+  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : target === "contract_gap" && contractGap ? toCents(contractGap.amount) : 0;
+  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, materializeContractGap: target === "contract_gap", notes: "" });
   let preview: ReturnType<typeof allocatePayment> = [];
   let previewError = "";
-  if (value.amount > 0 && value.feeType !== "押金") {
-    try { preview = allocatePayment(eligibleBills, value.amount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
-  }
+  if (value.amount > 0 && value.feeType !== "押金" && target !== "contract_gap") {
+  try { preview = allocatePayment(eligibleBills, value.amount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
+  } else if (target === "contract_gap" && contractGap && toCents(value.amount) > toCents(contractGap.amount)) previewError = `收款金额不能超过 ${money(contractGap.amount)}`;
   const billMap = new Map(bills.map((bill) => [bill.id, bill]));
   return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
     {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
+    {target === "contract_gap" && contractGap && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取原合同欠款</p><p className="mt-1 text-sm text-muted-foreground">本次确认后将自动生成正式调整账单 · 待收 {money(contractGap.amount)}</p></div>}
     {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 期账单</p></div>}
     <div className="grid gap-4 sm:grid-cols-2">
       <Field label="收款金额（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
@@ -2961,7 +2963,7 @@ function PaymentForm({ submit, pending, bills, target }: { submit: (value: Payme
       <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select className="h-10 rounded-lg border bg-background px-3" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
       <label className="flex flex-col gap-2 text-sm font-medium">费用类型<select disabled={target !== null} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60" value={value.feeType} onChange={(e) => setValue({ ...value, feeType: e.target.value as PaymentInput["feeType"] })}>{["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
     </div>
-    {value.feeType !== "押金" && value.amount > 0 && <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">分配 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">分配后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
+    {value.feeType !== "押金" && value.amount > 0 && target !== "contract_gap" && <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">分配 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">分配后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
     <label className="flex flex-col gap-2 text-sm font-medium">备注<textarea className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} /></label>
     <button disabled={pending || value.amount <= 0 || Boolean(previewError)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
   </form>;

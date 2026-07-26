@@ -73,6 +73,18 @@ describe('租赁金额计算', () => {
       { kind: 'projected_renewal', amount: '90.00' },
     ])
   })
+  it('历史续租账单不阻断下一账期预测', () => {
+    const rental = { orderType: 'official', startDate: '2026-03-13', endDate: '2026-07-12', totalRent: '900', paidAmount: '900', status: '在租' }
+    const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '90' }]
+    const bills = [{ billType: '续租费', amount: '90', paidAmount: '90', periodStart: '2026-06-12', periodEnd: '2026-07-12' }]
+    expect(buildSupplementalBills(rental, items, bills, '2026-07-26').some((bill) => bill.kind === 'projected_renewal')).toBe(true)
+  })
+  it('目标账期已有续租账单时不再预测', () => {
+    const rental = { orderType: 'official', startDate: '2026-03-13', endDate: '2026-07-12', totalRent: '990', paidAmount: '900', status: '在租' }
+    const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '90' }]
+    const bills = [{ billType: '续租费', amount: '90', paidAmount: '0', periodStart: '2026-07-12', periodEnd: '2026-08-12' }]
+    expect(buildSupplementalBills(rental, items, bills, '2026-07-26').some((bill) => bill.kind === 'projected_renewal')).toBe(false)
+  })
   it('已有完整原合同账单时不重复补算', () => {
     const rental = { orderType: 'official', startDate: '2026-03-13', endDate: '2026-07-12', totalRent: '900', paidAmount: '720', status: '部分退租' }
     const items = [{ quantity: 1, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, monthlyRent: '90' }]

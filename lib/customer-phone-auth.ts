@@ -3,7 +3,8 @@ import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { sendAliyunSms } from '@/lib/aliyun-sms'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
+import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, receivableBills, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
+import { buildSupplementalBills } from '@/lib/rental-calculations'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -232,6 +233,11 @@ export async function getCustomerActiveRentals() {
   ])
   const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
   const ids = contracts.map((contract) => contract.id)
-  const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate, monthlyRent: rentalItems.monthlyRent, totalRent: rentalItems.totalRent }).from(rentalItems).where(and(eq(rentalItems.userId, shopId), inArray(rentalItems.rentalId, ids))) : []
-  return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts, items }
+  const [items, bills] = ids.length ? await Promise.all([
+    db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, boughtOutQuantity: rentalItems.boughtOutQuantity, returnedQuantity: rentalItems.returnedQuantity, lostQuantity: rentalItems.lostQuantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate, monthlyRent: rentalItems.monthlyRent, totalRent: rentalItems.totalRent }).from(rentalItems).where(and(eq(rentalItems.userId, shopId), inArray(rentalItems.rentalId, ids))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId, shopId), inArray(receivableBills.rentalId, ids))),
+  ]) : [[], []]
+  const currentDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const supplementalBills = contracts.flatMap((contract) => buildSupplementalBills({ ...contract, orderType: 'official' }, items.filter((item) => item.rentalId === contract.id), bills.filter((bill) => bill.rentalId === contract.id), currentDate).map((bill) => ({ ...bill, rentalId: contract.id })))
+  return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts, items, bills, supplementalBills }
 }

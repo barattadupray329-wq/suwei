@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
+import { fromCents, toCents } from '@/lib/rental-calculations'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -110,19 +111,22 @@ export async function changeRentalContract(input: ContractChangeInput) {
   const afterSnapshot = value.changeType === '客户资料变更'
     ? { customerName: value.customerName, customerPhone: value.customerPhone }
     : { startDate: value.startDate, endDate: value.endDate }
-  const nextTotal = Number(rental.totalRent) + value.feeAdjustment
-  if (nextTotal < 0) throw new Error('调整后合同金额不能小于 0')
-  const paymentStatus = Number(rental.paidAmount) >= nextTotal ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款'
+  const feeAdjustmentCents = toCents(value.feeAdjustment)
+  const nextTotalCents = toCents(rental.totalRent) + feeAdjustmentCents
+  if (nextTotalCents < 0) throw new Error('调整后合同金额不能小于 0')
+  const nextTotal = fromCents(nextTotalCents)
+  const paymentStatus = toCents(rental.paidAmount) >= nextTotalCents ? '已结清' : toCents(rental.paidAmount) > 0 ? '部分收款' : '待收款'
   const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   const eventNote = `${value.feeNote}；客户${value.customerConfirmed ? '已确认' : '未确认'}`
   const rentalPatch = value.changeType === '客户资料变更'
-    ? { customerName: value.customerName!, customerPhone: value.customerPhone!, totalRent: String(nextTotal), paymentStatus, updatedAt: new Date() }
-    : { startDate: value.startDate!, endDate: value.endDate!, totalRent: String(nextTotal), paymentStatus, updatedAt: new Date() }
+    ? { customerName: value.customerName!, customerPhone: value.customerPhone!, totalRent: nextTotal, paymentStatus, updatedAt: new Date() }
+    : { startDate: value.startDate!, endDate: value.endDate!, totalRent: nextTotal, paymentStatus, updatedAt: new Date() }
   const statements = [
     db.update(rentals).set(rentalPatch).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId))),
     ...(value.changeType === '租期调整' ? [db.update(rentalItems).set({ startDate: value.startDate!, endDate: value.endDate!, updatedAt: new Date() }).where(and(eq(rentalItems.userId, context.userId), eq(rentalItems.rentalId, value.rentalId)))] : []),
-    db.insert(rentalEvents).values({ id: eventId, userId: context.userId, rentalId: value.rentalId, eventType: value.changeType, eventDate: value.effectiveDate, beforeSnapshot, afterSnapshot, reason: value.reason, feeAdjustment: String(value.feeAdjustment), operatorName: context.actorName, notes: eventNote }),
-    ...(value.feeAdjustment !== 0 ? [db.insert(accountLedger).values({ userId: context.userId, rentalId: value.rentalId, entryType: '变更调整', amount: String(value.feeAdjustment), entryDate: value.effectiveDate, operatorName: context.actorName, notes: `${value.changeType}：${value.reason}；${value.feeNote}` })] : []),
+    db.insert(rentalEvents).values({ id: eventId, userId: context.userId, rentalId: value.rentalId, eventType: value.changeType, eventDate: value.effectiveDate, beforeSnapshot, afterSnapshot, reason: value.reason, feeAdjustment: fromCents(feeAdjustmentCents), operatorName: context.actorName, notes: eventNote }),
+    ...(feeAdjustmentCents > 0 ? [db.insert(receivableBills).values({ userId: context.userId, rentalId: value.rentalId, billNo: `CHANGE-${value.rentalId}-${eventId}`, periodStart: value.effectiveDate, periodEnd: value.effectiveDate, dueDate: value.effectiveDate, billType: '合同变更费', amount: fromCents(feeAdjustmentCents), paidAmount: '0', status: '待收', notes: `${value.changeType}：${value.feeNote}` })] : []),
+    ...(feeAdjustmentCents !== 0 ? [db.insert(accountLedger).values({ userId: context.userId, rentalId: value.rentalId, entryType: '变更调整', amount: fromCents(feeAdjustmentCents), entryDate: value.effectiveDate, operatorName: context.actorName, notes: `${value.changeType}：${value.reason}；${value.feeNote}` })] : []),
     db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '租赁变更', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 办理${value.changeType}`, metadata: { eventId, beforeSnapshot, afterSnapshot, feeAdjustment: value.feeAdjustment, customerConfirmed: value.customerConfirmed } }),
   ]
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])

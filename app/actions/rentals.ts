@@ -218,7 +218,11 @@ export async function getDashboard() {
       overdue90: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < date(current_date, '-60 days') then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
     }).from(receivableBills).innerJoin(rentals, and(eq(rentals.id, receivableBills.rentalId), eq(rentals.userId, receivableBills.userId))).where(and(eq(receivableBills.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭'))),
   ])
-  return { ...summary, ...paymentSummary, ...billSummary, revenue: paymentSummary?.revenue ?? '0', monthRevenue: paymentSummary?.monthRevenue ?? '0', receivable: billSummary?.receivable ?? '0', currentDue: billSummary?.currentDue ?? '0', overdue30: billSummary?.overdue30 ?? '0', overdue60: billSummary?.overdue60 ?? '0', overdue90: billSummary?.overdue90 ?? '0', draft: draftSummary?.draft ?? 0 }
+  const contractRows = await db.select({ totalRent: rentals.totalRent, paidAmount: rentals.paidAmount }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭')))
+  const contractOutstandingCents = contractRows.reduce((sum, row) => sum + Math.max(0, toCents(row.totalRent) - toCents(row.paidAmount)), 0)
+  const formalReceivableCents = toCents(billSummary?.receivable ?? '0')
+  const contractGapCents = Math.max(0, contractOutstandingCents - formalReceivableCents)
+  return { ...summary, ...paymentSummary, ...billSummary, revenue: paymentSummary?.revenue ?? '0', monthRevenue: paymentSummary?.monthRevenue ?? '0', receivable: fromCents(formalReceivableCents + contractGapCents), currentDue: fromCents(toCents(billSummary?.currentDue ?? '0') + contractGapCents), overdue30: billSummary?.overdue30 ?? '0', overdue60: billSummary?.overdue60 ?? '0', overdue90: billSummary?.overdue90 ?? '0', draft: draftSummary?.draft ?? 0 }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }
@@ -433,7 +437,7 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   return { ok: true }
 }
 
-const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })
+const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), materializeContractGap: z.boolean().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })
 export type PaymentInput = z.infer<typeof paymentSchema>
 
 export async function collectPayment(id: number, input: PaymentInput) {
@@ -447,7 +451,19 @@ export async function collectPayment(id: number, input: PaymentInput) {
     if (!renewal) throw new Error('续租记录不存在')
   }
   const billTypeFilter = value.feeType === '押金' ? eq(receivableBills.billType, '押金') : ne(receivableBills.billType, '押金')
-  const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter)).orderBy(receivableBills.dueDate)
+  let bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter)).orderBy(receivableBills.dueDate)
+  if (value.materializeContractGap) {
+    if (value.feeType !== '原合同租金' || value.billId) throw new Error('补算欠款收款参数无效')
+    const formalOutstandingCents = bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
+    const contractOutstandingCents = Math.max(0, moneyToCents(row.totalRent) - moneyToCents(row.paidAmount))
+    const gapCents = Math.max(0, contractOutstandingCents - formalOutstandingCents)
+    if (gapCents <= 0) throw new Error('当前没有需要补算的合同欠款')
+    if (moneyToCents(value.amount) > gapCents) throw new Error(`收款金额超过补算欠款，最多可收 ${centsToMoney(gapCents)} 元`)
+    const billId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+    await db.insert(receivableBills).values({ id: billId, userId, rentalId: id, billNo: `CONTRACT-GAP-${id}-${billId}`, periodStart: row.startDate, periodEnd: row.endDate, dueDate: row.endDate, billType: '原合同欠款补算', amount: centsToMoney(gapCents), paidAmount: '0', status: '待收', notes: '登记历史合同欠款时自动生成' })
+    bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter)).orderBy(receivableBills.dueDate)
+    value.billId = billId
+  }
   if (value.billId && !bills.some(bill => bill.id === value.billId)) throw new Error('目标账单不存在、已变更或不属于当前合同')
   const availableCents = value.billId ? billOutstandingCents(bills.find(bill => bill.id === value.billId)!) : bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
   if (moneyToCents(value.amount) > availableCents) throw new Error(`收款金额超过当前待收金额，最多可收 ${centsToMoney(availableCents)} 元`)
