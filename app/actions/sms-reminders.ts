@@ -79,7 +79,14 @@ export async function processAutomaticOverdueReminders() {
     return { currentDate, scanned: 0, eligible: 0, sent: 0, failed: 0, skipped: 0, configurationSkipped: true }
   }
   const contracts = await db.select().from(rentals).where(and(lt(rentals.endDate, currentDate), inArray(rentals.status, ACTIVE_STATUSES), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
+  const contractIds = contracts.map((contract) => contract.id)
+  const items = contractIds.length
+    ? await db.select({ rentalId: rentalItems.rentalId, quantity: rentalItems.quantity, boughtOutQuantity: rentalItems.boughtOutQuantity, returnedQuantity: rentalItems.returnedQuantity, lostQuantity: rentalItems.lostQuantity }).from(rentalItems).where(inArray(rentalItems.rentalId, contractIds))
+    : []
+  const itemsByRental = new Map<number, typeof items>()
+  for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
   const eligible = contracts.filter((contract) => {
+    if (!hasRemainingRentalItems(itemsByRental.get(contract.id) ?? [])) return false
     const overdueDays = Math.floor((Date.parse(`${currentDate}T00:00:00Z`) - Date.parse(`${contract.endDate}T00:00:00Z`)) / 86400000)
     return overdueDays === 1 || overdueDays % 3 === 0
   })

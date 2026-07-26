@@ -5,8 +5,9 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, lossRecords, paymentRecords, receivableBills, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, lossRecords, paymentRecords, receivableBills, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords } from '@/lib/db/schema'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
+import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -31,11 +32,14 @@ export async function returnRentalItem(input: ReturnInput) {
   const nextReturned = item.returnedQuantity + value.quantity
   const nextItems = items.map(current => current.id === item.id ? { ...current, returnedQuantity: nextReturned } : current)
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
-  if (!rental) throw new Error('租赁合同不存在')
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理退租')
   const availableAfter = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
   const returnId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const requestId = crypto.randomUUID()
+  const operationNo = `${operationNumber('return', value.rentalId)}-${returnId}`
   const collectedAmount = value.collectionSettlement.timing === 'now' ? value.deductionAmount : 0
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+    db.insert(rentalOperations).values({ userId, rentalId: value.rentalId, operationNo, operationType: 'return', status: 'completed', idempotencyKey: operationIdempotencyKey({ userId, rentalId: value.rentalId, type: 'return', clientRequestId: requestId }), actorUserId: actorId, actorName: name, summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, beforeSnapshot: { itemId: item.id, availableQuantity: available, contractQuantity: rental.quantity, totalRent: rental.totalRent, paidAmount: rental.paidAmount }, afterSnapshot: { itemId: item.id, availableQuantity: available - value.quantity, contractQuantity: availableAfter }, resultJson: { returnRecordId: returnId }, completedAt: new Date() }),
     db.update(rentalItems).set({returnedQuantity:nextReturned,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
     db.insert(returnRecords).values({id:returnId,userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:value.notes,operatorName:name}),
     db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: value.rentalItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition, collectionSettlement: value.collectionSettlement.timing, refundSettlement: value.refundSettlement.timing }, feeAdjustment: String(value.deductionAmount - value.depositRefund), operatorName: name, notes: value.notes }),
@@ -89,7 +93,7 @@ export async function exchangeRentalItem(input: ExchangeInput) {
 }
 
 export async function reportLostItem(input: LossInput) {
-  const { userId, name } = await actor()
+  const { userId, actorId, name } = await actor()
   const value = operationSchema.extend({ unitCompensation: z.number().positive() }).parse(input)
   const [[item], items] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId))),
@@ -98,12 +102,23 @@ export async function reportLostItem(input: LossInput) {
   if (!item) throw new Error('设备不存在')
   const available = availableQuantity(item)
   if (value.quantity>available) throw new Error(`最多可登记丢失 ${available} 台`)
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以登记丢失')
   const nextLost = item.lostQuantity + value.quantity
   const nextItems = items.map(current => current.id === item.id ? { ...current, lostQuantity: nextLost } : current)
+  const amount = Math.round(value.unitCompensation * value.quantity * 100) / 100
+  const lossId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const operationNo = `${operationNumber('loss', value.rentalId)}-${lossId}`
+  const nextQuantity = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
+  const nextTotalCents = Math.round(Number(rental.totalRent) * 100) + Math.round(amount * 100)
   await db.batch([
+    db.insert(rentalOperations).values({ userId, rentalId: value.rentalId, operationNo, operationType: 'loss', status: 'completed', idempotencyKey: operationIdempotencyKey({ userId, rentalId: value.rentalId, type: 'loss', clientRequestId: crypto.randomUUID() }), actorUserId: actorId, actorName: name, summary: `${rental.contractNo} 登记丢失 ${item.deviceName} ${value.quantity} 台`, beforeSnapshot: { itemId: item.id, availableQuantity: available, contractQuantity: rental.quantity, totalRent: rental.totalRent }, afterSnapshot: { itemId: item.id, availableQuantity: available - value.quantity, contractQuantity: nextQuantity, totalRent: nextTotalCents / 100 }, resultJson: { lossRecordId: lossId }, completedAt: new Date() }),
     db.update(rentalItems).set({lostQuantity:nextLost,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
-    db.insert(lossRecords).values({userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,lossDate:value.date,unitCompensation:String(value.unitCompensation),amount:String(value.unitCompensation*value.quantity),notes:value.notes,operatorName:name}),
-    db.update(rentals).set({status:rentalLifecycleStatus(nextItems),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
+    db.insert(lossRecords).values({id:lossId,userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,lossDate:value.date,unitCompensation:String(value.unitCompensation),amount:String(amount),notes:value.notes,operatorName:name}),
+    db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `LOSS-${value.rentalId}-${lossId}`, periodStart: value.date, periodEnd: value.date, dueDate: value.date, billType: '丢失赔偿', amount: String(amount), paidAmount: '0', status: '待收', notes: `${item.deviceName} ${value.quantity} 台丢失赔偿` }),
+    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: item.id, eventType: '设备丢失', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, lostQuantity: nextLost }, feeAdjustment: String(amount), operatorName: name, notes: value.notes }),
+    db.update(rentals).set({quantity:nextQuantity,totalRent:String(nextTotalCents / 100),status:rentalLifecycleStatus(nextItems),paymentStatus:Number(rental.paidAmount) >= nextTotalCents / 100 ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款',updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
+    db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '登记丢失', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 丢失 ${item.deviceName} ${value.quantity} 台，新增应收 ${amount.toFixed(2)} 元`, metadata: { operationNo, rentalItemId: item.id, quantity: value.quantity, amount } }),
   ])
   revalidatePath('/')
 }

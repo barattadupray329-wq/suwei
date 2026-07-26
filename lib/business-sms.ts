@@ -58,7 +58,7 @@ export async function sendBusinessSms(input: SendInput) {
   const readiness = businessSmsReadiness(input.scene)
   if (!readiness.configured) return { ok: false, message: `${readiness.sceneName}短信模板尚未配置或审核通过`, skipped: true }
 
-  const [existing] = await db.select().from(smsDeliveryLogs).where(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey)).limit(1)
+  const [existing] = await db.select().from(smsDeliveryLogs).where(and(eq(smsDeliveryLogs.userId, input.userId), eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey))).limit(1)
   if (existing?.status === 'sent') return { ok: false, message: '该通知已成功发送，为避免重复扣费已跳过', duplicate: true }
   if (!existing) await db.insert(smsDeliveryLogs).values({ userId: input.userId, rentalId: input.rentalId, scene: input.scene, templateCode: readiness.templateCode, maskedPhone: maskCustomerPhone(input.phone), idempotencyKey: input.idempotencyKey, triggerType: input.triggerType, actorUserId: input.actorUserId, operationId: input.operationId, retryOfId: input.retryOfId })
 
@@ -68,7 +68,7 @@ export async function sendBusinessSms(input: SendInput) {
     await db.update(smsDeliveryLogs).set({ status: ok ? 'sent' : 'failed', providerRequestId: response.requestId, providerCode: response.code, errorMessage: ok ? null : response.message?.slice(0, 200), sentAt: ok ? new Date() : null, updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey), eq(smsDeliveryLogs.userId, input.userId)))
     return { ok, message: ok ? '发送成功' : getAliyunSmsErrorMessage(response.code, response.message), providerCode: response.code }
   } catch (error) {
-    await db.update(smsDeliveryLogs).set({ status: 'failed', errorMessage: error instanceof Error ? error.message.slice(0, 200) : '短信请求失败', updatedAt: new Date() }).where(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey))
+    await db.update(smsDeliveryLogs).set({ status: 'failed', errorMessage: error instanceof Error ? error.message.slice(0, 200) : '短信请求失败', updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.userId, input.userId), eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey)))
     return { ok: false, message: '短信服务请求失败，请稍后重试' }
   }
 }

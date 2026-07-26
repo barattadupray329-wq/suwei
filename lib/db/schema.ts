@@ -139,6 +139,8 @@ export const rentalOperations = sqliteTable('rental_operations', {
   actorUserId: text('actor_user_id').notNull(),
   actorName: text('actor_name').notNull(),
   summary: text('summary').notNull(),
+  beforeSnapshot: text('before_snapshot', { mode: 'json' }),
+  afterSnapshot: text('after_snapshot', { mode: 'json' }),
   resultJson: text('result_json', { mode: 'json' }).notNull().default({}),
   completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
