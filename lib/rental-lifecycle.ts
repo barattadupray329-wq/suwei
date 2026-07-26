@@ -17,9 +17,9 @@ export function rentalLifecycleStatus(items: RentalItemQuantities[]) {
   const handled = returned + lost + bought
 
   if (handled >= total) {
-    if (lost > 0) return '已结束'
     if (bought === total) return '买断'
-    return '已退租'
+    if (returned === total) return '已退租'
+    return '已结束'
   }
   if (returned > 0) return '部分退租'
   if (lost > 0) return '部分丢失'

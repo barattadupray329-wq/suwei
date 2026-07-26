@@ -44,6 +44,7 @@ import {
   type RentalInput,
   type RentalItemInput,
   type RenewalInput,
+  type SettlementInput,
 } from "@/app/actions/rentals";
 import {
   exchangeRentalItem,
@@ -1265,8 +1266,8 @@ canViewFinance={canViewFinance}
           <RenewalForm
             rental={selected}
             pending={pending}
-            submit={(values) =>
-              run(() => renewRentalItems(selected.id, values), "续租已办理")
+            submit={(values, settlement) =>
+              run(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
             }
           />
         )}
@@ -1401,7 +1402,7 @@ canViewFinance={canViewFinance}
           <BuyoutForm
             rental={selected}
             pending={pending}
-            submit={(itemId, quantity, price, date, notes) =>
+            submit={(itemId, quantity, price, date, settlement, notes) =>
               run(
                 () =>
                   buyoutRentalItem(
@@ -1410,6 +1411,7 @@ canViewFinance={canViewFinance}
                     quantity,
                     price,
                     date,
+                    settlement,
                     notes,
                   ),
                 "买断已登记",
@@ -2685,19 +2687,24 @@ function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; p
   );
 }
 
+function SettlementFields({ label, value, onChange }: { label: string; value: SettlementInput; onChange: (value: SettlementInput) => void }) {
+  return <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{label}</legend><div className="grid gap-4 sm:grid-cols-3"><label className="flex flex-col gap-2 text-sm font-medium">结算时间<select className="h-10 rounded-lg border bg-background px-3" value={value.timing} onChange={(event) => onChange({ ...value, timing: event.target.value as SettlementInput["timing"] })}><option value="now">现在结算</option><option value="later">以后结算</option></select></label><Field label={value.timing === "now" ? "结算日期" : "约定日期"} type="date" value={value.date} onChange={(date) => onChange({ ...value, date })} /><label className="flex flex-col gap-2 text-sm font-medium">结算方式<select className="h-10 rounded-lg border bg-background px-3" value={value.method} onChange={(event) => onChange({ ...value, method: event.target.value as SettlementInput["method"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div><p className="mt-3 text-xs text-muted-foreground">{value.timing === "now" ? "保存后立即登记已结算金额。" : "保存后登记为待处理，后续再登记收付款。"}</p></fieldset>;
+}
+
 function RenewalForm({
   rental,
   submit,
   pending,
 }: {
   rental: Rental;
-  submit: (values: RenewalInput[]) => void;
+  submit: (values: RenewalInput[], settlement: SettlementInput) => void;
   pending: boolean;
 }) {
   const available = rental.items.filter(
     (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
   );
   const [rows, setRows] = useState<Record<number, RenewalInput>>({});
+  const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const toggle = (item: Item) =>
     setRows((current) => {
       const next = { ...current };
@@ -2735,7 +2742,7 @@ function RenewalForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(selected);
+        submit(selected, settlement);
       }}
       className="flex flex-col gap-4"
     >
@@ -2861,6 +2868,7 @@ function RenewalForm({
           当前没有可续租设备
         </p>
       )}
+      <SettlementFields label="续租费收款" value={settlement} onChange={setSettlement} />
       <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4">
         <Info l="本次续租" v={`${totalQty} 台`} />
         <Info l="续租金额" v={money(renewalTotal)} />
@@ -3078,6 +3086,8 @@ function OperationForm({
   );
   const [amount, setAmount] = useState(0);
   const [refund, setRefund] = useState(0);
+  const [collectionSettlement, setCollectionSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const [refundSettlement, setRefundSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
   return (
     <form
@@ -3097,6 +3107,8 @@ function OperationForm({
                 condition,
                 deductionAmount: amount,
                 depositRefund: refund,
+                collectionSettlement: { timing: collectionSettlement.timing, method: collectionSettlement.method },
+                refundSettlement: { timing: refundSettlement.timing, method: refundSettlement.method },
               }
             : { ...base, unitCompensation: amount },
         );
@@ -3165,6 +3177,9 @@ function OperationForm({
           />
         )}
       </div>
+      {mode === "return" && amount > 0 && <SettlementFields label="退租扣款/赔偿收款" value={collectionSettlement} onChange={setCollectionSettlement} />}
+      {mode === "return" && refund > 0 && <SettlementFields label="押金退款" value={refundSettlement} onChange={setRefundSettlement} />}
+      {mode === "return" && (amount > 0 || refund > 0) && <div className="rounded-xl bg-muted p-4 text-sm"><p className="font-semibold">本次结算摘要</p><p className="mt-1 text-muted-foreground">应收 {money(amount)}（{collectionSettlement.timing === "now" ? "现在收" : "以后收"}） · 应退 {money(refund)}（{refundSettlement.timing === "now" ? "现在退" : "以后退"}）</p></div>}
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
         <textarea
@@ -3714,6 +3729,7 @@ function BuyoutForm({
     quantity: number,
     price: number,
     date: string,
+    settlement: SettlementInput,
     notes: string,
   ) => void;
   pending: boolean;
@@ -3725,13 +3741,14 @@ function BuyoutForm({
   const [quantity, setQuantity] = useState(1);
   const [price, setPrice] = useState(0);
   const [date, setDate] = useState(today());
+  const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
   const item = available.find((i) => i.id === itemId);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(itemId, quantity, price, date, notes);
+        submit(itemId, quantity, price, date, settlement, notes);
       }}
       className="flex flex-col gap-4"
     >
@@ -3774,6 +3791,7 @@ function BuyoutForm({
           </p>
         </div>
       </div>
+      <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
       {item && quantity > item.quantity - item.boughtOutQuantity && (
         <p className="text-sm text-destructive">
           买断数量不能超过剩余 {item.quantity - item.boughtOutQuantity} 台
