@@ -1065,8 +1065,13 @@ export function Dashboard({
                     return;
                   }
                   if (orderType === "official" && sendNow && created.data) {
-                    const notice = await sendRentalCreatedNotice(created.data);
-                    notice.ok ? toast.success("正式合同已创建，初始租赁通知已发送") : toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
+                    try {
+                      const notice = await sendRentalCreatedNotice(created.data);
+                      if (notice.ok) toast.success("正式合同已创建，初始租赁通知已发送");
+                      else toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
+                    } catch (error) {
+                      toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
+                    }
                   } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
                   setDialog(null);
                   router.refresh();
@@ -1088,7 +1093,8 @@ export function Dashboard({
 canViewFinance={canViewFinance}
   onSendNotice={() => start(async () => {
     const result = await sendRentalCreatedNotice(selected.id);
-    result.ok ? toast.success("初始租赁通知已发送") : toast.error(result.message);
+    if (result.ok) toast.success("初始租赁通知已发送");
+    else toast.error(result.message);
   })}
   onAssignee={(assigneeId) =>
               run(
@@ -1587,7 +1593,7 @@ function RentalForm({
   }) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
-  const [sendNoticeNow, setSendNoticeNow] = useState(false);
+  const [sendNoticeNow, setSendNoticeNow] = useState(true);
   const [numbersLoading, setNumbersLoading] = useState(false);
   const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
@@ -2111,7 +2117,7 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
           </FormSection>
           <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
             <input type="checkbox" checked={sendNoticeNow} onChange={(event) => setSendNoticeNow(event.target.checked)} className="mt-1 size-4 accent-primary" />
-            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">默认不发送。未勾选时可在合同详情中稍后发送；阿里云模板尚未审核配置时，合同仍会正常保存并提示短信未发送。</span></span>
+            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无需通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
           </label>
           <FormSection
             title="业务备注"
@@ -3484,7 +3490,7 @@ function ChangeForm({
           {rental.items.map((current) => (
             <option key={current.id} value={current.id}>
               {current.deviceType} · {current.deviceName} ·{" "}
-              {current.deviceCode || "无编号"}
+              {current.deviceCode || "未编号"}
             </option>
           ))}
         </select>

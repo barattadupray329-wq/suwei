@@ -3,19 +3,14 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { auditLogs, rentals } from '@/lib/db/schema'
+import { auditLogs, rentalItems, rentals } from '@/lib/db/schema'
 import { businessSmsReadiness, sendBusinessSms } from '@/lib/business-sms'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
+import { beijingDate, hasRemainingRentalItems } from '@/lib/sms-reminder-rules'
 
 const MAX_BATCH = 20
 const ACTIVE_STATUSES = ['在租', '即将到期', '部分买断', '部分退租']
 export type SmsReminderResult = { rentalId: number; contractNo: string; ok: boolean; message: string }
-
-function beijingDate(offsetDays = 0) {
-  const now = new Date(Date.now() + 8 * 60 * 60 * 1000)
-  now.setUTCDate(now.getUTCDate() + offsetDays)
-  return now.toISOString().slice(0, 10)
-}
 
 async function logAudit(input: { userId: string; actorUserId: string; actorName: string; rentalId: number; contractNo: string; phone: string; scene: string; ok: boolean }) {
   await db.insert(auditLogs).values({ userId: input.userId, actorUserId: input.actorUserId, actorName: input.actorName, action: '发送业务短信', resourceType: '租赁合同', resourceId: String(input.rentalId), summary: `${input.ok ? '成功' : '失败'}发送${input.scene}至 ${maskCustomerPhone(input.phone)}`, metadata: { contractNo: input.contractNo, phone: maskCustomerPhone(input.phone), scene: input.scene, result: input.ok ? 'success' : 'failed' } })
@@ -53,14 +48,31 @@ export async function sendRentalReminders(rentalIds: number[]): Promise<SmsRemin
 
 export async function processAutomaticDueReminders() {
   const dueDate = beijingDate(3)
-  if (!businessSmsReadiness('due-reminder').configured) return { dueDate, scanned: 0, sent: 0, failed: 0, skipped: true }
+  if (!businessSmsReadiness('due-reminder').configured) {
+    return { dueDate, scanned: 0, eligible: 0, sent: 0, failed: 0, skipped: 0, configurationSkipped: true }
+  }
+
   const contracts = await db.select().from(rentals).where(and(eq(rentals.endDate, dueDate), inArray(rentals.status, ACTIVE_STATUSES), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
+  const contractIds = contracts.map((contract) => contract.id)
+  const items = contractIds.length
+    ? await db.select({ rentalId: rentalItems.rentalId, quantity: rentalItems.quantity, boughtOutQuantity: rentalItems.boughtOutQuantity, returnedQuantity: rentalItems.returnedQuantity, lostQuantity: rentalItems.lostQuantity }).from(rentalItems).where(inArray(rentalItems.rentalId, contractIds))
+    : []
+  const itemsByRental = new Map<number, typeof items>()
+  for (const item of items) {
+    const current = itemsByRental.get(item.rentalId) ?? []
+    current.push(item)
+    itemsByRental.set(item.rentalId, current)
+  }
+  const eligibleContracts = contracts.filter((contract) => hasRemainingRentalItems(itemsByRental.get(contract.id) ?? []))
+
   let sent = 0
   let failed = 0
-  for (const contract of contracts) {
+  let skipped = contracts.length - eligibleContracts.length
+  for (const contract of eligibleContracts) {
     const result = await sendBusinessSms({ userId: contract.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'automatic', idempotencyKey: `${contract.userId}:${contract.id}:due-reminder:${dueDate}`, params: { customer: contract.customerName.slice(0, 20), dueDate } })
     if (result.ok) sent += 1
+    else if (result.duplicate || result.skipped) skipped += 1
     else failed += 1
   }
-  return { dueDate, scanned: contracts.length, sent, failed, skipped: false }
+  return { dueDate, scanned: contracts.length, eligible: eligibleContracts.length, sent, failed, skipped, configurationSkipped: false }
 }
