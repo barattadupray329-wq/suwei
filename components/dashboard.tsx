@@ -363,6 +363,7 @@ export function Dashboard({
   rentals,
   mode = "overview",
   initialNew = false,
+  detailsOnly = false,
 }: {
   role: "super_admin" | "admin" | "employee";
   permissions: string[];
@@ -373,6 +374,7 @@ export function Dashboard({
   rentals: Rental[];
   mode?: "overview" | "management";
   initialNew?: boolean;
+  detailsOnly?: boolean;
 }) {
   const canManageContracts =
     role === "super_admin" || permissions.includes("合同管理");
@@ -496,12 +498,13 @@ export function Dashboard({
     setDialog("detail");
   };
   const closeDetail = () => {
-    if (searchParams.has("rental")) {
-      window.location.replace("/rentals");
-      return;
-    }
     setDialog(null);
     setSelected(null);
+    if (searchParams.has("rental")) {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("rental");
+      router.replace(`/rentals${next.size ? `?${next.toString()}` : ""}`, { scroll: false });
+    }
   };
   const confirmSelectedDraft = () => {
     if (!selected || selected.orderType !== "draft") return;
@@ -604,8 +607,8 @@ export function Dashboard({
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
   return (
-    <div className="bg-background">
-      <div className="p-4 md:p-6">
+  <div className={detailsOnly ? "contents" : "bg-background"}>
+  <div className={detailsOnly ? "hidden" : "p-4 md:p-6"}>
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -1072,12 +1075,13 @@ export function Dashboard({
                 })}
         />
       </Dialog>
-      <Dialog
-        open={dialog === "detail"}
-        title={selected?.contractNo || "租赁详情"}
-        wide
-        onClose={closeDetail}
-      >
+  <Dialog
+  open={dialog === "detail"}
+  title={selected?.contractNo || "租赁详情"}
+  wide
+  drawer={detailsOnly}
+  onClose={closeDetail}
+  >
         {selected && (
           <Detail
             rental={selected}
@@ -3808,17 +3812,27 @@ function Dialog({
   children,
   onClose,
   wide = false,
+  drawer = false,
 }: {
   open: boolean;
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  drawer?: boolean;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
+      className={`fixed inset-0 z-50 flex bg-foreground/20 ${drawer ? "justify-end p-0" : "items-center justify-center p-4"}`}
       onMouseDown={(e) => {
         if (e.currentTarget === e.target) onClose();
       }}
@@ -3827,7 +3841,9 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`max-h-[92svh] w-full overflow-y-auto rounded-2xl border bg-card shadow-xl ${wide ? "max-w-5xl" : "max-w-lg"}`}
+        className={drawer
+          ? "h-svh w-full overflow-y-auto border-l bg-card shadow-xl md:max-w-4xl"
+          : `max-h-[92svh] w-full overflow-y-auto rounded-2xl border bg-card shadow-xl ${wide ? "max-w-5xl" : "max-w-lg"}`}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-card p-4">
           <h2 className="text-lg font-semibold">{title}</h2>

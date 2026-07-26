@@ -9,21 +9,20 @@ import { auth } from '@/lib/auth'
 export default async function RentalsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/sign-in')
+
   const params = await searchParams
   const value = (key: string) => typeof params[key] === 'string' ? params[key] : ''
   const rentalId = Number(value('rental'))
+  const hasRental = Number.isSafeInteger(rentalId) && rentalId > 0
   const isNew = value('new') === '1'
-  const opensWorkspace = isNew || (Number.isSafeInteger(rentalId) && rentalId > 0)
 
-  if (opensWorkspace) {
-    const [summary, linkedRental, access, assignees] = await Promise.all([
+  if (isNew) {
+    const [summary, access, assignees] = await Promise.all([
       getDashboard(),
-      !isNew ? getRentalById(rentalId) : null,
       getAccessContext('租赁操作'),
       getRentalAssignees(),
     ])
-    if (!isNew && !linkedRental) redirect('/rentals')
-    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} />
+    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={[]} mode="management" initialNew />
   }
 
   const requestedSort = value('sort')
@@ -31,8 +30,29 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
   const requestedType = value('orderType')
   const orderType = (['draft', 'test', 'official'].includes(requestedType) ? requestedType : 'all') as 'all' | 'draft' | 'test' | 'official'
   const filters = {
-    query: value('query'), status: value('status') || '全部', startDate: value('startDate'), endDate: value('endDate'), assignee: value('assignee'), orderType, lifecycleStatus: 'active' as const, sort, page: Math.max(1, Number(value('page')) || 1),
+    query: value('query'),
+    status: value('status') || '全部',
+    startDate: value('startDate'),
+    endDate: value('endDate'),
+    assignee: value('assignee'),
+    orderType,
+    lifecycleStatus: 'active' as const,
+    sort,
+    page: Math.max(1, Number(value('page')) || 1),
   }
-  const [result, assignees] = await Promise.all([getRentalPage({ ...filters, pageSize: 20 }), getRentalAssignees()])
-  return <RentalRecords {...result} filters={filters} assignees={assignees} />
+
+  const [result, assignees, linkedRental, summary, access] = await Promise.all([
+    getRentalPage({ ...filters, pageSize: 20 }),
+    getRentalAssignees(),
+    hasRental ? getRentalById(rentalId) : null,
+    hasRental ? getDashboard() : null,
+    hasRental ? getAccessContext('租赁操作') : null,
+  ])
+
+  if (hasRental && (!linkedRental || !summary || !access)) redirect('/rentals')
+
+  return <>
+    <RentalRecords {...result} filters={filters} assignees={assignees} />
+    {linkedRental && summary && access && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={[linkedRental]} mode="management" detailsOnly />}
+  </>
 }

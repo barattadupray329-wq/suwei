@@ -70,6 +70,10 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   if (status !== '全部') filters.push(eq(rentals.status, status))
   const baseQuery = db.select().from(rentals).where(and(...filters)).orderBy(desc(rentals.createdAt))
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
+  return loadRentalRelations(userId, rows)
+}
+
+async function loadRentalRelations(userId: string, rows: Array<typeof rentals.$inferSelect>) {
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
   const [items, buyouts, renewals, renewalCorrections, payments, events, bills, ledger] = await Promise.all([
@@ -84,13 +88,21 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
     const grouped = new Map<number, T[]>()
-    for (const record of records) grouped.set(record.rentalId, [...(grouped.get(record.rentalId) ?? []), record])
+    for (const record of records) {
+      const group = grouped.get(record.rentalId)
+      if (group) group.push(record)
+      else grouped.set(record.rentalId, [record])
+    }
     return grouped
   }
   const itemMap = groupByRental(items)
   const buyoutMap = groupByRental(buyouts)
   const correctionsByRenewal = new Map<number, typeof renewalCorrections>()
-  for (const correction of renewalCorrections) correctionsByRenewal.set(correction.renewalRecordId, [...(correctionsByRenewal.get(correction.renewalRecordId) ?? []), correction])
+  for (const correction of renewalCorrections) {
+    const group = correctionsByRenewal.get(correction.renewalRecordId)
+    if (group) group.push(correction)
+    else correctionsByRenewal.set(correction.renewalRecordId, [correction])
+  }
   const renewalsWithCorrections = renewals.map((renewal) => ({ ...renewal, adjustments: correctionsByRenewal.get(renewal.id) ?? [] }))
   const renewalMap = groupByRental(renewalsWithCorrections)
   const paymentMap = groupByRental(payments)
@@ -140,19 +152,21 @@ export async function getRentalPage(input: RentalListQuery = {}) {
 }
 
 export async function getRentalById(id: number) {
+  if (!Number.isSafeInteger(id) || id <= 0) return null
   const userId = await getUserId()
-  const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
+  const [row] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id), eq(rentals.lifecycleStatus, 'active'))).limit(1)
   if (!row) return null
-  return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
+  return (await loadRentalRelations(userId, [row]))[0] ?? null
 }
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [[summary], [draftSummary]] = await Promise.all([
-    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when ${rentals.status} not in ('已关闭', '已买断') then ${rentals.totalRent} - ${rentals.paidAmount} else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
+  const [[summary], [draftSummary], [billSummary]] = await Promise.all([
+    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
+    db.select({ receivable: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)` }).from(receivableBills).innerJoin(rentals, and(eq(rentals.id, receivableBills.rentalId), eq(rentals.userId, receivableBills.userId))).where(and(eq(receivableBills.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭'))),
   ])
-  return { ...summary, draft: draftSummary?.draft ?? 0 }
+  return { ...summary, receivable: billSummary?.receivable ?? '0', draft: draftSummary?.draft ?? 0 }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }
@@ -215,11 +229,11 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
   ...item,
   deviceName: normalizeDeviceName(item.deviceType, item.deviceName),
   deviceCode: orderType === 'official' ? numbers.deviceCodes[index] : `${orderType === 'draft' ? 'CG' : 'CS'}-SB-${temporaryStamp}-${index + 1}`,
-    totalRent: Math.round(item.quantity * item.monthlyRent * value.duration * 100) / 100,
+    totalRent: Number(fromCents(item.quantity * value.duration * toCents(item.monthlyRent))),
   }))
   const quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0)
-  const monthlyRent = normalizedItems.reduce((sum, item) => sum + item.monthlyRent * item.quantity, 0)
-  const totalRent = normalizedItems.reduce((sum, item) => sum + item.totalRent, 0)
+  const monthlyRent = Number(fromCents(normalizedItems.reduce((sum, item) => sum + item.quantity * toCents(item.monthlyRent), 0)))
+  const totalRent = Number(fromCents(normalizedItems.reduce((sum, item) => sum + toCents(item.totalRent), 0)))
   const rentalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   try {
     const first = value.items[0]
