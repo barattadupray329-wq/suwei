@@ -33,6 +33,12 @@ export function fromCents(value: number) {
   return (value / 100).toFixed(2)
 }
 
+const originalRentalBillTypes = new Set(['租金', '原合同租金', '起租预收', '日租租金', '原合同欠款补算'])
+
+export function shouldSyncBillPeriod(bill: { billType: string; paidAmount: string | number }) {
+  return originalRentalBillTypes.has(bill.billType) && toCents(bill.paidAmount) === 0
+}
+
 export function isDueWithin(endDate: string, today: string, days = 7) {
   return endDate >= today && endDate <= addCalendarDays(today, days)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, buildSupplementalBills, dueBillsAsOf, effectiveOutstandingAmount, fromCents, isDueWithin, nextMonthlyPeriod, nextOpenBill, projectedMonthlyRent, renewalAdjustment, renewalAmount, rentalEndDate, shouldSyncBillPeriod, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -48,6 +48,21 @@ describe('预收与续租账单', () => {
     expect(billState('100', '0', '2026-06-01', '2026-06-10')).toBe('逾期')
     expect(billState('100', '0', '2026-06-15', '2026-06-10')).toBe('即将到期')
     expect(billState('100', '0', '2026-07-01', '2026-06-10')).toBe('待付款')
+  })
+})
+
+describe('租期调整账单同步', () => {
+  it('兼容历史零金额格式与原合同账单类型', () => {
+    expect(shouldSyncBillPeriod({ billType: '起租预收', paidAmount: '0' })).toBe(true)
+    expect(shouldSyncBillPeriod({ billType: '租金', paidAmount: '0.00' })).toBe(true)
+    expect(shouldSyncBillPeriod({ billType: '原合同租金', paidAmount: '0.0' })).toBe(true)
+    expect(shouldSyncBillPeriod({ billType: '原合同欠款补算', paidAmount: 0 })).toBe(true)
+  })
+  it('不修改部分收款、续租和其他费用账单', () => {
+    expect(shouldSyncBillPeriod({ billType: '起租预收', paidAmount: '0.01' })).toBe(false)
+    expect(shouldSyncBillPeriod({ billType: '续租费', paidAmount: '0.00' })).toBe(false)
+    expect(shouldSyncBillPeriod({ billType: '押金', paidAmount: '0.00' })).toBe(false)
+    expect(shouldSyncBillPeriod({ billType: '合同变更费', paidAmount: '0.00' })).toBe(false)
   })
 })
 
