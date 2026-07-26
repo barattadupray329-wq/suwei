@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
-import { fromCents, shouldSyncBillPeriod, toCents } from '@/lib/rental-calculations'
+import { addCalendarDays, fromCents, shouldSyncBillPeriod, toCents } from '@/lib/rental-calculations'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -126,16 +126,17 @@ export async function changeRentalContract(input: ContractChangeInput) {
     : []
   const syncedBills = candidateBills.filter(shouldSyncBillPeriod)
   const syncedBillIds = syncedBills.map((bill) => bill.id)
+  const syncedPeriodEnd = value.endDate ? addCalendarDays(value.endDate, -1) : undefined
   const statements = [
     db.update(rentals).set(rentalPatch).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId))),
     ...(value.changeType === '租期调整' ? [
       db.update(rentalItems).set({ startDate: value.startDate!, endDate: value.endDate!, updatedAt: new Date() }).where(and(eq(rentalItems.userId, context.userId), eq(rentalItems.rentalId, value.rentalId))),
-      ...(syncedBillIds.length > 0 ? [db.update(receivableBills).set({ periodStart: value.startDate!, periodEnd: value.endDate!, dueDate: value.startDate!, updatedAt: new Date() }).where(and(eq(receivableBills.userId, context.userId), inArray(receivableBills.id, syncedBillIds)))] : []),
+      ...(syncedBillIds.length > 0 ? [db.update(receivableBills).set({ periodStart: value.startDate!, periodEnd: syncedPeriodEnd!, dueDate: value.startDate!, updatedAt: new Date() }).where(and(eq(receivableBills.userId, context.userId), inArray(receivableBills.id, syncedBillIds)))] : []),
     ] : []),
     db.insert(rentalEvents).values({ id: eventId, userId: context.userId, rentalId: value.rentalId, eventType: value.changeType, eventDate: value.effectiveDate, beforeSnapshot, afterSnapshot, reason: value.reason, feeAdjustment: fromCents(feeAdjustmentCents), operatorName: context.actorName, notes: eventNote }),
     ...(feeAdjustmentCents > 0 ? [db.insert(receivableBills).values({ userId: context.userId, rentalId: value.rentalId, billNo: `CHANGE-${value.rentalId}-${eventId}`, periodStart: value.effectiveDate, periodEnd: value.effectiveDate, dueDate: value.effectiveDate, billType: '合同变更费', amount: fromCents(feeAdjustmentCents), paidAmount: '0', status: '待收', notes: `${value.changeType}：${value.feeNote}` })] : []),
     ...(feeAdjustmentCents !== 0 ? [db.insert(accountLedger).values({ userId: context.userId, rentalId: value.rentalId, entryType: '变更调整', amount: fromCents(feeAdjustmentCents), entryDate: value.effectiveDate, operatorName: context.actorName, notes: `${value.changeType}：${value.reason}；${value.feeNote}` })] : []),
-    db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '租赁变更', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 办理${value.changeType}`, metadata: { eventId, beforeSnapshot, afterSnapshot, feeAdjustment: value.feeAdjustment, customerConfirmed: value.customerConfirmed, syncedBillCount: syncedBills.length, syncedBills: syncedBills.map((bill) => ({ id: bill.id, billType: bill.billType, before: { periodStart: bill.periodStart, periodEnd: bill.periodEnd, dueDate: bill.dueDate }, after: { periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate } })) } }),
+    db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '租赁变更', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 办理${value.changeType}`, metadata: { eventId, beforeSnapshot, afterSnapshot, feeAdjustment: value.feeAdjustment, customerConfirmed: value.customerConfirmed, syncedBillCount: syncedBills.length, syncedBills: syncedBills.map((bill) => ({ id: bill.id, billType: bill.billType, before: { periodStart: bill.periodStart, periodEnd: bill.periodEnd, dueDate: bill.dueDate }, after: { periodStart: value.startDate, periodEnd: syncedPeriodEnd, dueDate: value.startDate } })) } }),
   ]
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/dashboard')
