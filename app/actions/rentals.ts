@@ -474,6 +474,43 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   return { ok: true }
 }
 
+const initialPaymentSchema = z.object({ rentalId: z.number().int().positive(), rentAmount: z.number().min(0), depositAmount: z.number().min(0), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), notes: z.string().optional() }).refine((value) => value.rentAmount > 0 || value.depositAmount > 0, '请至少填写一项实收金额')
+export type InitialPaymentInput = z.infer<typeof initialPaymentSchema>
+
+export async function recordInitialPayment(input: InitialPaymentInput) {
+  const context = await getAccessContext('租赁操作')
+  const value = initialPaymentSchema.parse(input)
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
+  if (!rental) throw new Error('正式租赁合同不存在或已失效')
+  const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.userId, context.userId), eq(receivableBills.rentalId, value.rentalId))).orderBy(receivableBills.dueDate)
+  const rentBills = bills.filter((bill) => bill.billType !== '押金')
+  const depositBills = bills.filter((bill) => bill.billType === '押金')
+  const rentAllocations = value.rentAmount > 0 ? allocatePayment(rentBills, value.rentAmount) : []
+  const depositAllocations = value.depositAmount > 0 ? allocatePayment(depositBills, value.depositAmount) : []
+  const batchNo = `INITIAL-${value.rentalId}-${Date.now()}`
+  const statements: Array<unknown> = []
+  let paymentSequence = 0
+  for (const entry of [{ amount: value.rentAmount, feeType: '原合同租金' as const, ledgerType: '首期租金', allocations: rentAllocations, candidates: rentBills }, { amount: value.depositAmount, feeType: '押金' as const, ledgerType: '押金收取', allocations: depositAllocations, candidates: depositBills }]) {
+    if (entry.amount <= 0) continue
+    const paymentId = Date.now() * 1000 + paymentSequence++
+    statements.push(db.insert(paymentRecords).values({ id: paymentId, userId: context.userId, rentalId: value.rentalId, operatorName: context.actorName, amount: centsToMoney(moneyToCents(entry.amount)), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: entry.feeType, notes: `${batchNo}${value.notes ? `；${value.notes}` : ''}` }))
+    for (const allocation of entry.allocations) {
+      const bill = entry.candidates.find((candidate) => candidate.id === allocation.billId)!
+      statements.push(db.update(receivableBills).set({ paidAmount: centsToMoney(moneyToCents(bill.paidAmount) + allocation.amountCents), status: allocation.balanceAfterCents === 0 ? '已收' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.userId, context.userId), eq(receivableBills.id, bill.id))))
+      statements.push(db.insert(paymentAllocations).values({ userId: context.userId, rentalId: value.rentalId, paymentRecordId: paymentId, billId: bill.id, amount: centsToMoney(allocation.amountCents) }))
+    }
+    statements.push(db.insert(accountLedger).values({ userId: context.userId, rentalId: value.rentalId, entryType: entry.ledgerType, amount: centsToMoney(moneyToCents(entry.amount)), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: context.actorName, notes: `${batchNo} · ${rental.contractNo}` }))
+  }
+  if (value.rentAmount > 0) {
+    const nextPaidCents = moneyToCents(rental.paidAmount) + moneyToCents(value.rentAmount)
+    statements.push(db.update(rentals).set({ paidAmount: centsToMoney(nextPaidCents), paymentStatus: nextPaidCents >= moneyToCents(rental.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.userId, context.userId), eq(rentals.id, value.rentalId))))
+  }
+  statements.push(db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '登记首款', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 登记首款：租金 ${centsToMoney(moneyToCents(value.rentAmount))} 元，押金 ${centsToMoney(moneyToCents(value.depositAmount))} 元`, metadata: { batchNo, rentAmount: value.rentAmount, depositAmount: value.depositAmount, paymentMethod: value.paymentMethod } }))
+  await db.batch(statements as unknown as Parameters<typeof db.batch>[0])
+  revalidatePath('/rentals'); revalidatePath('/dashboard'); revalidatePath('/finance')
+  return { batchNo }
+}
+
 const customerCollectionSchema = z.object({ phone: z.string().min(6), amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), notes: z.string().optional() })
 export type CustomerCollectionInput = z.infer<typeof customerCollectionSchema>
 

@@ -36,6 +36,7 @@ import {
   getNextRentalNumbers,
   getRentalFormSuggestions,
   recordDepositAction,
+  recordInitialPayment,
   renewRentalItems,
   reversePayment,
   updateRentalAssignee,
@@ -406,6 +407,7 @@ onCloseDetails,
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<
     | "new"
+    | "initial-payment"
     | "detail"
     | "renew"
     | "correct-renewal"
@@ -432,6 +434,7 @@ onCloseDetails,
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | "contract_gap" | null>(null);
   const [form, setForm] = useState<RentalInput>(emptyRental());
+  const [newRentalPayment, setNewRentalPayment] = useState<{ rentalId: number; contractNo: string; totalRent: number; deposit: number } | null>(null);
   const todayValue = today();
   const isRentalOverdue = (r: Rental) =>
     r.endDate < todayValue && !["买断", "已退租", "已结束", "已关闭", "丢失"].includes(r.status);
@@ -1110,10 +1113,16 @@ onCloseDetails,
                     const notice = await sendRentalCreatedNotice(created.data);
                     notice.ok ? toast.success("正式合同已创建，初始租赁通知已发送") : toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
                   } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
-                  setDialog(null);
+                  if (orderType === "official" && created.data) {
+                    setNewRentalPayment({ rentalId: created.data, contractNo: form.contractNo || "新正式合同", totalRent: form.items.reduce((sum, item) => sum + item.quantity * form.duration * Number(item.monthlyRent || 0), 0), deposit: Number(form.deposit || 0) });
+                    setDialog("initial-payment");
+                  } else setDialog(null);
                   router.refresh();
                 })}
         />
+      </Dialog>
+      <Dialog open={dialog === "initial-payment"} title="是否登记首款" onClose={() => { setNewRentalPayment(null); setDialog(null); }}>
+        {newRentalPayment && <InitialPaymentForm rental={newRentalPayment} pending={pending} skip={() => { setNewRentalPayment(null); setDialog(null); toast.success("合同已创建，暂未登记收款"); }} submit={(value) => start(async () => { try { await recordInitialPayment({ rentalId: newRentalPayment.rentalId, ...value }); toast.success("首期租金与押金已分别登记"); setNewRentalPayment(null); setDialog(null); router.refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : "首款登记失败"); } })} />}
       </Dialog>
   <Dialog
   open={dialog === "detail"}
@@ -2942,6 +2951,29 @@ function RenewalForm({
     </form>
   );
 }
+function InitialPaymentForm({ rental, pending, submit, skip }: { rental: { rentalId: number; contractNo: string; totalRent: number; deposit: number }; pending: boolean; submit: (value: { rentAmount: number; depositAmount: number; paymentDate: string; paymentMethod: "现金" | "微信" | "支付宝" | "银行卡" | "其他"; notes?: string }) => void; skip: () => void }) {
+  const [collectRent, setCollectRent] = useState(true);
+  const [collectDeposit, setCollectDeposit] = useState(rental.deposit > 0);
+  const [rentAmount, setRentAmount] = useState(rental.totalRent);
+  const [depositAmount, setDepositAmount] = useState(rental.deposit);
+  const [paymentDate, setPaymentDate] = useState(today());
+  const [paymentMethod, setPaymentMethod] = useState<"现金" | "微信" | "支付宝" | "银行卡" | "其他">("微信");
+  const [notes, setNotes] = useState("");
+  const actualRent = collectRent ? rentAmount : 0;
+  const actualDeposit = collectDeposit ? depositAmount : 0;
+  return <form onSubmit={(event) => { event.preventDefault(); submit({ rentAmount: actualRent, depositAmount: actualDeposit, paymentDate, paymentMethod, notes }); }} className="flex flex-col gap-5">
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">{rental.contractNo} 已创建成功</p><p className="mt-1 text-sm leading-6 text-muted-foreground">如客户已付款，可立即分别登记租金和押金；也可以暂不收款，稍后在合同详情登记。</p></div>
+    <div className="flex flex-col gap-3">
+      <label className="flex items-center justify-between gap-4 rounded-xl border p-4"><span><span className="block font-medium">登记租金</span><span className="text-sm text-muted-foreground">应收租金 {money(String(rental.totalRent))}</span></span><input type="checkbox" checked={collectRent} onChange={(event) => setCollectRent(event.target.checked)} className="size-5 accent-primary" /></label>
+      {collectRent && <label className="flex flex-col gap-1 text-sm"><span>实收租金（元）</span><input type="number" min="0.01" max={rental.totalRent} step="0.01" value={rentAmount} onChange={(event) => setRentAmount(Number(event.target.value))} className="h-11 rounded-xl border bg-background px-3" /></label>}
+      {rental.deposit > 0 && <><label className="flex items-center justify-between gap-4 rounded-xl border p-4"><span><span className="block font-medium">登记押金</span><span className="text-sm text-muted-foreground">约定押金 {money(String(rental.deposit))}</span></span><input type="checkbox" checked={collectDeposit} onChange={(event) => setCollectDeposit(event.target.checked)} className="size-5 accent-primary" /></label>{collectDeposit && <label className="flex flex-col gap-1 text-sm"><span>实收押金（元）</span><input type="number" min="0.01" max={rental.deposit} step="0.01" value={depositAmount} onChange={(event) => setDepositAmount(Number(event.target.value))} className="h-11 rounded-xl border bg-background px-3" /></label>}</>}
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span>收款日期</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="h-11 rounded-xl border bg-background px-3" /></label><label className="flex flex-col gap-1 text-sm"><span>支付方式</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)} className="h-11 rounded-xl border bg-background px-3">{["微信", "支付宝", "现金", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div>
+    <label className="flex flex-col gap-1 text-sm"><span>备注</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="rounded-xl border bg-background p-3" placeholder="付款凭证号或其他说明" /></label>
+    <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skip} disabled={pending} className="secondary-button">暂未收款</button><button type="submit" disabled={pending || actualRent + actualDeposit <= 0 || actualRent > rental.totalRent || actualDeposit > rental.deposit} className="primary-button">{pending ? "登记中…" : `确认收款 ${money(String(actualRent + actualDeposit))}`}</button></div>
+  </form>;
+}
+
 function PaymentForm({ submit, pending, bills, contractGap, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; contractGap?: SupplementalBill; target: number | "all" | "contract_gap" | null }) {
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
