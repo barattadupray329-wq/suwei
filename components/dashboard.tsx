@@ -496,9 +496,12 @@ export function Dashboard({
     setDialog("detail");
   };
   const closeDetail = () => {
+    if (searchParams.has("rental")) {
+      window.location.replace("/rentals");
+      return;
+    }
     setDialog(null);
     setSelected(null);
-    if (searchParams.has("rental")) router.replace("/rentals", { scroll: false });
   };
   const confirmSelectedDraft = () => {
     if (!selected || selected.orderType !== "draft") return;
@@ -3331,7 +3334,7 @@ function ExchangeForm({
           onChange={(next) => update("exchangeDate", next)}
         />
         <label className="flex flex-col gap-2 text-sm font-medium">
-          新设备类型
+          设备类型
           <select
             className="h-10 rounded-lg border bg-background px-3"
             value={value.newDeviceType}
