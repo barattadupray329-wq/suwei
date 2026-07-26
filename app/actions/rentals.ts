@@ -147,8 +147,22 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
+  const rentalIds = rows.map((row) => row.id)
+  const billMetrics = rentalIds.length
+    ? await db.select({
+        rentalId: receivableBills.rentalId,
+        outstanding: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)`,
+        overdue: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < current_date then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+      }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))).groupBy(receivableBills.rentalId)
+    : []
+  const metricsByRental = new Map(billMetrics.map((item) => [item.rentalId, item]))
+  const enrichedRows = rows.map((row) => ({
+    ...row,
+    outstandingAmount: metricsByRental.get(row.id)?.outstanding ?? '0',
+    overdueAmount: metricsByRental.get(row.id)?.overdue ?? '0',
+  }))
   const total = Number(countRow?.count ?? 0)
-  return { rows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+  return { rows: enrichedRows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
 }
 
 export async function getRentalById(id: number) {
@@ -161,12 +175,19 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [[summary], [draftSummary], [billSummary]] = await Promise.all([
-    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
+  const [[summary], [draftSummary], [paymentSummary], [billSummary]] = await Promise.all([
+    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
-    db.select({ receivable: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)` }).from(receivableBills).innerJoin(rentals, and(eq(rentals.id, receivableBills.rentalId), eq(rentals.userId, receivableBills.userId))).where(and(eq(receivableBills.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭'))),
+    db.select({ revenue: sql<string>`coalesce(sum(cast(${paymentRecords.amount} as real)), 0)`, monthRevenue: sql<string>`coalesce(sum(case when ${paymentRecords.paymentDate} >= date('now', 'start of month') then cast(${paymentRecords.amount} as real) else 0 end), 0)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, paymentRecords.userId))).where(and(eq(paymentRecords.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
+    db.select({
+      receivable: sql<string>`coalesce(sum(max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real))), 0)`,
+      currentDue: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} >= current_date then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+      overdue30: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < current_date and ${receivableBills.dueDate} >= date(current_date, '-30 days') then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+      overdue60: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < date(current_date, '-30 days') and ${receivableBills.dueDate} >= date(current_date, '-60 days') then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+      overdue90: sql<string>`coalesce(sum(case when ${receivableBills.dueDate} < date(current_date, '-60 days') then max(0, cast(${receivableBills.amount} as real) - cast(${receivableBills.paidAmount} as real)) else 0 end), 0)`,
+    }).from(receivableBills).innerJoin(rentals, and(eq(rentals.id, receivableBills.rentalId), eq(rentals.userId, receivableBills.userId))).where(and(eq(receivableBills.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭'))),
   ])
-  return { ...summary, receivable: billSummary?.receivable ?? '0', draft: draftSummary?.draft ?? 0 }
+  return { ...summary, ...paymentSummary, ...billSummary, revenue: paymentSummary?.revenue ?? '0', monthRevenue: paymentSummary?.monthRevenue ?? '0', receivable: billSummary?.receivable ?? '0', currentDue: billSummary?.currentDue ?? '0', overdue30: billSummary?.overdue30 ?? '0', overdue60: billSummary?.overdue60 ?? '0', overdue90: billSummary?.overdue90 ?? '0', draft: draftSummary?.draft ?? 0 }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }

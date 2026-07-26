@@ -237,8 +237,13 @@ type Summary = {
   dueSoon: number;
   repairPending: number;
   revenue: string;
+  monthRevenue: string;
   receivable: string;
-};
+  currentDue: string;
+  overdue30: string;
+  overdue60: string;
+  overdue90: string;
+  };
 const money = (n: string | number) =>
   new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -667,7 +672,7 @@ export function Dashboard({
               icon={<ClockAlert />}
             />
             <Stat
-              label="累计收款"
+              label="实际累计收款"
               value={money(summary.revenue)}
               icon={<WalletCards />}
             />
@@ -679,6 +684,27 @@ export function Dashboard({
               />
             </div>
           </div>
+          {mode === "overview" && <section className="rounded-xl border bg-card p-4">
+            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-semibold">应收账龄</h2>
+                <p className="text-sm text-muted-foreground">按账单到期日拆分未结清金额，优先处理账龄更长的欠款</p>
+              </div>
+              <p className="text-sm font-medium text-primary">本月实际收款 {money(summary.monthRevenue)}</p>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                ["未到期", summary.currentDue, "正常跟进"],
+                ["逾期 1–30 天", summary.overdue30, "尽快催收"],
+                ["逾期 31–60 天", summary.overdue60, "重点跟进"],
+                ["逾期 60 天以上", summary.overdue90, "高风险"],
+              ].map(([label, amount, hint]) => <Link key={String(label)} href={String(label) === "未到期" ? "/rentals?sort=due" : "/rentals?status=逾期"} className="rounded-xl bg-muted p-3 transition-colors hover:bg-border">
+                <p className="text-sm text-muted-foreground">{label}</p>
+                <p className="mt-1 text-xl font-bold">{money(String(amount))}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+              </Link>)}
+            </div>
+          </section>}
           <section className="rounded-xl border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -708,7 +734,7 @@ export function Dashboard({
               </button>
               <button
                 type="button"
-                onClick={() => setSort("amount")}
+                onClick={() => router.push("/rentals?sort=amount")}
                 className="rounded-xl bg-muted p-3 text-left hover:bg-border"
               >
                 <p className="text-2xl font-bold">
@@ -718,10 +744,7 @@ export function Dashboard({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setStatus("全部");
-                  setQuery("维修");
-                }}
+                onClick={() => router.push("/rentals?query=维修")}
                 className="rounded-xl border bg-muted p-3 text-left hover:border-primary hover:bg-border"
               >
                 <p className="text-2xl font-bold">{repairPending}</p>
