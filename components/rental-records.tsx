@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Download, LoaderCircle, Plus, Search, SlidersHorizontal } from 'lucide-react'
-import { getRentalById } from '@/app/actions/rentals'
+import { ChevronLeft, ChevronRight, Download, LoaderCircle, Plus, Search, SlidersHorizontal, WalletCards, X } from 'lucide-react'
+import { getCustomerCollectionPreview, getRentalById, recordCustomerCollection, type CustomerCollectionPreview } from '@/app/actions/rentals'
 import { Dashboard } from '@/components/dashboard'
 import { toast } from 'sonner'
 
@@ -35,6 +35,13 @@ export function RentalRecords({ rows, total, totalDueAmount, page, pageCount, fi
   const cache = useRef(new Map<number, NonNullable<RentalDetail>>())
   const [openingRentalId, setOpeningRentalId] = useState<number | null>(null)
   const [selectedRental, setSelectedRental] = useState<NonNullable<RentalDetail> | null>(null)
+  const [collection, setCollection] = useState<CustomerCollectionPreview | null>(null)
+  const [collectionLoading, setCollectionLoading] = useState(false)
+  const [collectionSubmitting, setCollectionSubmitting] = useState(false)
+  const [collectionAmount, setCollectionAmount] = useState('')
+  const [collectionDate, setCollectionDate] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()))
+  const [collectionMethod, setCollectionMethod] = useState<'现金' | '微信' | '支付宝' | '银行卡' | '其他'>('微信')
+  const [collectionNotes, setCollectionNotes] = useState('')
   const activeRentalId = searchParams.get('rental')
   useEffect(() => setOpeningRentalId(null), [activeRentalId])
   const detailHref = (id: number) => {
@@ -77,6 +84,36 @@ export function RentalRecords({ rows, total, totalDueAmount, page, pageCount, fi
     params.delete('rental')
     window.history.replaceState(null, '', `/rentals${params.size ? `?${params}` : ''}`)
   }
+  const openCollection = async () => {
+    if (!filters.query.trim()) return toast.error('请先搜索客户姓名或手机号')
+    const phone = rows.find((row) => row.customerPhone && (row.customerPhone.includes(filters.query.trim()) || row.customerName.includes(filters.query.trim())))?.customerPhone
+    if (!phone) return toast.error('请使用客户手机号或准确姓名筛选后再统一收款')
+    setCollectionLoading(true)
+    try {
+      const preview = await getCustomerCollectionPreview(phone)
+      setCollection(preview)
+      setCollectionAmount(preview.totalAmount)
+    } catch (error) { toast.error(error instanceof Error ? error.message : '统一收款加载失败') }
+    finally { setCollectionLoading(false) }
+  }
+  const submitCollection = async () => {
+    if (!collection) return
+    setCollectionSubmitting(true)
+    try {
+      const result = await recordCustomerCollection({ phone: collection.customerPhone, amount: Number(collectionAmount), paymentDate: collectionDate, paymentMethod: collectionMethod, notes: collectionNotes })
+      toast.success(`统一收款成功，已分配到 ${result.contractCount} 份合同`)
+      setCollection(null); setCollectionNotes(''); cache.current.clear(); router.refresh()
+    } catch (error) { toast.error(error instanceof Error ? error.message : '统一收款失败') }
+    finally { setCollectionSubmitting(false) }
+  }
+  const allocationPreview = (() => {
+    let remaining = Math.round(Number(collectionAmount || 0) * 100)
+    return collection?.contracts.map((contract) => {
+      const available = Math.round(Number(contract.availableAmount) * 100)
+      const amount = Math.max(0, Math.min(remaining, available)); remaining -= amount
+      return { ...contract, allocationAmount: (amount / 100).toFixed(2) }
+    }) ?? []
+  })()
   const pageHref = (nextPage: number) => {
     const params = new URLSearchParams()
     Object.entries({ ...filters, page: nextPage }).forEach(([key, value]) => {
@@ -106,7 +143,7 @@ export function RentalRecords({ rows, total, totalDueAmount, page, pageCount, fi
       <div className="flex gap-2 xl:col-span-5"><button className="primary-button" type="submit"><SlidersHorizontal className="size-4"/>应用筛选</button><Link href="/rentals" className="secondary-button">清空</Link></div>
     </div></form>
 
-    <section className="data-shell"><div className="toolbar"><div><h2 className="font-semibold">查询结果</h2><p className="text-sm text-muted-foreground">共 {total.toLocaleString('zh-CN')} 条，当前第 {page} / {pageCount} 页</p></div></div>
+    <section className="data-shell"><div className="toolbar"><div><h2 className="font-semibold">查询结果</h2><p className="text-sm text-muted-foreground">共 {total.toLocaleString('zh-CN')} 条，当前第 {page} / {pageCount} 页</p></div>{filters.query && rows.length > 0 && <button type="button" onClick={() => void openCollection()} disabled={collectionLoading} className="primary-button"><WalletCards className="size-4"/>{collectionLoading ? '加载中…' : '客户统一收款'}</button>}</div>
       {rows.length ? <>
         <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[1080px] text-left text-sm"><thead className="bg-muted text-muted-foreground"><tr><th className="p-3">合同与客户</th><th className="p-3">设备</th><th className="p-3">租期</th><th className="p-3">金额进度</th><th className="p-3">风险状态</th><th className="p-3">负责人</th><th className="p-3 text-right">操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onDoubleClick={() => openDetail(row.id)} title="双击查看租赁详情" className="cursor-pointer border-t hover:bg-muted/40">
           <td className="p-3"><p className="flex flex-wrap items-center gap-2 font-semibold">{row.contractNo}<span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{row.orderType === 'official' ? '正式' : row.orderType === 'draft' ? '草稿' : '测试'}</span></p><p>{row.customerCompany || row.customerName}</p><p className="text-xs text-muted-foreground">{row.customerName} · {row.customerPhone}</p></td>
@@ -119,6 +156,7 @@ export function RentalRecords({ rows, total, totalDueAmount, page, pageCount, fi
       </> : <div className="p-10 text-center text-muted-foreground">没有符合条件的租赁合同</div>}
       <footer className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm text-muted-foreground">第 {total ? (page - 1) * 20 + 1 : 0}–{Math.min(page * 20, total)} 条</p><p className="mt-1 font-semibold text-primary">合计待收 {money(totalDueAmount)} <span className="text-xs font-normal text-muted-foreground">（当前筛选全部合同）</span></p></div><div className="flex gap-2"><Link aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : 0} href={pageHref(Math.max(1, page - 1))} className={`secondary-button ${page <= 1 ? 'pointer-events-none opacity-50' : ''}`}><ChevronLeft className="size-4"/>上一页</Link><Link aria-disabled={page >= pageCount} tabIndex={page >= pageCount ? -1 : 0} href={pageHref(Math.min(pageCount, page + 1))} className={`secondary-button ${page >= pageCount ? 'pointer-events-none opacity-50' : ''}`}>下一页<ChevronRight className="size-4"/></Link></div></footer>
     </section>
+    {collection && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" role="dialog" aria-modal="true" aria-labelledby="collection-title"><div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-xl"><header className="flex items-start justify-between gap-4 border-b p-5"><div><h2 id="collection-title" className="text-xl font-semibold">客户统一收款</h2><p className="mt-1 text-sm text-muted-foreground">{collection.customerName} · {collection.customerPhone} · {collection.contracts.length} 份欠款合同</p></div><button type="button" onClick={() => setCollection(null)} className="rounded-lg p-2 hover:bg-muted" aria-label="关闭统一收款"><X className="size-5"/></button></header><div className="flex flex-col gap-5 overflow-y-auto p-5"><div className="grid gap-3 sm:grid-cols-3"><label className="flex flex-col gap-1 text-sm"><span>本次收款金额（元）</span><input type="number" min="0.01" step="0.01" max={collection.totalAmount} value={collectionAmount} onChange={(event) => setCollectionAmount(event.target.value)} className="h-10 rounded-lg border bg-background px-3 text-lg font-semibold"/></label><label className="flex flex-col gap-1 text-sm"><span>收款日期</span><input type="date" value={collectionDate} onChange={(event) => setCollectionDate(event.target.value)} className="h-10 rounded-lg border bg-background px-3"/></label><label className="flex flex-col gap-1 text-sm"><span>支付方式</span><select value={collectionMethod} onChange={(event) => setCollectionMethod(event.target.value as typeof collectionMethod)} className="h-10 rounded-lg border bg-background px-3">{['现金','微信','支付宝','银行卡','其他'].map((item) => <option key={item}>{item}</option>)}</select></label></div><div className="rounded-xl border bg-muted/40 p-4"><div className="flex items-center justify-between gap-3"><div><p className="font-semibold">正式待收合计</p><p className="text-sm text-muted-foreground">预计续租不计入本次可收金额</p></div><p className="text-xl font-semibold text-primary">{money(collection.totalAmount)}</p></div></div><section><h3 className="font-semibold">自动分配预览</h3><p className="mt-1 text-sm text-muted-foreground">按到期时间最早优先，少付时依次结清。</p><div className="mt-3 flex flex-col gap-2">{allocationPreview.map((contract) => <div key={contract.rentalId} className="flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{contract.contractNo} · {contract.deviceName}</p><p className="text-sm text-muted-foreground">{contract.startDate} 至 {contract.endDate} · 可收 {money(contract.availableAmount)}</p></div><p className="font-semibold text-primary">本次分配 {money(contract.allocationAmount)}</p></div>)}</div></section><label className="flex flex-col gap-1 text-sm"><span>备注</span><textarea value={collectionNotes} onChange={(event) => setCollectionNotes(event.target.value)} rows={3} className="rounded-lg border bg-background p-3" placeholder="可填写付款凭证号或其他说明"/></label></div><footer className="flex items-center justify-end gap-3 border-t p-5"><button type="button" onClick={() => setCollection(null)} className="secondary-button">取消</button><button type="button" onClick={() => void submitCollection()} disabled={collectionSubmitting || Number(collectionAmount) <= 0 || Number(collectionAmount) > Number(collection.totalAmount)} className="primary-button">{collectionSubmitting ? '处理中…' : `确认收款 ${money(collectionAmount || '0')}`}</button></footer></div></div>}
     {selectedRental && <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={detailSummary} rentals={[selectedRental]} mode="management" detailsOnly onCloseDetails={closeDetail} />}
   </div>
 }

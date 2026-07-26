@@ -23,3 +23,23 @@ export function allocatePayment(bills: AllocationBill[], amount: string | number
   if (remaining > 0) throw new Error(`收款金额超过当前待收金额，最多可收 ${centsToMoney(moneyToCents(amount) - remaining)} 元`)
   return allocations
 }
+
+export type ContractBalance = { rentalId: number; contractNo: string; dueDate: string; availableCents: number }
+
+export function allocateAcrossContracts(contracts: ContractBalance[], amount: string | number) {
+  let remaining = moneyToCents(amount)
+  if (remaining <= 0) throw new Error('收款金额必须大于 0')
+  const eligible = [...contracts]
+    .filter((contract) => contract.availableCents > 0)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.contractNo.localeCompare(b.contractNo) || a.rentalId - b.rentalId)
+  const available = eligible.reduce((sum, contract) => sum + contract.availableCents, 0)
+  if (remaining > available) throw new Error(`收款金额超过客户当前待收金额，最多可收 ${centsToMoney(available)} 元`)
+  const allocations: Array<{ rentalId: number; amountCents: number }> = []
+  for (const contract of eligible) {
+    if (remaining === 0) break
+    const amountCents = Math.min(remaining, contract.availableCents)
+    allocations.push({ rentalId: contract.rentalId, amountCents })
+    remaining -= amountCents
+  }
+  return allocations
+}

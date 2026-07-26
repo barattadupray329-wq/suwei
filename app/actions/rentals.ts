@@ -14,10 +14,47 @@ import { safeError } from '@/lib/errors'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
-import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
+import { allocateAcrossContracts, allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
+}
+
+export type CustomerCollectionContract = { rentalId: number; contractNo: string; customerName: string; customerPhone: string; startDate: string; endDate: string; deviceName: string; availableAmount: string; dueDate: string }
+export type CustomerCollectionPreview = { customerName: string; customerPhone: string; totalAmount: string; contracts: CustomerCollectionContract[] }
+
+async function getCustomerCollectionSnapshot(userId: string, phone: string) {
+  const normalized = phone.replace(/\D/g, '')
+  if (!/^1\d{10}$/.test(normalized)) throw new Error('请输入有效客户手机号')
+  const contractRows = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.customerPhone, normalized), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), ne(rentals.status, '已关闭')))
+  if (!contractRows.length) throw new Error('该客户没有正式有效合同')
+  const ids = contractRows.map((row) => row.id)
+  const billRows = await db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids), ne(receivableBills.billType, '押金')))
+  const billsByRental = new Map<number, typeof billRows>()
+  for (const bill of billRows) billsByRental.set(bill.rentalId, [...(billsByRental.get(bill.rentalId) ?? []), bill])
+  const contracts = contractRows.flatMap((row) => {
+    const bills = billsByRental.get(row.id) ?? []
+    const formalCents = bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
+    const contractCents = Math.max(0, moneyToCents(row.totalRent) - moneyToCents(row.paidAmount))
+    const availableCents = Math.max(formalCents, contractCents)
+    if (availableCents <= 0) return []
+    const openDueDates = bills.filter((bill) => billOutstandingCents(bill) > 0).map((bill) => bill.dueDate)
+    return [{ rental: row, bills, formalCents, contractCents, availableCents, dueDate: openDueDates.sort()[0] ?? row.endDate }]
+  }).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.rental.contractNo.localeCompare(b.rental.contractNo))
+  return { normalized, contracts }
+}
+
+export async function getCustomerCollectionPreview(phone: string): Promise<CustomerCollectionPreview> {
+  const userId = await getUserId()
+  const snapshot = await getCustomerCollectionSnapshot(userId, phone)
+  const first = snapshot.contracts[0]?.rental
+  if (!first) throw new Error('该客户当前没有可收欠款')
+  return {
+    customerName: first.customerName,
+    customerPhone: snapshot.normalized,
+    totalAmount: centsToMoney(snapshot.contracts.reduce((sum, item) => sum + item.availableCents, 0)),
+    contracts: snapshot.contracts.map((item) => ({ rentalId: item.rental.id, contractNo: item.rental.contractNo, customerName: item.rental.customerName, customerPhone: item.rental.customerPhone, startDate: item.rental.startDate, endDate: item.rental.endDate, deviceName: item.rental.deviceName, availableAmount: centsToMoney(item.availableCents), dueDate: item.dueDate })),
+  }
 }
 
 export async function getCustomerOfferSuggestion(phone: string) {
@@ -435,6 +472,44 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   revalidatePath('/rentals')
   revalidatePath('/audit-logs')
   return { ok: true }
+}
+
+const customerCollectionSchema = z.object({ phone: z.string().min(6), amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), notes: z.string().optional() })
+export type CustomerCollectionInput = z.infer<typeof customerCollectionSchema>
+
+export async function recordCustomerCollection(input: CustomerCollectionInput) {
+  const context = await getAccessContext('租赁操作')
+  const value = customerCollectionSchema.parse(input)
+  const snapshot = await getCustomerCollectionSnapshot(context.userId, value.phone)
+  const contractAllocations = allocateAcrossContracts(snapshot.contracts.map((item) => ({ rentalId: item.rental.id, contractNo: item.rental.contractNo, dueDate: item.dueDate, availableCents: item.availableCents })), value.amount)
+  const batchNo = `CUSTOMER-${Date.now()}-${crypto.getRandomValues(new Uint16Array(1))[0]}`
+  await db.transaction(async (tx) => {
+    for (const allocation of contractAllocations) {
+      const item = snapshot.contracts.find((contract) => contract.rental.id === allocation.rentalId)
+      if (!item) throw new Error('统一收款合同不存在')
+      let bills = item.bills
+      const gapCents = Math.max(0, item.contractCents - item.formalCents)
+      if (gapCents > 0) {
+        const billId = Date.now() * 1000 + allocation.rentalId % 1000
+        await tx.insert(receivableBills).values({ id: billId, userId: context.userId, rentalId: allocation.rentalId, billNo: `CONTRACT-GAP-${allocation.rentalId}-${billId}`, periodStart: item.rental.startDate, periodEnd: item.rental.endDate, dueDate: item.rental.endDate, billType: '原合同欠款补算', amount: centsToMoney(gapCents), paidAmount: '0', status: '待收', notes: `统一收款 ${batchNo} 自动生成` })
+        bills = [...bills, { id: billId, userId: context.userId, rentalId: allocation.rentalId, billNo: `CONTRACT-GAP-${allocation.rentalId}-${billId}`, periodStart: item.rental.startDate, periodEnd: item.rental.endDate, dueDate: item.rental.endDate, billType: '原合同欠款补算', amount: centsToMoney(gapCents), paidAmount: '0', status: '待收', notes: `统一收款 ${batchNo} 自动生成`, createdAt: new Date(), updatedAt: new Date() }]
+      }
+      const billAllocations = allocatePayment(bills, centsToMoney(allocation.amountCents))
+      const [payment] = await tx.insert(paymentRecords).values({ userId: context.userId, rentalId: allocation.rentalId, operatorName: context.actorName, amount: centsToMoney(allocation.amountCents), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: '原合同租金', notes: `统一收款批次 ${batchNo}${value.notes ? `；${value.notes}` : ''}` }).returning()
+      for (const billAllocation of billAllocations) {
+        const bill = bills.find((candidate) => candidate.id === billAllocation.billId)!
+        await tx.update(receivableBills).set({ paidAmount: centsToMoney(moneyToCents(bill.paidAmount) + billAllocation.amountCents), status: billAllocation.balanceAfterCents === 0 ? '已收' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, context.userId)))
+        await tx.insert(paymentAllocations).values({ userId: context.userId, rentalId: allocation.rentalId, paymentRecordId: payment.id, billId: bill.id, amount: centsToMoney(billAllocation.amountCents) })
+      }
+      const nextPaidCents = moneyToCents(item.rental.paidAmount) + allocation.amountCents
+      const totalCents = moneyToCents(item.rental.totalRent)
+      await tx.update(rentals).set({ paidAmount: centsToMoney(nextPaidCents), paymentStatus: nextPaidCents >= totalCents ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, allocation.rentalId), eq(rentals.userId, context.userId)))
+      await tx.insert(accountLedger).values({ userId: context.userId, rentalId: allocation.rentalId, entryType: '统一收款', amount: centsToMoney(allocation.amountCents), entryDate: value.paymentDate, paymentRecordId: payment.id, operatorName: context.actorName, notes: `${batchNo} · ${item.rental.contractNo}` })
+    }
+    await tx.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '客户统一收款', resourceType: 'customer', resourceId: snapshot.normalized, summary: `${snapshot.contracts[0]?.rental.customerName ?? snapshot.normalized} 统一收款 ${centsToMoney(moneyToCents(value.amount))} 元`, metadata: { batchNo, allocations: contractAllocations } })
+  })
+  revalidatePath('/rentals'); revalidatePath('/dashboard'); revalidatePath('/customer'); revalidatePath('/finance')
+  return { batchNo, contractCount: contractAllocations.length, amount: centsToMoney(moneyToCents(value.amount)) }
 }
 
 const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), materializeContractGap: z.boolean().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })

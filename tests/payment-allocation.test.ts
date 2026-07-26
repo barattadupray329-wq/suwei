@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocatePayment, billOutstandingCents } from "../lib/payment-allocation";
+import { allocateAcrossContracts, allocatePayment, billOutstandingCents } from "../lib/payment-allocation";
 
 const bills = [
   { id: 1, amount: "100.00", paidAmount: "20.00", dueDate: "2026-01-01" },
@@ -33,5 +33,20 @@ describe("收款分配", () => {
     const settled = { id: 3, amount: "99.99", paidAmount: "99.99", dueDate: "2025-12-01" };
     expect(billOutstandingCents(settled)).toBe(0);
     expect(allocatePayment([settled, ...bills], 10)[0].billId).toBe(1);
+  });
+
+  it("跨合同按到期时间最早优先分配", () => {
+    const contracts = [
+      { rentalId: 2, contractNo: "B", dueDate: "2026-08-01", availableCents: 9000 },
+      { rentalId: 1, contractNo: "A", dueDate: "2026-07-01", availableCents: 18000 },
+    ];
+    expect(allocateAcrossContracts(contracts, 200)).toEqual([
+      { rentalId: 1, amountCents: 18000 },
+      { rentalId: 2, amountCents: 2000 },
+    ]);
+  });
+
+  it("跨合同统一收款拒绝超收", () => {
+    expect(() => allocateAcrossContracts([{ rentalId: 1, contractNo: "A", dueDate: "2026-07-01", availableCents: 18000 }], 181)).toThrow("最多可收 180.00 元");
   });
 });
