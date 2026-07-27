@@ -22,7 +22,7 @@ type Props = {
   endDate: string
   items: WizardItem[]
   onClose: () => void
-  onStart: (type: RentalOperationType) => void
+  onStart: (type: RentalOperationType, selectedItemIds?: number[]) => void
 }
 
 const steps = ['选择业务', '选择设备', '结算与通知', '确认影响']
@@ -32,6 +32,8 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
   const [type, setType] = useState<RentalOperationType | null>(null)
   const [itemId, setItemId] = useState<number | null>(null)
   const [quantity, setQuantity] = useState(1)
+  const renewableItems = items.filter((item) => availableOperationQuantity(item) > 0)
+  const [renewalItemIds, setRenewalItemIds] = useState<number[]>(() => renewableItems.map((item) => item.id))
   const [sendSms, setSendSms] = useState(true)
   const definition = OPERATION_DEFINITIONS.find((item) => item.type === type)
   const selectedItem = items.find((item) => item.id === itemId)
@@ -39,7 +41,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
   const amountPreview = selectedItem ? selectedItem.monthlyRent * quantity : 0
   const warnings = useMemo(() => type && type !== 'renewal' ? operationWarnings({ type, quantity, availableQuantity: available, amountDelta: amountPreview, sendSms: sendSms && Boolean(definition?.smsScene), phone: customerPhone }) : [], [type, quantity, available, amountPreview, sendSms, customerPhone, definition?.smsScene])
 
-  const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && type !== 'renewal' && (!selectedItem || quantity < 1 || quantity > available))
+  const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && (type === 'renewal' ? renewalItemIds.length === 0 : !selectedItem || quantity < 1 || quantity > available))
   const advance = () => {
     if (step === 0 && definition && !definition.requiresDevice) setStep(2)
     else setStep((value) => Math.min(3, value + 1))
@@ -91,7 +93,20 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
           {step === 1 && definition?.requiresDevice && (
             <div className="flex flex-col gap-3">
               <div><h3 className="font-semibold">{type === 'renewal' ? '确认本次续租范围' : '选择本次操作的设备'}</h3><p className="mt-1 text-sm text-muted-foreground">{type === 'renewal' ? '默认续租本单全部可续租设备；进入续租表单后，可取消设备或减少数量进行部分续租。' : '只展示仍可操作的设备，数量已自动扣除买断、退租和丢失。'}</p></div>
-              {type === 'renewal' && <section className="rounded-xl border border-primary/30 bg-primary/5 p-4"><div className="flex items-center justify-between gap-3"><strong>本单全部可续租设备</strong><span className="text-sm font-semibold text-primary">共 {items.reduce((sum, item) => sum + availableOperationQuantity(item), 0)} 台</span></div><p className="mt-2 text-sm leading-6 text-muted-foreground">下一步进入专用表单后，全部设备与可续租数量会自动勾选。仍可逐项取消或修改数量。</p></section>}
+              {type === 'renewal' && <>
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+                  <span><strong>全选可续租设备</strong><span className="mt-1 block text-xs text-muted-foreground">已选 {renewalItemIds.length} 项，共 {renewableItems.filter((item) => renewalItemIds.includes(item.id)).reduce((sum, item) => sum + availableOperationQuantity(item), 0)} 台</span></span>
+                  <input type="checkbox" className="size-5 accent-primary" checked={renewableItems.length > 0 && renewalItemIds.length === renewableItems.length} onChange={(event) => setRenewalItemIds(event.target.checked ? renewableItems.map((item) => item.id) : [])} aria-label="全选可续租设备" />
+                </label>
+                {renewableItems.map((item) => {
+                  const count = availableOperationQuantity(item)
+                  const checked = renewalItemIds.includes(item.id)
+                  return <label key={item.id} className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-4 ${checked ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
+                    <span><strong>{item.name}</strong><span className="mt-1 block text-xs text-muted-foreground">{item.code || '未编号'} · 可续租 {count} 台 · 月租 ¥{item.monthlyRent.toLocaleString('zh-CN')}</span></span>
+                    <input type="checkbox" className="size-5 accent-primary" checked={checked} onChange={() => setRenewalItemIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} aria-label={`选择续租设备 ${item.name}`} />
+                  </label>
+                })}
+              </>}
               {type !== 'renewal' && items.map((item) => {
                 const count = availableOperationQuantity(item)
                 return (
@@ -123,7 +138,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t p-4 sm:px-5">
           <button type="button" onClick={step === 0 ? onClose : back} className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium"><ArrowLeft className="size-4" />{step === 0 ? '取消' : '上一步'}</button>
-          {step < 3 ? <button type="button" disabled={nextDisabled} onClick={advance} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">下一步<ArrowRight className="size-4" /></button> : <button type="button" disabled={!type || warnings.some((warning) => warning.includes('最多只能') || warning.includes('请选择至少'))} onClick={() => type && onStart(type)} className="h-10 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">进入业务表单</button>}
+          {step < 3 ? <button type="button" disabled={nextDisabled} onClick={advance} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">下一步<ArrowRight className="size-4" /></button> : <button type="button" disabled={!type || warnings.some((warning) => warning.includes('最多只能') || warning.includes('请选择至少'))} onClick={() => type && onStart(type, type === 'renewal' ? renewalItemIds : undefined)} className="h-10 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">进入业务表单</button>}
         </footer>
       </div>
     </div>

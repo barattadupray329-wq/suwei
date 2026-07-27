@@ -415,6 +415,7 @@ export function Dashboard({
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
+  const [renewalItemIds, setRenewalItemIds] = useState<number[] | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -1135,7 +1136,10 @@ canViewFinance={canViewFinance}
               setPaymentTarget(target);
               setDialog("payment");
             }}
-            onRenew={() => setDialog("renew")}
+            onRenew={(itemIds) => {
+              setRenewalItemIds(itemIds ?? null);
+              setDialog("renew");
+            }}
             onCorrectRenewal={(record) => {
               setSelectedRenewal(record);
               setDialog("correct-renewal");
@@ -1319,14 +1323,16 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "renew"}
-        title="办理部分设备续租"
+        title="办理设备续租"
         wide
         onClose={() => setDialog("detail")}
       >
         {selected && (
-          <RenewalForm
-            rental={selected}
-            pending={pending}
+        <RenewalForm
+          key={`${selected.id}-${renewalItemIds?.join("-") ?? "all"}`}
+          rental={selected}
+          initialItemIds={renewalItemIds}
+          pending={pending}
             submit={(values, settlement) =>
               run(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
             }
@@ -2329,7 +2335,7 @@ type DetailProps = {
   onConfirmDraft: () => void;
   onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
-  onRenew: () => void;
+  onRenew: (itemIds?: number[]) => void;
   onCorrectRenewal: (record: Renewal) => void;
   onBuyout: () => void;
   onHistory: () => void;
@@ -2566,9 +2572,9 @@ function Detail(props: DetailProps) {
             monthlyRent: Number(item.monthlyRent),
           }))}
           onClose={() => setWizardOpen(false)}
-          onStart={(type: RentalOperationType) => {
+          onStart={(type: RentalOperationType, itemIds?: number[]) => {
             setWizardOpen(false);
-            if (type === "renewal") onRenew();
+            if (type === "renewal") onRenew(itemIds);
             else if (type === "return") onReturn();
             else if (type === "buyout") onBuyout();
             else if (type === "loss") onLoss();
@@ -2958,7 +2964,7 @@ function LegacyDetail({
   onConfirmDraft: () => void;
   onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
-  onRenew: () => void;
+  onRenew: (itemIds?: number[]) => void;
   onCorrectRenewal: (record: Renewal) => void;
   onBuyout: () => void;
   onHistory: () => void;
@@ -3312,7 +3318,7 @@ function LegacyDetail({
           登记收款
         </button>
         <button
-          onClick={onRenew}
+          onClick={() => onRenew()}
           className="rounded-lg border px-4 py-2 text-sm font-medium"
         >
           办理续租
@@ -3389,10 +3395,12 @@ function SettlementFields({ label, value, onChange }: { label: string; value: Se
 
 function RenewalForm({
   rental,
+  initialItemIds,
   submit,
   pending,
 }: {
   rental: Rental;
+  initialItemIds: number[] | null;
   submit: (values: RenewalInput[], settlement: SettlementInput) => void;
   pending: boolean;
 }) {
@@ -3401,7 +3409,7 @@ function RenewalForm({
   );
   const [rows, setRows] = useState<Record<number, RenewalInput>>(() =>
     Object.fromEntries(
-      available.map((item) => {
+      available.filter((item) => initialItemIds === null || initialItemIds.includes(item.id)).map((item) => {
         const end = item.endDate || rental.endDate;
         return [item.id, {
           rentalItemId: item.id,
@@ -3458,7 +3466,7 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        已默认选择本单全部可续租设备和数量，并按月续租 1 个月。需要部分续租时，可取消不续租的设备或减少续租数量；系统会自动拆分设备明细。
+        已按上一步选择设备，并默认使用所选设备的全部可续租数量、按月续租 1 个月。仍可取消设备或减少数量；系统会自动拆分设备明细。
       </div>
       <div className="flex flex-col gap-3">
         {available.map((item) => {
