@@ -1093,6 +1093,7 @@ export function Dashboard({
         open={dialog === "detail"}
         title={selected?.contractNo || "租赁详情"}
         wide
+        fixedHeight
         onClose={closeDetail}
       >
         {selected && (
@@ -4449,12 +4450,14 @@ function Dialog({
   children,
   onClose,
   wide = false,
+  fixedHeight = false,
 }: {
   open: boolean;
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  fixedHeight?: boolean;
 }) {
   if (!open) return null;
   return (
@@ -4468,9 +4471,9 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`max-h-[92svh] w-full overflow-y-auto rounded-2xl border bg-card shadow-xl ${wide ? "max-w-5xl" : "max-w-lg"}`}
+        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "max-w-5xl" : "max-w-lg"} ${fixedHeight ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-card p-4">
+        <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             aria-label="关闭"
@@ -4480,7 +4483,7 @@ function Dialog({
             <X className="size-5" />
           </button>
         </div>
-        <div className="p-4 sm:p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
     </div>
   );
