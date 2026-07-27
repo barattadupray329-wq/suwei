@@ -150,21 +150,35 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const where = and(...filters)
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : desc(rentals.createdAt)
   const offset = (value.page - 1) * value.pageSize
-  const [[countRow], rows] = await Promise.all([
+  const [[countRow], rows, matchingRentalRows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, endDate: rentals.endDate, status: rentals.status, monthlyRent: rentals.monthlyRent }).from(rentals).where(where),
   ])
-  const itemRows = rows.length
-    ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
+  const allRentalIds = matchingRentalRows.map((row) => row.id)
+  const allItemRows = allRentalIds.length
+    ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, allRentalIds)))
     : []
-  const itemsByRental = new Map<number, typeof itemRows>()
-  for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
+  const itemsByRental = new Map<number, typeof allItemRows>()
+  for (const item of allItemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(new Date())
+  const dateAtUtcMidnight = (date: string) => Date.parse(`${date}T00:00:00Z`)
+  const overdueDays = (endDate: string) => Math.max(0, Math.floor((dateAtUtcMidnight(today) - dateAtUtcMidnight(endDate)) / 86_400_000))
+  const overdueRent = (rental: { id: number; endDate: string; status: string; monthlyRent: string }) => {
+    if (terminalStatuses.includes(rental.status)) return 0
+    const days = overdueDays(rental.endDate)
+    if (!days) return 0
+    const items = itemsByRental.get(rental.id) ?? []
+    const monthlyRent = items.length
+      ? items.reduce((sum, item) => sum + Number(item.monthlyRent) * availableQuantity(item), 0)
+      : Number(rental.monthlyRent)
+    return Math.round((monthlyRent / 30) * days * 100) / 100
+  }
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
@@ -173,10 +187,17 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const status = expired
       ? Number(row.paidAmount) < Number(row.totalRent) ? '逾期' : '已到期'
       : lifecycleStatus
-    return { ...row, quantity, status }
+    return {
+      ...row,
+      quantity,
+      status,
+      overdueDays: expired ? overdueDays(row.endDate) : 0,
+      overdueRent: expired ? overdueRent({ ...row, status: lifecycleStatus, monthlyRent: '0' }) : 0,
+    }
   })
+  const overdueRentTotal = matchingRentalRows.reduce((sum, row) => sum + overdueRent(row), 0)
   const total = Number(countRow?.count ?? 0)
-  return { rows: normalizedRows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+  return { rows: normalizedRows, total, overdueRentTotal, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
 }
 
 export async function getRentalById(id: number) {
