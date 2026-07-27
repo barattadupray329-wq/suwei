@@ -5,8 +5,11 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, lossRecords, receivableBills, rentalEvents, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { accountLedger, auditLogs, lossRecords, paymentRecords, receivableBills, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords } from '@/lib/db/schema'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
+import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
+import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
+import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -14,39 +17,54 @@ async function actor() {
 }
 
 const operationSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), date: z.string().min(1), notes: z.string().optional() })
-export type ReturnInput = z.infer<typeof operationSchema> & { condition: '完好'|'轻微磨损'|'损坏'; deductionAmount: number; depositRefund: number }
+const settlementSchema = z.object({ timing: z.enum(['now', 'later']), method: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']) })
+export type ReturnInput = z.infer<typeof operationSchema> & { condition: '完好'|'轻微磨损'|'损坏'; deductionAmount: number; depositRefund: number; collectionSettlement: z.infer<typeof settlementSchema>; refundSettlement: z.infer<typeof settlementSchema> }
 export type LossInput = z.infer<typeof operationSchema> & { unitCompensation: number }
 
 export async function returnRentalItem(input: ReturnInput) {
   const { userId, actorId, name } = await actor()
-  const value = operationSchema.extend({ condition: z.enum(['完好','轻微磨损','损坏']), deductionAmount: z.number().nonnegative(), depositRefund: z.number().nonnegative() }).parse(input)
+  const value = operationSchema.extend({ condition: z.enum(['完好','轻微磨损','损坏']), deductionAmount: z.number().nonnegative(), depositRefund: z.number().nonnegative(), collectionSettlement: settlementSchema, refundSettlement: settlementSchema }).parse(input)
   const [[item], items] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId))),
   ])
   if (!item) throw new Error('设备不存在')
+  dateOnly(value.date)
+  if (item.startDate && value.date < item.startDate) throw new Error('退租日期不能早于设备起租日期')
   const available = availableQuantity(item)
   if (value.quantity>available) throw new Error(`最多可退 ${available} 台`)
   const nextReturned = item.returnedQuantity + value.quantity
   const nextItems = items.map(current => current.id === item.id ? { ...current, returnedQuantity: nextReturned } : current)
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
-  if (!rental) throw new Error('租赁合同不存在')
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理退租')
   const availableAfter = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
+  const returnId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const requestId = crypto.randomUUID()
+  const operationNo = `${operationNumber('return', value.rentalId)}-${returnId}`
+  const collectedAmount = value.collectionSettlement.timing === 'now' ? value.deductionAmount : 0
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+    db.insert(rentalOperations).values({ userId, rentalId: value.rentalId, operationNo, operationType: 'return', status: 'completed', idempotencyKey: operationIdempotencyKey({ userId, rentalId: value.rentalId, type: 'return', clientRequestId: requestId }), actorUserId: actorId, actorName: name, summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, beforeSnapshot: { itemId: item.id, availableQuantity: available, contractQuantity: rental.quantity, totalRent: rental.totalRent, paidAmount: rental.paidAmount }, afterSnapshot: { itemId: item.id, availableQuantity: available - value.quantity, contractQuantity: availableAfter }, resultJson: { returnRecordId: returnId }, completedAt: new Date() }),
     db.update(rentalItems).set({returnedQuantity:nextReturned,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
-    db.insert(returnRecords).values({userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:value.notes,operatorName:name}),
-    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: value.rentalItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition }, feeAdjustment: String(-value.deductionAmount), operatorName: name, notes: value.notes }),
+    db.insert(returnRecords).values({id:returnId,userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:value.notes,operatorName:name}),
+    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: value.rentalItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition, collectionSettlement: value.collectionSettlement.timing, refundSettlement: value.refundSettlement.timing }, feeAdjustment: String(value.deductionAmount - value.depositRefund), operatorName: name, notes: value.notes }),
     db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '办理退租', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, metadata: { rentalItemId: value.rentalItemId, quantity: value.quantity, condition: value.condition, deductionAmount: value.deductionAmount, depositRefund: value.depositRefund } }),
   ]
   const itemEndDate = item.endDate
+  let reductionCents = 0
   if (itemEndDate && value.date < itemEndDate) {
-    const unusedDays = Math.max(0, Math.ceil((new Date(`${itemEndDate}T00:00:00Z`).getTime() - new Date(`${value.date}T00:00:00Z`).getTime()) / 86400000))
-    const reduction = Math.round((Number(item.monthlyRent) / 30) * unusedDays * value.quantity * 100) / 100
-    if (reduction > 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `RETURN-${value.rentalId}-${Date.now()}`, periodStart: value.date, periodEnd: value.date, dueDate: value.date, billType: '提前退租减免', amount: String(-reduction), paidAmount: '0', status: '已调整', notes: `提前 ${unusedDays} 天退租，按实际使用天数结算` }))
+    const unusedDays = Math.max(0, Math.ceil((dateOnly(itemEndDate).getTime() - dateOnly(value.date).getTime()) / 86400000))
+    reductionCents = Math.round(toCents(item.monthlyRent) * unusedDays * value.quantity / 30)
+    if (reductionCents > 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `RETURN-${value.rentalId}-${returnId}`, periodStart: value.date, periodEnd: value.date, dueDate: value.date, billType: '提前退租减免', amount: fromCents(-reductionCents), paidAmount: '0.00', status: '已调整', notes: `提前 ${unusedDays} 天退租，按实际使用天数结算` }))
   }
-  if (value.deductionAmount > 0) statements.push(db.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金抵扣赔偿', amount: String(-value.deductionAmount), entryDate: value.date, operatorName: name, notes: value.notes }))
-  if (value.depositRefund > 0) statements.push(db.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: '押金退还', amount: String(-value.depositRefund), entryDate: value.date, operatorName: name, notes: value.notes }))
-  statements.push(db.update(rentals).set({ quantity: availableAfter, status:rentalLifecycleStatus(nextItems), updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))))
+  if (value.deductionAmount > 0) {
+    statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `RETURN-CHARGE-${value.rentalId}-${returnId}`, periodStart: value.date, periodEnd: value.date, dueDate: value.date, billType: '退租赔偿', amount: String(value.deductionAmount), paidAmount: String(collectedAmount), status: collectedAmount > 0 ? '已结清' : '待收', notes: `${item.deviceName} 退租赔偿；${collectedAmount > 0 ? '本次已收款' : '约定以后收款'}` }))
+    if (collectedAmount > 0) statements.push(db.insert(paymentRecords).values({ userId, rentalId: value.rentalId, returnRecordId: returnId, amount: String(collectedAmount), paymentDate: value.date, paymentMethod: value.collectionSettlement.method, feeType: '其他', operatorName: name, notes: '退租赔偿即时收款' }))
+  }
+  if (value.depositRefund > 0) statements.push(db.insert(accountLedger).values({ userId, rentalId: value.rentalId, entryType: value.refundSettlement.timing === 'now' ? '押金退还' : '押金待退', amount: String(-value.depositRefund), entryDate: value.date, operatorName: name, notes: `${value.notes || ''}${value.notes ? '；' : ''}${value.refundSettlement.timing === 'now' ? `已通过${value.refundSettlement.method}退还` : '约定以后退还'}` }))
+  const paidCents = toCents(rental.paidAmount) + toCents(collectedAmount)
+  const totalRentCents = toCents(rental.totalRent) + toCents(value.deductionAmount) - reductionCents
+  if (totalRentCents < 0) throw new Error('退租调整后合同总额不能小于 0')
+  statements.push(db.update(rentals).set({ quantity: availableAfter, totalRent: fromCents(totalRentCents), paidAmount: fromCents(paidCents), paymentStatus: paymentStatusFromCents(totalRentCents, paidCents), status:rentalLifecycleStatus(nextItems), updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
   revalidatePath('/audit-logs')
@@ -81,21 +99,34 @@ export async function exchangeRentalItem(input: ExchangeInput) {
 }
 
 export async function reportLostItem(input: LossInput) {
-  const { userId, name } = await actor()
+  const { userId, actorId, name } = await actor()
   const value = operationSchema.extend({ unitCompensation: z.number().positive() }).parse(input)
+  dateOnly(value.date)
   const [[item], items] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.rentalItemId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId))),
   ])
   if (!item) throw new Error('设备不存在')
+  if (item.startDate && value.date < item.startDate) throw new Error('丢失日期不能早于设备起租日期')
   const available = availableQuantity(item)
   if (value.quantity>available) throw new Error(`最多可登记丢失 ${available} 台`)
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以登记丢失')
   const nextLost = item.lostQuantity + value.quantity
   const nextItems = items.map(current => current.id === item.id ? { ...current, lostQuantity: nextLost } : current)
+  const amount = Math.round(value.unitCompensation * value.quantity * 100) / 100
+  const lossId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const operationNo = `${operationNumber('loss', value.rentalId)}-${lossId}`
+  const nextQuantity = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
+  const nextTotalCents = Math.round(Number(rental.totalRent) * 100) + Math.round(amount * 100)
   await db.batch([
+    db.insert(rentalOperations).values({ userId, rentalId: value.rentalId, operationNo, operationType: 'loss', status: 'completed', idempotencyKey: operationIdempotencyKey({ userId, rentalId: value.rentalId, type: 'loss', clientRequestId: crypto.randomUUID() }), actorUserId: actorId, actorName: name, summary: `${rental.contractNo} 登记丢失 ${item.deviceName} ${value.quantity} 台`, beforeSnapshot: { itemId: item.id, availableQuantity: available, contractQuantity: rental.quantity, totalRent: rental.totalRent }, afterSnapshot: { itemId: item.id, availableQuantity: available - value.quantity, contractQuantity: nextQuantity, totalRent: nextTotalCents / 100 }, resultJson: { lossRecordId: lossId }, completedAt: new Date() }),
     db.update(rentalItems).set({lostQuantity:nextLost,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
-    db.insert(lossRecords).values({userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,lossDate:value.date,unitCompensation:String(value.unitCompensation),amount:String(value.unitCompensation*value.quantity),notes:value.notes,operatorName:name}),
-    db.update(rentals).set({status:rentalLifecycleStatus(nextItems),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
+    db.insert(lossRecords).values({id:lossId,userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,lossDate:value.date,unitCompensation:String(value.unitCompensation),amount:String(amount),notes:value.notes,operatorName:name}),
+    db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `LOSS-${value.rentalId}-${lossId}`, periodStart: value.date, periodEnd: value.date, dueDate: value.date, billType: '丢失赔偿', amount: String(amount), paidAmount: '0', status: '待收', notes: `${item.deviceName} ${value.quantity} 台丢失赔偿` }),
+    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: item.id, eventType: '设备丢失', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, lostQuantity: nextLost }, feeAdjustment: String(amount), operatorName: name, notes: value.notes }),
+    db.update(rentals).set({quantity:nextQuantity,totalRent:String(nextTotalCents / 100),status:rentalLifecycleStatus(nextItems),paymentStatus:Number(rental.paidAmount) >= nextTotalCents / 100 ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款',updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
+    db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '登记丢失', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 丢失 ${item.deviceName} ${value.quantity} 台，新增应收 ${amount.toFixed(2)} 元`, metadata: { operationNo, rentalItemId: item.id, quantity: value.quantity, amount } }),
   ])
   revalidatePath('/')
 }

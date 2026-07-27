@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { processAutomaticDueReminders } from '@/app/actions/sms-reminders'
+import { processAutomaticDueReminders, processAutomaticOverdueReminders } from '@/app/actions/sms-reminders'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +14,9 @@ function authorized(request: Request) {
 
 export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ ok: false, message: '未授权' }, { status: 401 })
-  const result = await processAutomaticDueReminders()
-  return NextResponse.json({ ok: true, ...result })
+  const [due, overdue] = await Promise.all([
+    processAutomaticDueReminders(),
+    processAutomaticOverdueReminders(),
+  ])
+  return NextResponse.json({ ok: true, due, overdue })
 }

@@ -2,7 +2,20 @@ export const DAY_MS = 86_400_000
 
 export function dateOnly(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('日期格式无效')
-  return new Date(`${value}T00:00:00Z`)
+  const date = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new Error('日期不存在')
+  return date
+}
+
+export function assertDateOrder(startDate: string, endDate: string, message = '结束日期不能早于开始日期') {
+  dateOnly(startDate)
+  dateOnly(endDate)
+  if (endDate < startDate) throw new Error(message)
+}
+
+export function inclusiveDays(startDate: string, endDate: string) {
+  assertDateOrder(startDate, endDate)
+  return Math.floor((dateOnly(endDate).getTime() - dateOnly(startDate).getTime()) / DAY_MS) + 1
 }
 
 export function addCalendarDays(value: string, days: number) {

@@ -14,8 +14,8 @@ describe('租赁生命周期规则', () => {
     expect(availableQuantity(item({ boughtOutQuantity: 1, returnedQuantity: 2, lostQuantity: 1 }))).toBe(1)
   })
 
-  it('可用数量不会变成负数', () => {
-    expect(availableQuantity(item({ boughtOutQuantity: 3, returnedQuantity: 3 }))).toBe(0)
+  it('处置数量超过原数量时拒绝继续计算', () => {
+    expect(() => availableQuantity(item({ boughtOutQuantity: 3, returnedQuantity: 3 }))).toThrow('已退、已买断和已丢失数量之和不能超过原数量')
   })
 
   it.each([
@@ -25,6 +25,7 @@ describe('租赁生命周期规则', () => {
     [[item({ boughtOutQuantity: 1 })], '部分买断'],
     [[item({ returnedQuantity: 5 })], '已退租'],
     [[item({ boughtOutQuantity: 5 })], '买断'],
+    [[item({ quantity: 3, boughtOutQuantity: 2, returnedQuantity: 1 })], '已结束'],
     [[item({ returnedQuantity: 4, lostQuantity: 1 })], '已结束'],
   ])('根据设备处置数量得到合同状态', (items, expected) => {
     expect(rentalLifecycleStatus(items)).toBe(expected)

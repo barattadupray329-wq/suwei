@@ -4,8 +4,16 @@ import { db } from '@/lib/db'
 import { smsDeliveryLogs } from '@/lib/db/schema'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
 
-export type BusinessSmsScene = 'rental-created' | 'due-reminder'
-export type BusinessSmsTrigger = 'manual' | 'automatic' | 'create-flow'
+export type BusinessSmsScene =
+  | 'rental-created'
+  | 'due-reminder'
+  | 'overdue-reminder'
+  | 'renewal-completed'
+  | 'payment-received'
+  | 'repair-completed'
+  | 'return-completed'
+  | 'buyout-completed'
+export type BusinessSmsTrigger = 'manual' | 'automatic' | 'create-flow' | 'operation-flow'
 
 type SendInput = {
   userId: string
@@ -14,22 +22,45 @@ type SendInput = {
   scene: BusinessSmsScene
   triggerType: BusinessSmsTrigger
   actorUserId?: string
+  operationId?: number
+  retryOfId?: number
   idempotencyKey: string
   params: Record<string, string>
 }
 
+const sceneTemplateEnv: Record<BusinessSmsScene, string | undefined> = {
+  'rental-created': process.env.ALIYUN_SMS_RENTAL_CREATED_TEMPLATE_CODE,
+  'due-reminder': process.env.ALIYUN_SMS_REMINDER_TEMPLATE_CODE,
+  'overdue-reminder': process.env.ALIYUN_SMS_OVERDUE_TEMPLATE_CODE,
+  'renewal-completed': process.env.ALIYUN_SMS_RENEWAL_TEMPLATE_CODE,
+  'payment-received': process.env.ALIYUN_SMS_PAYMENT_TEMPLATE_CODE,
+  'repair-completed': process.env.ALIYUN_SMS_REPAIR_TEMPLATE_CODE,
+  'return-completed': process.env.ALIYUN_SMS_RETURN_TEMPLATE_CODE,
+  'buyout-completed': process.env.ALIYUN_SMS_BUYOUT_TEMPLATE_CODE,
+}
+
+const sceneNames: Record<BusinessSmsScene, string> = {
+  'rental-created': '新租成功', 'due-reminder': '到期提醒', 'overdue-reminder': '逾期催收',
+  'renewal-completed': '续租成功', 'payment-received': '收款成功', 'repair-completed': '维修完成',
+  'return-completed': '退租完成', 'buyout-completed': '买断完成',
+}
+
 export function businessSmsReadiness(scene: BusinessSmsScene) {
-  const templateCode = scene === 'rental-created' ? process.env.ALIYUN_SMS_RENTAL_CREATED_TEMPLATE_CODE : process.env.ALIYUN_SMS_REMINDER_TEMPLATE_CODE
-  return { configured: Boolean(process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET && process.env.ALIYUN_SMS_SIGN_NAME && templateCode), templateCode: templateCode ?? '' }
+  const templateCode = sceneTemplateEnv[scene]
+  return {
+    configured: Boolean(process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET && process.env.ALIYUN_SMS_SIGN_NAME && templateCode),
+    templateCode: templateCode ?? '',
+    sceneName: sceneNames[scene],
+  }
 }
 
 export async function sendBusinessSms(input: SendInput) {
   const readiness = businessSmsReadiness(input.scene)
-  if (!readiness.configured) return { ok: false, message: input.scene === 'rental-created' ? '初始租赁短信模板尚未配置或审核通过' : '到期提醒短信模板尚未配置或审核通过', skipped: true }
+  if (!readiness.configured) return { ok: false, message: `${readiness.sceneName}短信模板尚未配置或审核通过`, skipped: true }
 
-  const [existing] = await db.select().from(smsDeliveryLogs).where(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey)).limit(1)
+  const [existing] = await db.select().from(smsDeliveryLogs).where(and(eq(smsDeliveryLogs.userId, input.userId), eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey))).limit(1)
   if (existing?.status === 'sent') return { ok: false, message: '该通知已成功发送，为避免重复扣费已跳过', duplicate: true }
-  if (!existing) await db.insert(smsDeliveryLogs).values({ userId: input.userId, rentalId: input.rentalId, scene: input.scene, templateCode: readiness.templateCode, maskedPhone: maskCustomerPhone(input.phone), idempotencyKey: input.idempotencyKey, triggerType: input.triggerType, actorUserId: input.actorUserId })
+  if (!existing) await db.insert(smsDeliveryLogs).values({ userId: input.userId, rentalId: input.rentalId, scene: input.scene, templateCode: readiness.templateCode, maskedPhone: maskCustomerPhone(input.phone), idempotencyKey: input.idempotencyKey, triggerType: input.triggerType, actorUserId: input.actorUserId, operationId: input.operationId, retryOfId: input.retryOfId })
 
   try {
     const response = await sendAliyunSms({ accessKeyId: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID!, accessKeySecret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET!, phone: input.phone, signName: process.env.ALIYUN_SMS_SIGN_NAME!, templateCode: readiness.templateCode, templateParams: input.params })
@@ -37,7 +68,7 @@ export async function sendBusinessSms(input: SendInput) {
     await db.update(smsDeliveryLogs).set({ status: ok ? 'sent' : 'failed', providerRequestId: response.requestId, providerCode: response.code, errorMessage: ok ? null : response.message?.slice(0, 200), sentAt: ok ? new Date() : null, updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey), eq(smsDeliveryLogs.userId, input.userId)))
     return { ok, message: ok ? '发送成功' : getAliyunSmsErrorMessage(response.code, response.message), providerCode: response.code }
   } catch (error) {
-    await db.update(smsDeliveryLogs).set({ status: 'failed', errorMessage: error instanceof Error ? error.message.slice(0, 200) : '短信请求失败', updatedAt: new Date() }).where(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey))
+    await db.update(smsDeliveryLogs).set({ status: 'failed', errorMessage: error instanceof Error ? error.message.slice(0, 200) : '短信请求失败', updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.userId, input.userId), eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey)))
     return { ok: false, message: '短信服务请求失败，请稍后重试' }
   }
 }
