@@ -1087,7 +1087,7 @@ export function Dashboard({
         open={dialog === "new"}
         title="新增租赁合同"
         wide
-        onClose={() => setDialog(null)}
+        onClose={() => searchParams.has("new") ? returnToList() : setDialog(null)}
       >
         <RentalForm
           form={form}
@@ -1111,8 +1111,11 @@ export function Dashboard({
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
                   } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
-                  setDialog(null);
-                  router.refresh();
+                  if (searchParams.has("new")) returnToList();
+                  else {
+                    setDialog(null);
+                    router.refresh();
+                  }
                 })}
         />
       </Dialog>
