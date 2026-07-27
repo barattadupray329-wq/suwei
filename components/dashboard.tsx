@@ -3399,7 +3399,22 @@ function RenewalForm({
   const available = rental.items.filter(
     (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
   );
-  const [rows, setRows] = useState<Record<number, RenewalInput>>({});
+  const [rows, setRows] = useState<Record<number, RenewalInput>>(() =>
+    Object.fromEntries(
+      available.map((item) => {
+        const end = item.endDate || rental.endDate;
+        return [item.id, {
+          rentalItemId: item.id,
+          quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
+          billingUnit: "month" as const,
+          duration: 1,
+          unitPrice: Number(item.monthlyRent),
+          newEndDate: addMonths(end, 1),
+          notes: "",
+        }];
+      }),
+    ),
+  );
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const toggle = (item: Item) =>
     setRows((current) => {
@@ -3443,7 +3458,7 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。部分数量续租时系统会自动拆分。
+        已默认选择本单全部可续租设备和数量，并按月续租 1 个月。需要部分续租时，可取消不续租的设备或减少续租数量；系统会自动拆分设备明细。
       </div>
       <div className="flex flex-col gap-3">
         {available.map((item) => {

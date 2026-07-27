@@ -39,7 +39,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
   const amountPreview = selectedItem ? selectedItem.monthlyRent * quantity : 0
   const warnings = useMemo(() => type ? operationWarnings({ type, quantity, availableQuantity: available, amountDelta: amountPreview, sendSms: sendSms && Boolean(definition?.smsScene), phone: customerPhone }) : [], [type, quantity, available, amountPreview, sendSms, customerPhone, definition?.smsScene])
 
-  const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && (!selectedItem || quantity < 1 || quantity > available))
+  const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && type !== 'renewal' && (!selectedItem || quantity < 1 || quantity > available))
   const advance = () => {
     if (step === 0 && definition && !definition.requiresDevice) setStep(2)
     else setStep((value) => Math.min(3, value + 1))
@@ -90,8 +90,9 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
 
           {step === 1 && definition?.requiresDevice && (
             <div className="flex flex-col gap-3">
-              <div><h3 className="font-semibold">选择本次操作的设备</h3><p className="mt-1 text-sm text-muted-foreground">只展示仍可操作的设备，数量已自动扣除买断、退租和丢失。</p></div>
-              {items.map((item) => {
+              <div><h3 className="font-semibold">{type === 'renewal' ? '确认本次续租范围' : '选择本次操作的设备'}</h3><p className="mt-1 text-sm text-muted-foreground">{type === 'renewal' ? '默认续租本单全部可续租设备；进入续租表单后，可取消设备或减少数量进行部分续租。' : '只展示仍可操作的设备，数量已自动扣除买断、退租和丢失。'}</p></div>
+              {type === 'renewal' && <section className="rounded-xl border border-primary/30 bg-primary/5 p-4"><div className="flex items-center justify-between gap-3"><strong>本单全部可续租设备</strong><span className="text-sm font-semibold text-primary">共 {items.reduce((sum, item) => sum + availableOperationQuantity(item), 0)} 台</span></div><p className="mt-2 text-sm leading-6 text-muted-foreground">下一步进入专用表单后，全部设备与可续租数量会自动勾选。仍可逐项取消或修改数量。</p></section>}
+              {type !== 'renewal' && items.map((item) => {
                 const count = availableOperationQuantity(item)
                 return (
                   <button key={item.id} type="button" disabled={count === 0} onClick={() => { setItemId(item.id); setQuantity(1); }} className={`rounded-xl border p-4 text-left disabled:cursor-not-allowed disabled:opacity-45 ${itemId === item.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
@@ -100,7 +101,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
                   </button>
                 )
               })}
-              {selectedItem && <label className="rounded-xl bg-muted p-4 text-sm"><span className="font-medium">本次数量</span><input type="number" min={1} max={available} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="ml-3 h-10 w-24 rounded-lg border bg-background px-3" /><span className="ml-2 text-muted-foreground">最多 {available} 台</span></label>}
+              {type !== 'renewal' && selectedItem && <label className="rounded-xl bg-muted p-4 text-sm"><span className="font-medium">本次数量</span><input type="number" min={1} max={available} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="ml-3 h-10 w-24 rounded-lg border bg-background px-3" /><span className="ml-2 text-muted-foreground">最多 {available} 台</span></label>}
             </div>
           )}
 
