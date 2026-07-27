@@ -489,7 +489,6 @@ export function Dashboard({
     setDialog(null);
     setSelected(null);
     router.replace(listHref());
-    router.refresh();
   };
   const run = (
     fn: () => Promise<void | { ok: boolean; message?: string }>,
