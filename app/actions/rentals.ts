@@ -1,9 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { headers } from 'next/headers'
 import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
+import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
@@ -14,6 +16,7 @@ import { safeError } from '@/lib/errors'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
+import { assertNoRentalActivity, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 
 async function getUserId() {
@@ -571,16 +574,48 @@ export async function changeStatus(id: number, status: string) {
   revalidatePath('/')
 }
 
-export async function moveRentalToTrash(id: number, reason = '测试或草稿数据清理') {
+const trashRentalSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  reason: z.string().trim().min(4, '请填写至少 4 个字的删除原因').max(200),
+  adminPassword: z.string().max(200).optional(),
+})
+
+export async function moveRentalToTrash(input: number | z.input<typeof trashRentalSchema>, legacyReason = '测试或草稿数据清理') {
+  const value = trashRentalSchema.parse(typeof input === 'number' ? { id: input, reason: legacyReason } : input)
   const access = await getAccessContext('租赁操作')
   if (access.role === 'employee') throw new Error('只有管理员可以移入回收站')
-  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'active')))
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, value.id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'active')))
   if (!rental) throw new Error('订单不存在或已在回收站')
-  if (rental.orderType === 'official') throw new Error('正式合同永久禁止删除，只能按业务流程关闭或作废')
-  if (rental.orderType === 'test' && Date.now() - rental.createdAt.getTime() > 24 * 60 * 60 * 1000) throw new Error('测试合同创建已超过 24 小时，不能移入回收站')
+
+  if (rental.orderType === 'official') {
+    if (access.role !== 'admin') throw new Error('只有店铺管理员可以删除当天录错的正式订单')
+    assertSameDayOfficialRental(rental.createdAt)
+    if (!value.adminPassword) throw new Error('请输入当前管理员登录密码')
+    try {
+      const verified = await auth.api.verifyPassword({ body: { password: value.adminPassword }, headers: await headers() })
+      if (!verified.status) throw new Error('invalid')
+    } catch {
+      throw new Error('管理员密码错误，无法删除订单')
+    }
+    const related = await Promise.all([
+      db.select({ id: paymentRecords.id }).from(paymentRecords).where(and(eq(paymentRecords.rentalId, value.id), eq(paymentRecords.userId, access.userId))).limit(1),
+      db.select({ id: paymentAllocations.id }).from(paymentAllocations).where(and(eq(paymentAllocations.rentalId, value.id), eq(paymentAllocations.userId, access.userId))).limit(1),
+      db.select({ id: accountLedger.id }).from(accountLedger).where(and(eq(accountLedger.rentalId, value.id), eq(accountLedger.userId, access.userId))).limit(1),
+      db.select({ id: buyoutRecords.id }).from(buyoutRecords).where(and(eq(buyoutRecords.rentalId, value.id), eq(buyoutRecords.userId, access.userId))).limit(1),
+      db.select({ id: renewalRecords.id }).from(renewalRecords).where(and(eq(renewalRecords.rentalId, value.id), eq(renewalRecords.userId, access.userId))).limit(1),
+      db.select({ id: renewalAdjustments.id }).from(renewalAdjustments).where(and(eq(renewalAdjustments.rentalId, value.id), eq(renewalAdjustments.userId, access.userId))).limit(1),
+      db.select({ id: returnRecords.id }).from(returnRecords).where(and(eq(returnRecords.rentalId, value.id), eq(returnRecords.userId, access.userId))).limit(1),
+      db.select({ id: lossRecords.id }).from(lossRecords).where(and(eq(lossRecords.rentalId, value.id), eq(lossRecords.userId, access.userId))).limit(1),
+      db.select({ id: rentalEvents.id }).from(rentalEvents).where(and(eq(rentalEvents.rentalId, value.id), eq(rentalEvents.userId, access.userId))).limit(1),
+    ])
+    assertNoRentalActivity(related.map((rows) => rows.length))
+  } else if (rental.orderType === 'test' && Date.now() - rental.createdAt.getTime() > 24 * 60 * 60 * 1000) {
+    throw new Error('测试合同创建已超过 24 小时，不能移入回收站')
+  }
+
   await db.batch([
-    db.update(rentals).set({ lifecycleStatus: 'trash', deletedAt: new Date(), deletedBy: access.actorId, deleteReason: reason, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
-    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '移入回收站', resourceType: '租赁合同', resourceId: String(id), summary: `将${rental.orderType === 'test' ? '测试' : '草稿'}合同 ${rental.contractNo} 移入回收站`, metadata: { reason, orderType: rental.orderType } }),
+    db.update(rentals).set({ lifecycleStatus: 'trash', deletedAt: new Date(), deletedBy: access.actorId, deleteReason: value.reason, updatedAt: new Date() }).where(and(eq(rentals.id, value.id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'active'))),
+    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '移入回收站', resourceType: '租赁合同', resourceId: String(value.id), summary: `将${rental.orderType === 'official' ? '当天录错的正式' : rental.orderType === 'test' ? '测试' : '草稿'}合同 ${rental.contractNo} 移入回收站`, metadata: { reason: value.reason, orderType: rental.orderType, customerName: rental.customerName, ruleVersion: rental.orderType === 'official' ? 'same-day-official-v1' : 'standard-v1' } }),
   ])
   revalidatePath('/')
   revalidatePath('/rentals')

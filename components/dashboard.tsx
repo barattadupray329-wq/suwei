@@ -414,6 +414,8 @@ export function Dashboard({
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
   const isRentalOverdue = (r: Rental) =>
@@ -811,7 +813,7 @@ export function Dashboard({
                 >
                   <option value="newest">最新创建</option>
                   <option value="due">到期优先</option>
-                  <option value="amount">金��从高到低</option>
+                  <option value="amount">金额从高到低</option>
                 </select>
                 {(query || status !== "全部" || sort !== "newest") && (
                   <button
@@ -1114,7 +1116,11 @@ canViewFinance={canViewFinance}
                 "维护负责人已更新",
               )
             }
-            onDelete={() => setDialog("delete-confirm")}
+            onDelete={() => {
+  setDeleteReason("");
+  setAdminPassword("");
+  setDialog("delete-confirm");
+}}
             onConfirmDraft={() => setDialog("confirm-draft")}
             onRentalChange={() => setDialog("change-guide")}
             onPayment={(target) => {
@@ -1229,33 +1235,62 @@ canViewFinance={canViewFinance}
         onClose={() => setDialog("detail")}
       >
         {selected && (
-          <div className="flex flex-col gap-5">
-            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-              <p className="font-semibold text-destructive">订单将进入回收站</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                回收站保留 30 天并支持业务主管恢复。正式合同无法执行此操作；测试合同仅创建后 24 小时内可移入。
-              </p>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setDialog("detail")}
-                className="h-10 rounded-lg border px-4 text-sm font-medium"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  run(() => deleteTestRental(selected.id), "订单已移入回收站")
-                }
-                className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
-              >
-                {pending ? "正在处理…" : "确认移入回收站"}
-              </button>
-            </div>
-          </div>
+            <form
+              className="flex flex-col gap-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                run(
+                  () => deleteTestRental({ id: selected.id, reason: deleteReason, adminPassword: selected.orderType === "official" ? adminPassword : undefined }),
+                  "订单已移入回收站",
+                );
+              }}
+            >
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                <p className="font-semibold text-destructive">订单将进入回收站</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {selected.orderType === "official"
+                    ? "仅允许删除今天创建且没有收款、续租、退租、买断、丢失、维修或变更记录的录错正式订单。服务端将验证当前管理员密码，删除后仍可从回收站恢复。"
+                    : "草稿与测试订单只会移入回收站并支持恢复；测试订单仅限创建后 24 小时内处理。"}
+                </p>
+              </div>
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                删除原因
+                <textarea
+                  required
+                  minLength={4}
+                  maxLength={200}
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                  placeholder="例如：当天录入了错误的设备和租期"
+                  className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
+                />
+              </label>
+              {selected.orderType === "official" && (
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  当前管理员登录密码
+                  <input
+                    required
+                    type="password"
+                    autoComplete="current-password"
+                    value={adminPassword}
+                    onChange={(event) => setAdminPassword(event.target.value)}
+                    placeholder="请输入您当前账号的登录密码"
+                    className="h-10 rounded-lg border bg-background px-3 font-normal outline-none focus:border-primary"
+                  />
+                  <span className="font-normal text-muted-foreground">密码仅用于本次身份验证，不会保存或写入业务记录。</span>
+                </label>
+              )}
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setDialog("detail")} className="h-10 rounded-lg border px-4 text-sm font-medium">取消</button>
+                <button
+                  type="submit"
+                  disabled={pending || deleteReason.trim().length < 4 || (selected.orderType === "official" && !adminPassword)}
+                  className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
+                >
+                  {pending ? "正在验证并处理…" : selected.orderType === "official" ? "验证密码并移入回收站" : "确认移入回收站"}
+                </button>
+              </div>
+            </form>
         )}
       </Dialog>
       <Dialog
@@ -2823,7 +2858,7 @@ function DetailManage({
         <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <div>
             <h3 className="font-semibold">业务主管订单管理</h3>
-            <p className="text-sm text-muted-foreground">正式合同永久禁止删除；草稿与测试合同只会先移入回收站。</p>
+            <p className="text-sm text-muted-foreground">当天录错且没有后续业务记录的正式订单，可验证管理员密码后移入回收站；正式订单仍禁止永久删除。</p>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <span className="shrink-0 font-medium">维护负责人</span>
@@ -2837,12 +2872,10 @@ function DetailManage({
             <button type="button" disabled={rental.status === "已关闭"} onClick={() => onStatus("已关闭")} className="rounded-lg border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
               {rental.status === "已关闭" ? "订单已关闭" : "关闭订单"}
             </button>
-            {rental.orderType !== "official" && (
-              <button type="button" onClick={onDelete} className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
-                <Trash2 className="size-4" />
-                移入回收站
-              </button>
-            )}
+            <button type="button" onClick={onDelete} className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
+              <Trash2 className="size-4" />
+              {rental.orderType === "official" ? "删除当天录错订单" : "移入回收站"}
+            </button>
           </div>
         </section>
       )}
