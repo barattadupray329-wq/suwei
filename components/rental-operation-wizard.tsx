@@ -37,7 +37,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
   const selectedItem = items.find((item) => item.id === itemId)
   const available = selectedItem ? availableOperationQuantity(selectedItem) : 0
   const amountPreview = selectedItem ? selectedItem.monthlyRent * quantity : 0
-  const warnings = useMemo(() => type ? operationWarnings({ type, quantity, availableQuantity: available, amountDelta: amountPreview, sendSms: sendSms && Boolean(definition?.smsScene), phone: customerPhone }) : [], [type, quantity, available, amountPreview, sendSms, customerPhone, definition?.smsScene])
+  const warnings = useMemo(() => type && type !== 'renewal' ? operationWarnings({ type, quantity, availableQuantity: available, amountDelta: amountPreview, sendSms: sendSms && Boolean(definition?.smsScene), phone: customerPhone }) : [], [type, quantity, available, amountPreview, sendSms, customerPhone, definition?.smsScene])
 
   const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && type !== 'renewal' && (!selectedItem || quantity < 1 || quantity > available))
   const advance = () => {
