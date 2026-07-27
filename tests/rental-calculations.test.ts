@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, overdueBillingMonths, overdueMonthlyAmount, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -54,6 +54,12 @@ describe('预收与续租账单', () => {
 describe('租赁金额计算', () => {
   it('使用整数分避免浮点误差', () => expect(fromCents(toCents(0.1) + toCents(0.2))).toBe('0.30'))
   it('续租按数量、单价和时长计算', () => expect(renewalAmount(3, 99.99, 2)).toBe('599.94'))
+  it('逾期不满一个月按一个月计费', () => {
+    expect(overdueBillingMonths('2026-07-20', '2026-07-27')).toBe(1)
+    expect(overdueMonthlyAmount(160, '2026-07-20', '2026-07-27')).toBe('160.00')
+  })
+  it('逾期超过一个月按两个月计费', () => expect(overdueBillingMonths('2026-06-20', '2026-07-21')).toBe(2))
+  it('逾期超过两个月按三个月计费', () => expect(overdueBillingMonths('2026-05-20', '2026-07-21')).toBe(3))
   it('续租涨价生成补收差额', () => expect(renewalAdjustment(2, 3, 600, 120)).toEqual({ correctedAmount: '720.00', differenceAmount: '120.00' }))
   it('续租降价生成减免差额', () => expect(renewalAdjustment(2, 3, 600, 80)).toEqual({ correctedAmount: '480.00', differenceAmount: '-120.00' }))
   it('连续更正以当前有效金额为基准', () => expect(renewalAdjustment(2, 3, 720, 90)).toEqual({ correctedAmount: '540.00', differenceAmount: '-180.00' }))

@@ -54,6 +54,16 @@ export function renewalAmount(quantity: number, unitPrice: number, duration: num
   return fromCents(quantity * duration * toCents(unitPrice))
 }
 
+export function overdueBillingMonths(endDate: string, today: string) {
+  if (endDate >= today) return 0
+  const overdueDays = Math.floor((dateOnly(today).getTime() - dateOnly(endDate).getTime()) / DAY_MS)
+  return Math.ceil(overdueDays / 30)
+}
+
+export function overdueMonthlyAmount(monthlyRent: number | string, endDate: string, today: string) {
+  return fromCents(toCents(monthlyRent) * overdueBillingMonths(endDate, today))
+}
+
 export function renewalAdjustment(quantity: number, duration: number, currentAmount: number | string, correctedUnitPrice: number | string) {
   const correctedAmountCents = quantity * duration * toCents(correctedUnitPrice)
   const differenceCents = correctedAmountCents - toCents(currentAmount)

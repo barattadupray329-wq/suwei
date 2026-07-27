@@ -8,7 +8,7 @@ import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { fromCents, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { fromCents, overdueMonthlyAmount, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -185,7 +185,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const monthlyRent = items.length
       ? items.reduce((sum, item) => sum + Number(item.monthlyRent) * availableQuantity(item), 0)
       : Number(rental.monthlyRent)
-    return Math.round((monthlyRent / 30) * days * 100) / 100
+    return Number(overdueMonthlyAmount(monthlyRent, rental.endDate, today))
   }
   const legacyStatusAliases: Record<string, string> = { 买断: '已买断', 已退租: '已退回', 丢失: '已丢失', 已结束: '已完成' }
   const normalizeLegacyStatus = (status: string) => legacyStatusAliases[status] ?? status
