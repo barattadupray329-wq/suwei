@@ -75,6 +75,7 @@ import {
   validateRentalItemFields,
 } from "@/lib/rental-form-rules";
 import { userErrorMessage } from "@/lib/errors";
+import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
 import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
 
 type Item = {
@@ -419,11 +420,10 @@ export function Dashboard({
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
-  const overdueAmount = (r: Rental) => r.bills
-    .filter((bill) => bill.dueDate <= todayValue)
-    .reduce((sum, bill) => sum + Math.max(0, Number(bill.amount) - Number(bill.paidAmount)), 0);
-  const isRentalOverdue = (r: Rental) => overdueAmount(r) > 0;
-  const displayStatus = (r: Rental) => isRentalOverdue(r) ? "逾期" : r.status;
+  const overdueAmount = (r: Rental) => rentalOverdueAmount(r, todayValue);
+  const isRentalOverdue = (r: Rental) => rentalDisplayStatus(r, todayValue) === "逾期";
+  const isRentalExpired = (r: Rental) => isContractExpired(r, todayValue);
+  const displayStatus = (r: Rental) => rentalDisplayStatus(r, todayValue);
   const filtered = useMemo(
     () =>
       rentals
@@ -452,7 +452,7 @@ export function Dashboard({
       const dueBills = bills.filter((bill) => bill.dueDate <= todayValue && bill.outstanding > 0);
       const dueAmount = dueBills.reduce((sum, bill) => sum + bill.outstanding, 0);
       const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, dueAmount: 0, contracts: [] };
-      if (dueAmount > 0) {
+      if (rentalDisplayStatus(rental, todayValue) === "逾期" && dueAmount > 0) {
         current.dueAmount += dueAmount;
         current.contracts.push({ ...rental, overdueDays: Math.max(0, Math.floor((Date.parse(`${todayValue}T00:00:00+08:00`) - Date.parse(`${rental.endDate}T00:00:00+08:00`)) / 86400000)), dueAmount, dueBills });
       }
@@ -587,7 +587,7 @@ export function Dashboard({
         r.endDate,
         r.totalRent,
         r.paidAmount,
-        r.status,
+        displayStatus(r),
       ]),
     ];
     const csv =
@@ -611,6 +611,8 @@ export function Dashboard({
   };
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
+  const overdueCount = rentals.filter((r) => displayStatus(r) === "逾期").length;
+  const expiredCount = rentals.filter((r) => displayStatus(r) === "已到期").length;
   return (
     <div className="bg-background">
       <div className="p-4 md:p-6">
@@ -668,7 +670,7 @@ export function Dashboard({
             />
             <Stat
               label="逾期待处理"
-              value={summary.overdue}
+              value={overdueCount}
               icon={<ClockAlert />}
             />
             <Stat
@@ -700,7 +702,7 @@ export function Dashboard({
                 onClick={() => router.push("/rentals?status=逾期")}
                 className="rounded-xl bg-muted p-3 text-left hover:bg-border"
               >
-                <p className="text-2xl font-bold">{summary.overdue}</p>
+                <p className="text-2xl font-bold">{overdueCount}</p>
                 <p className="text-sm text-muted-foreground">逾期合同</p>
               </button>
               <button
@@ -737,7 +739,8 @@ export function Dashboard({
           {mode === "management" && (
             <section aria-label="租赁任务摘要" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
               <span className="mr-1 text-sm font-semibold">当前任务</span>
-              <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {summary.overdue}</button>
+              <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {overdueCount}</button>
+              <button type="button" onClick={() => setStatus("已到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">已到期 {expiredCount}</button>
               <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
               <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
               <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
@@ -749,8 +752,9 @@ export function Dashboard({
           >
             {[
               ["全部", summary.total],
-              ["在租", summary.active],
-              ["逾期", summary.overdue],
+              ["在租", rentals.filter((r) => displayStatus(r) === "在租").length],
+              ["逾期", overdueCount],
+              ["已到期", expiredCount],
             ].map(([label, count]) => (
               <button
                 key={String(label)}
@@ -794,9 +798,10 @@ export function Dashboard({
                 >
                   {[
                     "全部",
-                    "在租",
-                    "逾期",
-                    "部分买断",
+  "在租",
+  "逾期",
+  "已到期",
+  "部分买断",
                     "部分退租",
                     "部分丢失",
                     "丢失",
@@ -902,7 +907,7 @@ export function Dashboard({
                   type="button"
                   key={r.id}
                   onClick={() => openDetail(r)}
-                  className={`flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : ""}`}
+                  className={`flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -977,7 +982,7 @@ export function Dashboard({
                       key={r.id}
                       onDoubleClick={() => openDetail(r)}
                       title="双击查看租赁详情"
-                      className={`cursor-pointer border-t hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : ""}`}
+                      className={`cursor-pointer border-t hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
                     >
                       <td
                         className="p-3"
@@ -2369,13 +2374,14 @@ function Detail(props: DetailProps) {
   } = props;
   const [tab, setTab] = useState<DetailTab>("overview");
   const [wizardOpen, setWizardOpen] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const currentDate = today();
+  const currentStatus = rentalDisplayStatus(rental, currentDate);
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
   const outstandingBills = rentBills.filter((bill) => billOutstandingCents(bill) > 0);
   const outstandingCents = rentBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const overdueBills = outstandingBills.filter(
-    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, today) === "逾期",
+    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
   );
   const nextBill = nextOpenBill(rentBills);
   const settledBills = rentBills
@@ -2391,7 +2397,7 @@ function Detail(props: DetailProps) {
     (event) => event.eventType === "维修" && !["已完成", "已结束"].includes(event.status),
   );
   const daysToExpiry = Math.ceil(
-    (new Date(`${rental.endDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) /
+    (new Date(`${rental.endDate}T00:00:00Z`).getTime() - new Date(`${currentDate}T00:00:00Z`).getTime()) /
       86_400_000,
   );
   const recordCount =
@@ -2424,7 +2430,7 @@ function Detail(props: DetailProps) {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold">{rental.customerCompany || rental.customerName}</h3>
-              <Status value={rental.status} />
+              <Status value={currentStatus} />
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                 {rental.orderType === "draft" ? "草稿" : rental.orderType === "test" ? "测试" : "正式合同"}
               </span>
@@ -4670,7 +4676,7 @@ function Status({ value }: { value: string }) {
       ? "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20"
       : ["在租", "已续租", "已完成", "已结束"].includes(value)
         ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
-        : ["待审核", "待处理", "即将到期"].includes(value)
+        : ["待审核", "待处理", "即将到期", "已到期"].includes(value)
           ? "bg-accent text-accent-foreground ring-1 ring-inset ring-border"
           : ["买断", "已退租", "已关闭", "丢失"].includes(value)
             ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
