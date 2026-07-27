@@ -49,6 +49,13 @@ const rentalSchema = z.object({
 export type RentalItemInput = z.infer<typeof itemSchema>
 export type RentalInput = z.infer<typeof rentalSchema>
 export type RentalOrderType = 'draft' | 'test' | 'official'
+const initialCollectionSchema = z.object({
+  collectRent: z.boolean().default(false),
+  collectDeposit: z.boolean().default(false),
+  paymentDate: z.string().min(1),
+  paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']),
+})
+export type InitialCollectionInput = z.infer<typeof initialCollectionSchema>
 
 export async function getNextRentalNumbers(startDate: string, items: Array<Pick<RentalItemInput, 'deviceType' | 'quantity'>>) {
   const userId = await getUserId()
@@ -214,11 +221,12 @@ function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: s
   }]
 }
 
-async function createRentalOperation(input: RentalInput, orderType: RentalOrderType) {
+async function createRentalOperation(input: RentalInput, orderType: RentalOrderType, initialCollection?: InitialCollectionInput) {
   const access = await getAccessContext('租赁操作')
   if (orderType === 'test' && access.role === 'employee') throw new Error('仅管理员可创建测试合同')
   const userId = access.userId
   const value = rentalSchema.parse(input)
+  const collection = orderType === 'official' && initialCollection ? initialCollectionSchema.parse(initialCollection) : null
   const assignee = await resolveRentalAssignee(access, value.assigneeUserId)
   const startDateReason = normalizeStartDateReason(value.startDate, value.startDateReason)
   const itemError = value.items.map(validateRentalItemFields).find(Boolean)
@@ -245,12 +253,32 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       ? [{ rentalId, billNo: `${contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
       : buildPrepaidRentBill(rentalId, contractNo, value.startDate, value.endDate, totalRent, value.duration)
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
-    const statements = [
-      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: '0', paymentStatus: '待收款', status: '在租' }),
+    const billBaseId = rentalId + 100
+    const identifiedBills = allBills.map((bill, index) => ({ ...bill, id: billBaseId + index }))
+    const rentBill = identifiedBills.find((bill) => bill.billType !== '押金')
+    const depositBill = identifiedBills.find((bill) => bill.billType === '押金')
+    const collectRent = Boolean(collection?.collectRent && rentBill)
+    const collectDeposit = Boolean(collection?.collectDeposit && depositBill)
+    const rentPaymentId = rentalId + 10
+    const depositPaymentId = rentalId + 11
+    const paidRent = collectRent ? totalRent : 0
+    const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: String(paidRent), paymentStatus: collectRent ? '已结清' : '待收款', status: '在租' }),
       ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
-      ...buildBillInsertStatements(allBills, userId),
-      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType } }),
+      ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
+    if (collectRent && rentBill && collection) statements.push(
+      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: rentBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
+      db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: rentBill.id, amount: rentBill.amount }),
+    )
+    if (collectDeposit && depositBill && collection) statements.push(
+      db.insert(paymentRecords).values({ id: depositPaymentId, userId, rentalId, amount: depositBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '押金', operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
+      db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: depositPaymentId, billId: depositBill.id, amount: depositBill.amount }),
+      db.insert(accountLedger).values({ userId, rentalId, entryType: '押金收取', amount: depositBill.amount, entryDate: collection.paymentDate, paymentRecordId: depositPaymentId, operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
+    )
+    statements.push(
+      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType, collectRent, collectDeposit, paymentDate: collection?.paymentDate, paymentMethod: collection?.paymentMethod } }),
+    )
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   } catch (error) {
     const cause = typeof error === 'object' && error && 'cause' in error ? error.cause : error
@@ -261,8 +289,8 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
   return rentalId
 }
 
-export async function createRental(input: RentalInput, orderType: RentalOrderType = 'official') {
-  return toActionResult('创建租赁合同', () => createRentalOperation(input, orderType))
+export async function createRental(input: RentalInput, orderType: RentalOrderType = 'official', initialCollection?: InitialCollectionInput) {
+  return toActionResult('创建租赁合同', () => createRentalOperation(input, orderType, initialCollection))
 }
 
 export async function updateRentalAssignee(rentalId: number, assigneeUserId: string) {

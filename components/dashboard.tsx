@@ -39,6 +39,7 @@ import {
   renewRentalItems,
   reversePayment,
   updateRentalAssignee,
+  type InitialCollectionInput,
   type PaymentInput,
   type RentalAssignee,
   type RentalInput,
@@ -418,8 +419,10 @@ export function Dashboard({
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
-  const isRentalOverdue = (r: Rental) =>
-    r.endDate < todayValue && !["买断", "已退租", "已结束", "已关闭", "丢失"].includes(r.status);
+  const overdueAmount = (r: Rental) => r.bills
+    .filter((bill) => bill.dueDate <= todayValue)
+    .reduce((sum, bill) => sum + Math.max(0, Number(bill.amount) - Number(bill.paidAmount)), 0);
+  const isRentalOverdue = (r: Rental) => overdueAmount(r) > 0;
   const displayStatus = (r: Rental) => isRentalOverdue(r) ? "逾期" : r.status;
   const filtered = useMemo(
     () =>
@@ -899,7 +902,7 @@ export function Dashboard({
                   type="button"
                   key={r.id}
                   onClick={() => openDetail(r)}
-                  className="flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50"
+                  className={`flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -922,6 +925,7 @@ export function Dashboard({
                     <div>
                       <p className="text-xs text-muted-foreground">合同金额</p>
                       <p className="mt-1 font-semibold">{money(r.totalRent)}</p>
+                      {isRentalOverdue(r) && <p className="mt-1 font-semibold text-destructive">逾期需付 {money(overdueAmount(r))}</p>}
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -973,7 +977,7 @@ export function Dashboard({
                       key={r.id}
                       onDoubleClick={() => openDetail(r)}
                       title="双击查看租赁详情"
-                      className="cursor-pointer border-t hover:bg-muted/50"
+                      className={`cursor-pointer border-t hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : ""}`}
                     >
                       <td
                         className="p-3"
@@ -1012,7 +1016,7 @@ export function Dashboard({
                       <td className="p-3">
                         {r.startDate} 至 {r.endDate}
                       </td>
-                      <td className="p-3">{money(r.totalRent)}</td>
+                      <td className="p-3"><p>{money(r.totalRent)}</p>{isRentalOverdue(r) && <p className="mt-1 font-semibold text-destructive">逾期需付 {money(overdueAmount(r))}</p>}</td>
                       <td className="p-3">
                         <Status value={displayStatus(r)} />
                       </td>
@@ -1071,8 +1075,8 @@ export function Dashboard({
           currentActorName={currentActorName}
           assignees={assignees}
           allowTest={role !== "employee"}
-          submit={(value, sendNow, orderType) => start(async () => {
-                  const created = await createRental(value, orderType);
+          submit={(value, sendNow, orderType, initialCollection) => start(async () => {
+                  const created = await createRental(value, orderType, initialCollection);
                   if (!created.ok) {
                     toast.error(created.message);
                     return;
@@ -1632,7 +1636,7 @@ function RentalForm({
   }: {
   form: RentalInput;
   setForm: React.Dispatch<React.SetStateAction<RentalInput>>;
-  submit: (form: RentalInput, sendNow: boolean, orderType: "draft" | "test" | "official") => void;
+  submit: (form: RentalInput, sendNow: boolean, orderType: "draft" | "test" | "official", initialCollection?: InitialCollectionInput) => void;
   pending: boolean;
   currentActorName: string;
   assignees: RentalAssignee[];
@@ -1641,6 +1645,13 @@ function RentalForm({
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [sendNoticeNow, setSendNoticeNow] = useState(true);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [initialCollection, setInitialCollection] = useState<InitialCollectionInput>({
+    collectRent: false,
+    collectDeposit: false,
+    paymentDate: today(),
+    paymentMethod: "微信",
+  });
   const [numbersLoading, setNumbersLoading] = useState(false);
   const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
@@ -1785,19 +1796,29 @@ function RentalForm({
       return;
     }
     setError("");
-    setStep((current) => Math.min(2, current + 1));
+    setStep((current) => Math.min(3, current + 1));
   };
-const confirmSubmit = (orderType: "draft" | "test" | "official") => {
-  const message = validate();
+  const confirmSubmit = (orderType: "draft" | "test" | "official") => {
+    const message = validate();
     if (message) {
       setError(message);
       return;
     }
+    if (orderType === "official" && step < 3) {
+      setError("");
+      setForm(normalizedForm);
+      setStep(3);
+      return;
+    }
+    if (orderType === "official" && !reviewConfirmed) {
+      setError("请确认时间日期、租赁金额和收款选择均已核对无误");
+      return;
+    }
     setError("");
     setForm(normalizedForm);
-    submit(normalizedForm, orderType === "official" && sendNoticeNow, orderType);
+    submit(normalizedForm, orderType === "official" && sendNoticeNow, orderType, orderType === "official" ? initialCollection : undefined);
   };
-  const steps = ["客户与合同", "设备明细", "租期与费用"];
+  const steps = ["客户与合同", "设备明细", "租期与费用", "复核与收款"];
   return (
     <form
       onSubmit={(e) => e.preventDefault()}
@@ -1814,7 +1835,7 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
     >
       <nav
         aria-label="新增租赁步骤"
-        className="grid grid-cols-3 gap-2 rounded-xl bg-muted p-2"
+        className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-2 sm:grid-cols-4"
       >
         {steps.map((label, index) => (
           <button
@@ -2178,6 +2199,29 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
           </FormSection>
         </>
       )}
+      {step === 3 && (
+        <div className="flex flex-col gap-5">
+          <section className="rounded-xl border border-warning/40 bg-warning/10 p-4">
+            <h3 className="font-semibold">请操作员逐项核对后再创建正式合同</h3>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">正式合同创建后会立即生成应收账单；勾选即时收款后，还会同步生成不可随意删除的收款与资金流水。</p>
+          </section>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">起租日期</p><p className="mt-2 font-semibold">{form.startDate}</p></div>
+            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">到期日期</p><p className="mt-2 font-semibold">{calculatedEndDate}</p></div>
+            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">租赁金额</p><p className="mt-2 font-semibold">{money(totals.total)}</p></div>
+            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">约定押金</p><p className="mt-2 font-semibold">{money(form.deposit)}</p></div>
+          </div>
+          <FormSection title="是否现在收款" description="租金与押金分别确认；不勾选的费用将保留为待收账单">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectRent ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={initialCollection.collectRent} onChange={(event) => setInitialCollection({ ...initialCollection, collectRent: event.target.checked })} className="mt-1 size-4 accent-primary" /><span><strong className="block">现在收取全部租金</strong><span className="mt-1 block text-sm text-muted-foreground">本次收取 {money(totals.total)}</span></span></label>
+              <label className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectDeposit ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" disabled={Number(form.deposit) <= 0} checked={initialCollection.collectDeposit} onChange={(event) => setInitialCollection({ ...initialCollection, collectDeposit: event.target.checked })} className="mt-1 size-4 accent-primary" /><span><strong className="block">现在收取全部押金</strong><span className="mt-1 block text-sm text-muted-foreground">本次收取 {money(form.deposit)}</span></span></label>
+            </div>
+            {(initialCollection.collectRent || initialCollection.collectDeposit) && <div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="收款日期" type="date" value={initialCollection.paymentDate} onChange={(paymentDate) => setInitialCollection({ ...initialCollection, paymentDate })} /><label className="flex flex-col gap-2 text-sm font-medium">收款方式<select className="h-10 rounded-lg border bg-background px-3" value={initialCollection.paymentMethod} onChange={(event) => setInitialCollection({ ...initialCollection, paymentMethod: event.target.value as InitialCollectionInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div>}
+            <div className="mt-4 rounded-xl bg-muted p-4"><p className="text-sm text-muted-foreground">本次即时收款合计</p><p className="mt-1 text-xl font-bold">{money((initialCollection.collectRent ? totals.total : 0) + (initialCollection.collectDeposit ? Number(form.deposit) : 0))}</p></div>
+          </FormSection>
+          <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm"><input type="checkbox" checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">我已确认日期、租期、租赁金额和收款选择正确</strong><span className="mt-1 block leading-6 text-muted-foreground">请根据客户实际付款情况勾选，不要将“准备收款”登记为“已经收款”。</span></span></label>
+        </div>
+      )}
       {error && (
         <p
           role="alert"
@@ -2199,28 +2243,18 @@ const confirmSubmit = (orderType: "draft" | "test" | "official") => {
           上一步
         </button>
         <span className="text-sm text-muted-foreground">
-          第 {step + 1} / 3 步
+          第 {step + 1} / 4 步
         </span>
         {step < 2 ? (
-          <button
-            type="button"
-            onClick={next}
-            className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground"
-          >
-            下一步
-          </button>
-        ) : (
+          <button type="button" onClick={next} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground">下一步</button>
+        ) : step === 2 ? (
           <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" disabled={pending} onClick={() => confirmSubmit("draft")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-60">
-              保存草稿
-            </button>
-            {allowTest && <button type="button" disabled={pending} onClick={() => confirmSubmit("test")} className="h-10 rounded-lg border border-warning/40 bg-warning/10 px-4 text-sm font-medium text-foreground disabled:opacity-60">
-              创建测试合同
-            </button>}
-            <button type="button" disabled={pending} onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {pending ? "正在保存" : "确认正式合同"}
-            </button>
+            <button type="button" disabled={pending} onClick={() => confirmSubmit("draft")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-60">保存草稿</button>
+            {allowTest && <button type="button" disabled={pending} onClick={() => confirmSubmit("test")} className="h-10 rounded-lg border border-warning/40 bg-warning/10 px-4 text-sm font-medium text-foreground disabled:opacity-60">创建测试合同</button>}
+            <button type="button" onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">复核并决定收款</button>
           </div>
+        ) : (
+          <button type="button" disabled={pending || !reviewConfirmed} onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "正在保存" : "确认创建正式合同"}</button>
         )}
       </div>
     </form>
