@@ -26,6 +26,11 @@ test('新增租赁保留来源筛选，关闭或成功后返回来源页面', ()
   expect(dashboard).toMatch(/if \(searchParams\.has\("new"\)\) returnToList\(\)/)
 })
 
+test('业务弹窗只能通过右上角关闭按钮关闭', () => {
+  expect(dashboard).not.toMatch(/if \(e\.currentTarget === e\.target\) onClose\(\)/)
+  expect(dashboard).toMatch(/aria-label="关闭"\s*onClick=\{onClose\}/)
+})
+
 test('租赁管理桌面合同列表双击打开详情', () => {
   expect(dashboard).toMatch(/onDoubleClick=\{\(\) => openDetail\(r\)\}/)
   expect(records).toMatch(/onDoubleClick=\{\(\) => openDetail\(row\.id\)\}/)
