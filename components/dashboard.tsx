@@ -478,9 +478,23 @@ export function Dashboard({
     (effectivePage - 1) * pageSize,
     effectivePage * pageSize,
   );
+  const listHref = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("rental");
+    params.delete("new");
+    const queryString = params.toString();
+    return queryString ? `/rentals?${queryString}` : "/rentals";
+  };
+  const returnToList = () => {
+    setDialog(null);
+    setSelected(null);
+    router.replace(listHref());
+    router.refresh();
+  };
   const run = (
     fn: () => Promise<void | { ok: boolean; message?: string }>,
     message: string,
+    options?: { returnToList?: boolean },
   ) =>
     start(async () => {
       try {
@@ -490,8 +504,11 @@ export function Dashboard({
           return;
         }
         toast.success(message);
-        setDialog(null);
-        router.refresh();
+        if (options?.returnToList) returnToList();
+        else {
+          setDialog(null);
+          router.refresh();
+        }
       } catch (error) {
         toast.error(userErrorMessage(error));
       }
@@ -506,7 +523,7 @@ export function Dashboard({
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
-      window.location.replace("/rentals");
+      returnToList();
       return;
     }
     setDialog(null);
@@ -1334,7 +1351,7 @@ canViewFinance={canViewFinance}
           initialItemIds={renewalItemIds}
           pending={pending}
             submit={(values, settlement) =>
-              run(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
+              run(() => renewRentalItems(selected.id, values, settlement), "续租已办理", { returnToList: true })
             }
           />
         )}
@@ -1373,7 +1390,7 @@ canViewFinance={canViewFinance}
             mode="return"
             pending={pending}
             submit={(value) =>
-              run(() => returnRentalItem(value as ReturnInput), "退租已登记")
+              run(() => returnRentalItem(value as ReturnInput), "退租已登记", { returnToList: true })
             }
           />
         )}
