@@ -811,7 +811,7 @@ export function Dashboard({
                 >
                   <option value="newest">最新创建</option>
                   <option value="due">到期优先</option>
-                  <option value="amount">金额从高到低</option>
+                  <option value="amount">金��从高到低</option>
                 </select>
                 {(query || status !== "全部" || sort !== "newest") && (
                   <button
@@ -4471,7 +4471,7 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "max-w-5xl" : "max-w-lg"} ${fixedHeight ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
+        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
       >
         <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
           <h2 className="text-lg font-semibold">{title}</h2>

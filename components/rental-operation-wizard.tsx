@@ -51,8 +51,8 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/35 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="办理租赁业务">
-      <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border bg-background shadow-xl sm:rounded-2xl">
-        <header className="flex items-start justify-between gap-4 border-b p-4 sm:p-5">
+      <div className="flex h-[94svh] max-h-[94svh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border bg-background shadow-xl sm:h-[min(720px,94svh)] sm:rounded-2xl">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b p-4 sm:p-5">
           <div>
             <p className="text-xs font-semibold text-primary">统一业务办理</p>
             <h2 className="mt-1 text-lg font-bold">{definition?.label || '选择要办理的业务'}</h2>
@@ -61,7 +61,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
           <button type="button" onClick={onClose} aria-label="关闭业务向导" className="rounded-lg p-2 hover:bg-muted"><X className="size-5" /></button>
         </header>
 
-        <nav aria-label="办理进度" className="grid grid-cols-4 border-b bg-muted/50 px-3 sm:px-5">
+        <nav aria-label="办理进度" className="grid shrink-0 grid-cols-4 border-b bg-muted/50 px-3 sm:px-5">
           {steps.map((label, index) => (
             <div key={label} className={`border-b-2 py-3 text-center text-xs font-medium sm:text-sm ${index === step ? 'border-primary text-primary' : index < step ? 'border-transparent text-foreground' : 'border-transparent text-muted-foreground'}`}>
               <span className="hidden sm:inline">{index + 1}. </span>{label}
@@ -120,7 +120,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
           )}
         </main>
 
-        <footer className="flex items-center justify-between gap-3 border-t p-4 sm:px-5">
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t p-4 sm:px-5">
           <button type="button" onClick={step === 0 ? onClose : back} className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium"><ArrowLeft className="size-4" />{step === 0 ? '取消' : '上一步'}</button>
           {step < 3 ? <button type="button" disabled={nextDisabled} onClick={advance} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">下一步<ArrowRight className="size-4" /></button> : <button type="button" disabled={!type || warnings.some((warning) => warning.includes('最多只能') || warning.includes('请选择至少'))} onClick={() => type && onStart(type)} className="h-10 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">进入业务表单</button>}
         </footer>
