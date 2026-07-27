@@ -1,4 +1,4 @@
-const terminalStatuses = new Set(["买断", "已退租", "已结束", "已关闭", "丢失"])
+const terminalStatuses = new Set(["买断", "已买断", "已退租", "已退回", "已结束", "已完成", "已关闭", "丢失", "已丢失"])
 
 export type RentalStatusInput = {
   endDate: string
@@ -20,6 +20,8 @@ export function isContractExpired(rental: RentalStatusInput, today: string) {
 }
 
 export function rentalDisplayStatus(rental: RentalStatusInput, today: string) {
-  if (!isContractExpired(rental, today)) return rental.status
-  return rentalOverdueAmount(rental, today) > 0 ? "逾期" : "已到期"
+  if (terminalStatuses.has(rental.status)) return rental.status
+  if (rental.endDate < today) return "逾期"
+  if (rental.endDate === today) return "到期"
+  return rental.status
 }

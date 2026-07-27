@@ -612,7 +612,7 @@ export function Dashboard({
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
   const overdueCount = rentals.filter((r) => displayStatus(r) === "逾期").length;
-  const expiredCount = rentals.filter((r) => displayStatus(r) === "已到期").length;
+  const dueTodayCount = rentals.filter((r) => displayStatus(r) === "到期").length;
   return (
     <div className="bg-background">
       <div className="p-4 md:p-6">
@@ -740,7 +740,7 @@ export function Dashboard({
             <section aria-label="租赁任务摘要" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
               <span className="mr-1 text-sm font-semibold">当前任务</span>
               <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {overdueCount}</button>
-              <button type="button" onClick={() => setStatus("已到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">已到期 {expiredCount}</button>
+              <button type="button" onClick={() => setStatus("到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">到期 {dueTodayCount}</button>
               <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
               <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
               <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
@@ -754,7 +754,7 @@ export function Dashboard({
               ["全部", summary.total],
               ["在租", rentals.filter((r) => displayStatus(r) === "在租").length],
               ["逾期", overdueCount],
-              ["已到期", expiredCount],
+              ["到期", dueTodayCount],
             ].map(([label, count]) => (
               <button
                 key={String(label)}
@@ -798,17 +798,16 @@ export function Dashboard({
                 >
                   {[
                     "全部",
-  "在租",
-  "逾期",
-  "已到期",
-  "部分买断",
+                    "在租",
+                    "到期",
+                    "逾期",
+                    "部分买断",
                     "部分退租",
                     "部分丢失",
-                    "丢失",
-                    "买断",
-                    "已退租",
-                    "已结束",
-                    "已关闭",
+                    "已退回",
+                    "已买断",
+                    "已丢失",
+                    "已完成",
                   ].map((s) => (
                     <option key={s}>{s}</option>
                   ))}
@@ -4676,9 +4675,9 @@ function Status({ value }: { value: string }) {
       ? "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20"
       : ["在租", "已续租", "已完成", "已结束"].includes(value)
         ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
-        : ["待审核", "待处理", "即将到期", "已到期"].includes(value)
+        : ["待审核", "待处理", "即将到期", "到期"].includes(value)
           ? "bg-accent text-accent-foreground ring-1 ring-inset ring-border"
-          : ["买断", "已退租", "已关闭", "丢失"].includes(value)
+          : ["买断", "已买断", "已退租", "已退回", "已关闭", "丢失", "已丢失"].includes(value)
             ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
             : "bg-muted text-muted-foreground ring-1 ring-inset ring-border";
   return (
