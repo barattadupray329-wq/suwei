@@ -138,7 +138,12 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const pattern = `%${value.query}%`
     filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern), like(rentals.deviceCode, pattern))!)
   }
-  if (value.status !== '全部') filters.push(eq(rentals.status, value.status))
+  const terminalStatuses = ['买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失']
+  const isExpired = sql<boolean>`${rentals.endDate} < current_date and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
+  const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
+  if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
+  else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
+  else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
   if (value.startDate) filters.push(gte(rentals.startDate, value.startDate))
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
@@ -154,10 +159,21 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     : []
   const itemsByRental = new Map<number, typeof itemRows>()
   for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
-    return { ...row, quantity, status: quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status }
+    const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
+    const expired = row.endDate < today && !terminalStatuses.includes(lifecycleStatus)
+    const status = expired
+      ? Number(row.paidAmount) < Number(row.totalRent) ? '逾期' : '已到期'
+      : lifecycleStatus
+    return { ...row, quantity, status }
   })
   const total = Number(countRow?.count ?? 0)
   return { rows: normalizedRows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
