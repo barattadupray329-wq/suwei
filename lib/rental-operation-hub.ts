@@ -15,8 +15,11 @@ export type OperationDefinition = {
   type: RentalOperationType
   label: string
   description: string
-  group: '设备流转' | '合同调整' | '售后服务'
+  group: '常用办理' | '设备服务' | '谨慎操作' | '合同资料'
   risk: 'normal' | 'financial' | 'destructive'
+  flow: 'quick' | 'standard' | 'strict'
+  flowLabel: '快速办理' | '核对后提交' | '严格复核'
+  result: string
   requiresDevice: boolean
   smsScene?: NotificationScene
 }
@@ -36,14 +39,14 @@ export type NotificationScene = (typeof NOTIFICATION_SCENES)[number]
 export type NotificationMode = 'automatic' | 'default_on' | 'manual'
 
 export const OPERATION_DEFINITIONS: OperationDefinition[] = [
-  { type: 'renewal', label: '办理续租', description: '延长租期并生成续租应收', group: '合同调整', risk: 'financial', requiresDevice: true, smsScene: 'renewal-completed' },
-  { type: 'return', label: '办理退租', description: '退还设备并处理扣款与押金', group: '设备流转', risk: 'financial', requiresDevice: true, smsScene: 'return-completed' },
-  { type: 'buyout', label: '办理买断', description: '设备转为客户所有并生成买断应收', group: '设备流转', risk: 'financial', requiresDevice: true, smsScene: 'buyout-completed' },
-  { type: 'loss', label: '登记丢失', description: '减少在租设备并登记赔偿', group: '设备流转', risk: 'destructive', requiresDevice: true },
-  { type: 'exchange', label: '设备换机', description: '保留合同并替换租赁设备', group: '设备流转', risk: 'normal', requiresDevice: true },
-  { type: 'repair', label: '登记维修', description: '记录故障、处理结果及客户费用', group: '售后服务', risk: 'normal', requiresDevice: true, smsScene: 'repair-completed' },
-  { type: 'pricing_change', label: '配置 / 租金变更', description: '调整设备配置或后续租金', group: '合同调整', risk: 'financial', requiresDevice: true },
-  { type: 'contract_change', label: '其他合同变更', description: '调整租期或客户联系资料', group: '合同调整', risk: 'normal', requiresDevice: false },
+  { type: 'renewal', label: '办理续租', description: '按编号延长租期并生成续租应收', result: '到期日与续租应收会更新', group: '常用办理', risk: 'financial', flow: 'standard', flowLabel: '核对后提交', requiresDevice: true, smsScene: 'renewal-completed' },
+  { type: 'return', label: '办理退租', description: '按编号退还设备并处理扣款与押金', result: '所选编号将退出在租状态', group: '常用办理', risk: 'financial', flow: 'standard', flowLabel: '核对后提交', requiresDevice: true, smsScene: 'return-completed' },
+  { type: 'buyout', label: '办理买断', description: '按编号转移设备所有权并生成应收', result: '设备将永久转为客户所有', group: '常用办理', risk: 'financial', flow: 'standard', flowLabel: '核对后提交', requiresDevice: true, smsScene: 'buyout-completed' },
+  { type: 'pricing_change', label: '配置 / 租金变更', description: '调整设备配置或后续租金', result: '改租金时会复核账务影响', group: '常用办理', risk: 'financial', flow: 'strict', flowLabel: '严格复核', requiresDevice: true },
+  { type: 'repair', label: '登记维修', description: '记录故障、处理结果及客户费用', result: '仅生成维修与费用记录', group: '设备服务', risk: 'normal', flow: 'quick', flowLabel: '快速办理', requiresDevice: true, smsScene: 'repair-completed' },
+  { type: 'exchange', label: '设备换机', description: '保留合同并替换租赁设备', result: '提交前核对原设备与替换设备', group: '设备服务', risk: 'normal', flow: 'standard', flowLabel: '核对后提交', requiresDevice: true },
+  { type: 'loss', label: '登记丢失', description: '按编号减少在租设备并登记赔偿', result: '所选编号将永久退出在租状态', group: '谨慎操作', risk: 'destructive', flow: 'strict', flowLabel: '严格复核', requiresDevice: true },
+  { type: 'contract_change', label: '其他合同变更', description: '调整租期或客户联系资料', result: '只保存实际变化的合同资料', group: '合同资料', risk: 'normal', flow: 'quick', flowLabel: '快速办理', requiresDevice: false },
 ]
 
 export function availableOperationQuantity(item: {
