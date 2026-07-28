@@ -303,6 +303,14 @@ type Summary = {
     一体机: number;
     笔记本: number;
   };
+  activeDeviceList: Array<{
+    rentalId: number;
+    contractNo: string;
+    customer: string;
+    startDate: string | null;
+    deviceType: string;
+    deviceCode: string;
+  }>;
 };
 const money = (n: string | number) =>
   new Intl.NumberFormat("zh-CN", {
@@ -371,6 +379,7 @@ const emptyRental = (): RentalInput => {
 };
 
 export function BusinessOverview({ summary }: { summary: Summary }) {
+  const [deviceListType, setDeviceListType] = useState<keyof Summary["activeDevices"] | null>(null);
   const priorities = [
     { label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期", detail: "进入租赁管理跟进逾期合同" },
     { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due", detail: "按到期时间查看近期合同" },
@@ -392,10 +401,10 @@ export function BusinessOverview({ summary }: { summary: Summary }) {
             <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">待审核草稿</p><p className="mt-2 text-2xl font-bold">{summary.draft}</p></div><ClipboardPenLine className="size-5 text-primary" /></div>
             <p className="mt-2 text-xs text-muted-foreground">前往租赁管理审核</p>
           </Link>
-          <Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} />
-          <Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} />
-          <Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} />
-          <Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} />
+          <Link href="/rentals?activeOnly=1" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary hover:bg-primary/5" aria-label={`查看 ${summary.active} 份在租合同`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">在租合同</p><p className="mt-2 text-2xl font-bold">{summary.active}</p></div><LayoutDashboard className="size-5 text-primary" /></div><p className="mt-2 text-xs text-muted-foreground">点击查看在租清单</p></Link>
+          <Link href="/rentals?status=逾期" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary hover:bg-primary/5" aria-label={`查看 ${summary.overdue} 份逾期合同`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">逾期待处理</p><p className="mt-2 text-2xl font-bold">{summary.overdue}</p></div><ClockAlert className="size-5 text-primary" /></div><p className="mt-2 text-xs text-muted-foreground">点击查看逾期清单</p></Link>
+          <Link href="/finance?type=收款" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary hover:bg-primary/5" aria-label={`查看累计收款 ${money(summary.revenue)}`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">累计收款</p><p className="mt-2 text-2xl font-bold">{money(summary.revenue)}</p></div><WalletCards className="size-5 text-primary" /></div><p className="mt-2 text-xs text-muted-foreground">点击查看收款流水</p></Link>
+          <Link href="/rentals?hasReceivable=1" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary hover:bg-primary/5" aria-label={`查看待收金额 ${money(summary.receivable)}`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">待收金额</p><p className="mt-2 text-2xl font-bold">{money(summary.receivable)}</p></div><CircleDollarSign className="size-5 text-primary" /></div><p className="mt-2 text-xs text-muted-foreground">点击查看待收清单</p></Link>
         </section>
 
         <section aria-labelledby="active-devices-heading" className="rounded-xl border bg-card p-4">
@@ -408,13 +417,14 @@ export function BusinessOverview({ summary }: { summary: Summary }) {
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {(Object.entries(summary.activeDevices) as Array<[keyof Summary["activeDevices"], number]>).map(([deviceType, quantity]) => (
-              <Link key={deviceType} href={`/rentals?query=${encodeURIComponent(deviceType)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary hover:bg-primary/5">
+              <button key={deviceType} type="button" onClick={() => setDeviceListType(deviceListType === deviceType ? null : deviceType)} aria-expanded={deviceListType === deviceType} aria-controls="active-device-list" className={`rounded-xl border p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 ${deviceListType === deviceType ? "border-primary bg-primary/5" : "bg-background"}`}>
                 <p className="text-sm font-medium text-muted-foreground">{deviceType}</p>
                 <p className="mt-2 text-2xl font-bold text-primary">{quantity}<span className="ml-1 text-sm font-medium text-muted-foreground">台</span></p>
-                <p className="mt-1 text-xs text-muted-foreground">查看在租记录</p>
-              </Link>
+                <p className="mt-1 text-xs text-muted-foreground">点击查看编号、日期和承租人</p>
+              </button>
             ))}
           </div>
+          {deviceListType && <div id="active-device-list" className="mt-4 overflow-hidden rounded-xl border bg-background"><div className="flex items-center justify-between gap-3 border-b bg-muted px-4 py-3"><div><h3 className="font-semibold">{deviceListType}在租清单</h3><p className="text-xs text-muted-foreground">共 {summary.activeDeviceList.filter((item) => item.deviceType === deviceListType).length} 台</p></div><button type="button" onClick={() => setDeviceListType(null)} className="text-sm font-medium text-primary hover:underline">收起清单</button></div><div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="text-muted-foreground"><tr><th className="px-4 py-3">设备编号</th><th className="px-4 py-3">起租日期</th><th className="px-4 py-3">所属承租人</th><th className="px-4 py-3">合同编号</th></tr></thead><tbody>{summary.activeDeviceList.filter((item) => item.deviceType === deviceListType).map((item) => <tr key={`${item.rentalId}-${item.deviceCode}`} className="border-t"><td className="px-4 py-3 font-semibold text-primary">{item.deviceCode}</td><td className="px-4 py-3">{item.startDate}</td><td className="px-4 py-3">{item.customer}</td><td className="px-4 py-3"><Link href={`/rentals?rental=${item.rentalId}`} className="font-medium hover:underline">{item.contractNo}</Link></td></tr>)}</tbody></table></div>{!summary.activeDeviceList.some((item) => item.deviceType === deviceListType) && <p className="p-6 text-center text-sm text-muted-foreground">当前没有在租设备</p>}</div>}
         </section>
 
         <section className="rounded-xl border bg-card p-4">
@@ -744,7 +754,7 @@ export function Dashboard({
             </div>}
           </div>
           <div className={mode === "management" ? "hidden" : "grid grid-cols-2 gap-3 lg:grid-cols-6"}>
-            <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
+          <Link href="/rentals?orderType=official" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary hover:bg-primary/5" aria-label={`查看 ${summary.total} 份正式合同`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">正式合同</p><p className="mt-2 text-2xl font-bold">{summary.total}</p></div><Monitor className="size-5 text-primary" /></div><p className="mt-2 text-xs text-muted-foreground">点击查看合同清单</p></Link>
             <Link
               href="/rentals/drafts"
               className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary hover:bg-primary/10"

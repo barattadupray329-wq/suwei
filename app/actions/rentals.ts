@@ -122,6 +122,8 @@ const rentalQuerySchema = z.object({
   assignee: z.string().trim().max(100).default(''),
   orderType: z.enum(['all', 'draft', 'test', 'official']).default('all'),
   lifecycleStatus: z.enum(['active', 'trash']).default('active'),
+  activeOnly: z.coerce.boolean().default(false),
+  hasReceivable: z.coerce.boolean().default(false),
   sort: z.enum(['newest', 'oldest', 'due', 'amount']).default('newest'),
   page: z.coerce.number().int().min(1).max(500000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -161,8 +163,10 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.startDate) filters.push(gte(rentals.startDate, value.startDate))
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
-  const where = and(...filters)
   const remainingQuantity = sql<number>`coalesce((select sum(max(ri.quantity - ri."boughtOutQuantity" - ri."returnedQuantity" - ri."lostQuantity", 0)) from rental_items ri where ri."rentalId" = ${rentals.id} and ri."userId" = ${userId}), ${rentals.quantity}, 0)`
+  if (value.activeOnly) filters.push(sql`${rentals.orderType} = 'official' and ${activeByDate} and ${remainingQuantity} > 0`)
+  if (value.hasReceivable) filters.push(sql`${rentals.orderType} = 'official' and cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) > 0`)
+  const where = and(...filters)
   const finishedPriority = sql<number>`case when ${rentals.status} in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) or ${remainingQuantity} <= 0 then 1 else 0 end`
   const selectedOrder = value.sort === 'oldest'
     ? [finishedPriority, asc(rentals.createdAt)]
@@ -249,11 +253,42 @@ export async function getDashboard() {
       sql`${rentals.status} not in ('已关闭', '已完成', '已退回', '已买断', '已丢失')`,
     )).groupBy(rentalItems.deviceType),
   ])
-  const activeDevices = { 台式机: 0, 显示器: 0, 一体机: 0, 笔记本: 0 }
+  const activeDevices = { 台式机: 0, 显示器: 0, 一体机: 0, 笔本: 0 }
   for (const row of activeDeviceRows) {
-    if (row.deviceType in activeDevices) activeDevices[row.deviceType as keyof typeof activeDevices] = Number(row.quantity)
+    if (row.deviceType === '笔记本') activeDevices.笔本 = Number(row.quantity)
+    else if (row.deviceType in activeDevices) activeDevices[row.deviceType as keyof Omit<typeof activeDevices, '笔本'>] = Number(row.quantity)
   }
-  return { ...summary, draft: summary?.draft ?? 0, activeDevices }
+  const activeDeviceDetails = await db.select({
+    rentalId: rentals.id,
+    contractNo: rentals.contractNo,
+    customerCompany: rentals.customerCompany,
+    customerName: rentals.customerName,
+    startDate: rentalItems.startDate,
+    deviceType: rentalItems.deviceType,
+    deviceCode: rentalItems.deviceCode,
+    quantity: rentalItems.quantity,
+    boughtOutQuantity: rentalItems.boughtOutQuantity,
+    returnedQuantity: rentalItems.returnedQuantity,
+    lostQuantity: rentalItems.lostQuantity,
+  }).from(rentalItems).innerJoin(rentals, and(eq(rentals.id, rentalItems.rentalId), eq(rentals.userId, rentalItems.userId))).where(and(
+    eq(rentalItems.userId, userId),
+    eq(rentals.orderType, 'official'),
+    eq(rentals.lifecycleStatus, 'active'),
+    sql`${rentals.deletedAt} is null`,
+    sql`${rentals.status} not in ('已关闭', '已完成', '已退回', '已买断', '已丢失')`,
+  ))
+  const activeDeviceList = activeDeviceDetails.flatMap((row) => {
+    const disposed = row.boughtOutQuantity + row.returnedQuantity + row.lostQuantity
+    return expandDeviceCodes(row.deviceCode, row.quantity).slice(disposed).map((deviceCode) => ({
+      rentalId: row.rentalId,
+      contractNo: row.contractNo,
+      customer: row.customerCompany || row.customerName,
+      startDate: row.startDate,
+      deviceType: row.deviceType,
+      deviceCode,
+    }))
+  })
+  return { ...summary, draft: summary?.draft ?? 0, activeDevices: { 台式机: activeDevices.台式机, 显示器: activeDevices.显示器, 一体机: activeDevices.一体机, 笔记本: activeDevices.笔本 }, activeDeviceList }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }
@@ -584,7 +619,7 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
     if (!rental) throw new Error('合同不存在')
     const entries = await tx.select().from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId)))
-    const balance = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? Number(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(Number(entry.amount)) : 0), 0)
+    const balance = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? Number(entry.amount) : entry.entryType.startsWith('退押金') ? -Math.abs(Number(entry.amount)) : 0), 0)
     if (amount > balance) throw new Error(`可用押金余额不足，当前为 ${balance.toFixed(2)} 元`)
     await tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: String(-amount), entryDate, operatorName: '当前用户', notes })
     if (entryType !== '押金退还') {
