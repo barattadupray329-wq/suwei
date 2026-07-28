@@ -67,9 +67,9 @@ import {
 import { getDeviceConfigRows } from "@/lib/device-config";
 import { RentalOperationWizard } from "@/components/rental-operation-wizard";
 import type { RentalOperationType } from "@/lib/rental-operation-hub";
-import { addCalendarDays, billCoverageLabel, billState, nextOpenBill } from "@/lib/rental-calculations";
+import { addCalendarDays, billCoverageLabel, billState, nextOpenBill, proratedMonthlyRentChange } from "@/lib/rental-calculations";
 import { rentalEndDate } from "@/lib/rental-calculations";
-import { buildRentalNumberPreview } from "@/lib/rental-numbers";
+import { buildRentalNumberPreview, expandDeviceCodes } from "@/lib/rental-numbers";
 import {
   START_DATE_REASONS,
   validateRentalItemFields,
@@ -4182,6 +4182,9 @@ function itemToChange(item: Item): RentalChangeInput {
     itemId: item.id,
     eventDate: today(),
     reason: "",
+    selectedDeviceCodes: expandDeviceCodes(item.deviceCode, item.quantity).slice(0, 1),
+    changeConfiguration: true,
+    changeRent: false,
     feeAdjustment: 0,
     notes: "",
     deviceName: item.deviceName,
@@ -4219,138 +4222,395 @@ function ChangeForm({
   submit: (value: RentalChangeInput) => void;
   pending: boolean;
 }) {
-  const first = rental.items[0];
-  const [value, setValue] = useState<RentalChangeInput>(() =>
-    first ? itemToChange(first) : ({} as RentalChangeInput),
+  const changeableItems = rental.items.filter(
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
   );
-  if (!first) return <p>暂无可变更设备</p>;
-  const update = (key: keyof RentalChangeInput, next: string | number) =>
+  const [step, setStep] = useState(0);
+  const [itemId, setItemId] = useState<number>(changeableItems[0]?.id ?? 0);
+  const selectedItem =
+    changeableItems.find((item) => item.id === itemId) ?? changeableItems[0];
+  const [value, setValue] = useState<RentalChangeInput>(() =>
+    selectedItem ? itemToChange(selectedItem) : ({} as RentalChangeInput),
+  );
+
+  if (!selectedItem) return <p className="text-sm text-muted-foreground">该合同暂无可变更的在租设备。</p>;
+
+  const codes = expandDeviceCodes(selectedItem.deviceCode, selectedItem.quantity);
+  const codesUnavailable = codes.length !== selectedItem.quantity;
+  const update = (key: keyof RentalChangeInput, next: string | number | boolean) =>
     setValue((current) => ({ ...current, [key]: next }));
+  const toggleCode = (code: string) =>
+    setValue((current) => ({
+      ...current,
+      selectedDeviceCodes: current.selectedDeviceCodes.includes(code)
+        ? current.selectedDeviceCodes.filter((item) => item !== code)
+        : [...current.selectedDeviceCodes, code],
+    }));
+  const pickItem = (id: number) => {
+    const next = changeableItems.find((item) => item.id === id);
+    if (!next) return;
+    setItemId(id);
+    setValue(itemToChange(next));
+  };
+
+  const selectedCount = value.selectedDeviceCodes.length;
+  const proration =
+    value.changeRent && value.monthlyRent > 0 && selectedCount > 0
+      ? proratedMonthlyRentChange({
+          effectiveDate: value.eventDate,
+          oldMonthlyRent: Number(selectedItem.monthlyRent),
+          newMonthlyRent: value.monthlyRent,
+          quantity: selectedCount,
+        })
+      : null;
+
+  const step0Valid = selectedCount > 0 && !codesUnavailable;
+  const step1Valid =
+    (value.changeConfiguration || value.changeRent) &&
+    value.reason.trim().length >= 2 &&
+    (!value.changeRent || value.monthlyRent > 0);
+
+  const goSubmit = () => submit({ ...value, quantity: selectedCount });
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit(value);
-      }}
-      className="flex flex-col gap-4"
-    >
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        设备明细
-        <select
-          value={value.itemId}
-          onChange={(e) => {
-            const item = rental.items.find(
-              (current) => current.id === Number(e.target.value),
-            );
-            if (item) setValue(itemToChange(item));
-          }}
-          className="h-10 rounded-lg border bg-background px-3"
-        >
-          {rental.items.map((current) => (
-            <option key={current.id} value={current.id}>
-              {current.deviceType} · {current.deviceName} ·{" "}
-              {current.deviceCode || "未编号"}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="变更日期"
-          type="date"
-          value={value.eventDate}
-          onChange={(next) => update("eventDate", next)}
-        />
-        <Field
-          label="变更原因"
-          value={value.reason}
-          onChange={(next) => update("reason", next)}
-        />
-        <label className="flex flex-col gap-2 text-sm font-medium">
-          设备类型
-          <select
-            className="h-10 rounded-lg border bg-background px-3"
-            value={value.deviceType}
-            onChange={(e) => update("deviceType", e.target.value)}
-          >
-            {["台式机", "笔记本", "显示器", "一体机", "其他"].map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
-        </label>
-        <Field
-          label="设备名称 / 型号"
-          value={value.deviceName}
-          onChange={(next) => update("deviceName", next)}
-        />
-        <Field
-          label="设备编号"
-          value={value.deviceCode || ""}
-          onChange={(next) => update("deviceCode", next)}
-          required={false}
-        />
-        <Field
-          label="调整后数量（只能增加）"
-          type="number"
-          value={value.quantity}
-          onChange={(next) =>
-            update("quantity", Math.max(first.quantity, Number(next)))
-          }
-        />
-        {(configs[value.deviceType] || []).map(([key, label]) => {
-          const changeKey = key as keyof RentalChangeInput;
-          return (
-            <Field
-              key={key}
-              label={label}
-              value={String(value[changeKey] || "")}
-              onChange={(next) => update(changeKey, next)}
-              required={false}
-            />
-          );
-        })}
-        {value.deviceType === "其他" && (
-          <Field
-            label="设备配置"
-            value={value.deviceConfig || ""}
-            onChange={(next) => update("deviceConfig", next)}
-            required={false}
-          />
-        )}
-        <Field
-          label="当前月租（元）"
-          type="number"
-          value={value.monthlyRent}
-          onChange={(next) => update("monthlyRent", Number(next))}
-        />
-        <Field
-          label="调整后明细总额（元）"
-          type="number"
-          value={value.totalRent}
-          onChange={(next) => update("totalRent", Number(next))}
-        />
-        <Field
-          label="本次应收调整（可填负数）"
-          type="number"
-          value={value.feeAdjustment}
-          onChange={(next) => update("feeAdjustment", Number(next))}
-        />
-      </div>
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        备注
-        <textarea
-          className="min-h-20 rounded-lg border bg-background p-3"
-          value={value.notes || ""}
-          onChange={(e) => update("notes", e.target.value)}
-        />
-      </label>
-      <button
-        disabled={pending}
-        className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
+    <div className="flex flex-col gap-4">
+      <nav
+        aria-label="变更进度"
+        className="grid grid-cols-3 rounded-xl border bg-muted/50 text-center text-xs font-medium"
       >
-        {pending ? "处理中" : "确认变更"}
-      </button>
-    </form>
+        {["选择设备", "填写变更", "确认提交"].map((label, index) => (
+          <span
+            key={label}
+            className={`border-b-2 py-2.5 ${
+              index === step
+                ? "border-primary text-primary"
+                : index < step
+                  ? "border-transparent text-foreground"
+                  : "border-transparent text-muted-foreground"
+            }`}
+          >
+            {index + 1}. {label}
+          </span>
+        ))}
+      </nav>
+
+      {step === 0 && (
+        <div className="flex flex-col gap-4">
+          {changeableItems.length > 1 && (
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              设备明细
+              <select
+                value={itemId}
+                onChange={(e) => pickItem(Number(e.target.value))}
+                className="h-10 rounded-lg border bg-background px-3"
+              >
+                {changeableItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.deviceType} · {item.deviceName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {codesUnavailable ? (
+            <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+              该明细的设备编号无法逐台识别，请先在设备资料中补全连续编号后再变更。
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">
+                  选择要变更的设备编号（可多选）
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setValue((current) => ({
+                      ...current,
+                      selectedDeviceCodes:
+                        current.selectedDeviceCodes.length === codes.length
+                          ? []
+                          : [...codes],
+                    }))
+                  }
+                  className="text-xs font-medium text-primary"
+                >
+                  {selectedCount === codes.length ? "取消全选" : "全选"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {codes.map((code) => {
+                  const checked = value.selectedDeviceCodes.includes(code);
+                  return (
+                    <label
+                      key={code}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm ${
+                        checked
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-muted/50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={checked}
+                        onChange={() => toggleCode(code)}
+                      />
+                      {code}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                已选 {selectedCount} 台，未选设备保持原配置和租金不变。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 1 && (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2">
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm font-medium ${
+                value.changeConfiguration
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={value.changeConfiguration}
+                onChange={(e) =>
+                  update("changeConfiguration", e.target.checked)
+                }
+              />
+              修改配置
+            </label>
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm font-medium ${
+                value.changeRent
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={value.changeRent}
+                onChange={(e) => update("changeRent", e.target.checked)}
+              />
+              修改租金
+            </label>
+          </div>
+          {!value.changeConfiguration && !value.changeRent && (
+            <p className="rounded-lg bg-accent p-3 text-sm text-accent-foreground">
+              请至少选择“修改配置”或“修改租金”。
+            </p>
+          )}
+
+          {value.changeConfiguration && (
+            <section className="flex flex-col gap-3 rounded-xl border p-4">
+              <h4 className="text-sm font-semibold">配置变更</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  设备类型
+                  <select
+                    className="h-10 rounded-lg border bg-background px-3"
+                    value={value.deviceType}
+                    onChange={(e) => update("deviceType", e.target.value)}
+                  >
+                    {["台式机", "笔记本", "显示器", "一体机", "其他"].map(
+                      (type) => (
+                        <option key={type}>{type}</option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <Field
+                  label="设备名称 / 型号"
+                  value={value.deviceName}
+                  onChange={(next) => update("deviceName", next)}
+                />
+                {(configs[value.deviceType] || []).map(([key, label]) => {
+                  const changeKey = key as keyof RentalChangeInput;
+                  return (
+                    <Field
+                      key={key}
+                      label={label}
+                      value={String(value[changeKey] || "")}
+                      onChange={(next) => update(changeKey, next)}
+                      required={false}
+                    />
+                  );
+                })}
+                {value.deviceType === "其他" && (
+                  <Field
+                    label="设备配置"
+                    value={value.deviceConfig || ""}
+                    onChange={(next) => update("deviceConfig", next)}
+                    required={false}
+                  />
+                )}
+              </div>
+            </section>
+          )}
+
+          {value.changeRent && (
+            <section className="flex flex-col gap-3 rounded-xl border p-4">
+              <h4 className="text-sm font-semibold">租金变更</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="新月租（元 / 台）"
+                  type="number"
+                  value={value.monthlyRent}
+                  onChange={(next) => update("monthlyRent", Number(next))}
+                />
+                <div className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">当前月租</span>
+                  <span className="flex h-10 items-center rounded-lg bg-muted px-3 text-muted-foreground">
+                    ¥{Number(selectedItem.monthlyRent).toLocaleString("zh-CN")} / 台
+                  </span>
+                </div>
+              </div>
+              {proration && (
+                <p className="rounded-lg bg-accent p-3 text-xs leading-5 text-accent-foreground">
+                  生效日 {value.eventDate} 前按原租金、当日起按新租金。
+                  {value.eventDate.slice(0, 7)} 折算差额{" "}
+                  <strong>
+                    {Number(proration.differenceAmount) >= 0 ? "+" : ""}
+                    ¥{proration.differenceAmount}
+                  </strong>
+                  ，后续每月{" "}
+                  <strong>
+                    {Number(proration.futureMonthlyDifference) >= 0 ? "+" : ""}
+                    ¥{proration.futureMonthlyDifference}
+                  </strong>
+                  。
+                </p>
+              )}
+            </section>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="生效日期"
+              type="date"
+              value={value.eventDate}
+              onChange={(next) => update("eventDate", next)}
+            />
+            <Field
+              label="变更原因"
+              value={value.reason}
+              onChange={(next) => update("reason", next)}
+            />
+          </div>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            备注
+            <textarea
+              className="min-h-16 rounded-lg border bg-background p-3"
+              value={value.notes || ""}
+              onChange={(e) => update("notes", e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="flex flex-col gap-3">
+          <section className="rounded-xl border bg-card p-4">
+            <h4 className="text-sm font-semibold">请核对本次变更</h4>
+            <dl className="mt-3 flex flex-col gap-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">变更设备</dt>
+                <dd className="text-right font-medium">
+                  {selectedItem.deviceType} · {selectedItem.deviceName}（
+                  {selectedCount} 台）
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">设备编号</dt>
+                <dd className="text-right font-medium">
+                  {value.selectedDeviceCodes.join("、")}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">生效日期</dt>
+                <dd className="text-right font-medium">{value.eventDate}</dd>
+              </div>
+              {value.changeConfiguration && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">配置</dt>
+                  <dd className="text-right font-medium">
+                    {value.deviceName}
+                  </dd>
+                </div>
+              )}
+              {value.changeRent && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">月租</dt>
+                  <dd className="text-right font-medium">
+                    ¥{Number(selectedItem.monthlyRent).toLocaleString("zh-CN")}{" "}
+                    → ¥{value.monthlyRent.toLocaleString("zh-CN")} / 台
+                  </dd>
+                </div>
+              )}
+              {proration && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">
+                    {value.eventDate.slice(0, 7)} 折算差额
+                  </dt>
+                  <dd className="text-right font-medium">
+                    {Number(proration.differenceAmount) >= 0 ? "+" : ""}¥
+                    {proration.differenceAmount}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+          <p className="rounded-lg bg-accent p-3 text-xs leading-5 text-accent-foreground">
+            生效日前的历史租金和已收款项不会被修改；仅生效日及以后的账务按新租金计算。
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3 border-t pt-4">
+        <button
+          type="button"
+          onClick={() => setStep((current) => Math.max(0, current - 1))}
+          disabled={step === 0}
+          className="inline-flex h-10 items-center rounded-lg border px-4 text-sm font-medium disabled:opacity-40"
+        >
+          上一步
+        </button>
+        {step < 2 ? (
+          <button
+            type="button"
+            onClick={() => setStep((current) => current + 1)}
+            disabled={step === 0 ? !step0Valid : !step1Valid}
+            className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            下一步
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={goSubmit}
+            disabled={pending}
+            className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {pending ? "处理中" : `确认变更 ${selectedCount} 台设备`}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 function RepairForm({

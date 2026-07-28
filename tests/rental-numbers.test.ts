@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRentalNumbers,
   buildRentalNumberPreview,
+  compressDeviceCodes,
+  expandDeviceCodes,
   normalizeRentalDate,
 } from '../lib/rental-numbers'
 
@@ -55,5 +57,19 @@ describe('租赁编号生成', () => {
 
   it('无效日期使用指定兜底日期', () => {
     expect(normalizeRentalDate('', '2026-07-23')).toBe('2026-07-23')
+  })
+
+  it('展开连续设备编号并校验数量', () => {
+    expect(expandDeviceCodes('PC20260723-001～PC20260723-003', 3)).toEqual([
+      'PC20260723-001',
+      'PC20260723-002',
+      'PC20260723-003',
+    ])
+    expect(expandDeviceCodes('PC20260723-001～PC20260723-003', 2)).toEqual([])
+  })
+
+  it('连续编号压缩为范围，非连续编号保留列表', () => {
+    expect(compressDeviceCodes(['PC001', 'PC002', 'PC003'])).toBe('PC001～PC003')
+    expect(compressDeviceCodes(['PC001', 'PC003'])).toBe('PC001、PC003')
   })
 })

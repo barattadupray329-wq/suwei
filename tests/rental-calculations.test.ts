@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, overdueBillingMonths, overdueMonthlyAmount, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, overdueBillingMonths, overdueMonthlyAmount, proratedMonthlyRentChange, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -63,4 +63,13 @@ describe('租赁金额计算', () => {
   it('续租涨价生成补收差额', () => expect(renewalAdjustment(2, 3, 600, 120)).toEqual({ correctedAmount: '720.00', differenceAmount: '120.00' }))
   it('续租降价生成减免差额', () => expect(renewalAdjustment(2, 3, 600, 80)).toEqual({ correctedAmount: '480.00', differenceAmount: '-120.00' }))
   it('连续更正以当前有效金额为基准', () => expect(renewalAdjustment(2, 3, 720, 90)).toEqual({ correctedAmount: '540.00', differenceAmount: '-180.00' }))
+  it('7 月 1 日改价整月使用新租金', () => {
+    expect(proratedMonthlyRentChange({ effectiveDate: '2026-07-01', oldMonthlyRent: 100, newMonthlyRent: 130, quantity: 2 })).toMatchObject({ oldDays: 0, newDays: 31, differenceAmount: '60.00', futureMonthlyDifference: '60.00' })
+  })
+  it('7 月 15 日按实际 31 天折算', () => {
+    expect(proratedMonthlyRentChange({ effectiveDate: '2026-07-15', oldMonthlyRent: 100, newMonthlyRent: 131, quantity: 1 })).toMatchObject({ daysInMonth: 31, oldDays: 14, newDays: 17, adjustedMonthAmount: '117.00', differenceAmount: '17.00' })
+  })
+  it('闰年二月按 29 天折算', () => {
+    expect(proratedMonthlyRentChange({ effectiveDate: '2028-02-15', oldMonthlyRent: 290, newMonthlyRent: 580, quantity: 1 })).toMatchObject({ daysInMonth: 29, oldDays: 14, newDays: 15, adjustedMonthAmount: '440.00', differenceAmount: '150.00' })
+  })
 })

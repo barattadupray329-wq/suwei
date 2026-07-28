@@ -43,6 +43,10 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
 
   const nextDisabled = (step === 0 && !type) || (step === 1 && definition?.requiresDevice && (type === 'renewal' ? renewalItemIds.length === 0 : !selectedItem || quantity < 1 || quantity > available))
   const advance = () => {
+    if (step === 0 && type === 'pricing_change') {
+      onStart('pricing_change')
+      return
+    }
     if (step === 0 && definition && !definition.requiresDevice) setStep(2)
     else setStep((value) => Math.min(3, value + 1))
   }

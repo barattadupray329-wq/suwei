@@ -72,3 +72,33 @@ export function buildRentalNumberPreview(
 ) {
   return buildRentalNumbers(startDate, items)
 }
+
+export function expandDeviceCodes(value: string | null | undefined, expected?: number) {
+  const raw = value?.trim()
+  if (!raw) return []
+  const parts = raw.split(/\s*[～~]\s*/)
+  if (parts.length === 1) return expected && expected > 1 ? [] : [raw]
+  if (parts.length !== 2) return []
+  const start = parts[0].match(/^(.*?)(\d+)$/)
+  const end = parts[1].match(/^(.*?)(\d+)$/)
+  if (!start || !end) return []
+  const prefix = end[1] || start[1]
+  if ((end[1] && end[1] !== start[1]) || !prefix) return []
+  const first = Number(start[2])
+  const last = Number(end[2])
+  if (last < first || last - first > 999) return []
+  const width = Math.max(start[2].length, end[2].length)
+  const codes = Array.from({ length: last - first + 1 }, (_, index) => `${prefix}${String(first + index).padStart(width, '0')}`)
+  return expected && codes.length !== expected ? [] : codes
+}
+
+export function compressDeviceCodes(codes: string[]) {
+  if (codes.length === 0) return ''
+  if (codes.length === 1) return codes[0]
+  const parsed = codes.map((code) => code.match(/^(.*?)(\d+)$/))
+  if (parsed.some((item) => !item)) return codes.join('、')
+  const prefix = parsed[0]![1]
+  const numbers = parsed.map((item) => Number(item![2]))
+  const consecutive = parsed.every((item) => item![1] === prefix) && numbers.every((number, index) => index === 0 || number === numbers[index - 1] + 1)
+  return consecutive ? `${codes[0]}～${codes[codes.length - 1]}` : codes.join('、')
+}

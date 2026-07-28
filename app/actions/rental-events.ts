@@ -5,10 +5,11 @@ import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
-import { assertDateOrder, dateOnly, fromCents, inclusiveDays, toCents } from '@/lib/rental-calculations'
+import { accountLedger, auditLogs, receivableBills, rentalEvents, rentalItemPricePeriods, rentalItems, rentals } from '@/lib/db/schema'
+import { assertDateOrder, dateOnly, fromCents, inclusiveDays, proratedMonthlyRentChange, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { availableQuantity } from '@/lib/rental-lifecycle'
+import { compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -23,9 +24,10 @@ const configurationSchema = {
 }
 const changeSchema = z.object({
   rentalId: z.number().int().positive(), itemId: z.number().int().positive(), eventDate: z.string().min(1), reason: z.string().trim().min(2),
+  selectedDeviceCodes: z.array(z.string().trim().min(1)).min(1), changeConfiguration: z.boolean(), changeRent: z.boolean(),
   deviceName: z.string().trim().min(2), deviceType: deviceTypeSchema, deviceCode: optionalText, quantity: z.coerce.number().int().positive(), ...configurationSchema,
-  monthlyRent: z.coerce.number().positive('租金单价必须大于 0'), totalRent: z.coerce.number().positive(), feeAdjustment: z.coerce.number(), notes: optionalText,
-})
+  monthlyRent: z.coerce.number().positive('租金单价必须大于 0'), totalRent: z.coerce.number().nonnegative(), feeAdjustment: z.coerce.number(), notes: optionalText,
+}).refine((value) => value.changeConfiguration || value.changeRent, { message: '请至少选择配置变更或租金变更' })
 export type RentalChangeInput = z.infer<typeof changeSchema>
 
 const repairSchema = z.object({ rentalId: z.number().int().positive(), itemId: z.number().int().positive(), eventDate: z.string().min(1), status: z.enum(['待维修','维修中','已完成']), faultDescription: z.string().trim().min(2), resolution: optionalText, repairCost: z.coerce.number().nonnegative(), customerCharge: z.coerce.number().nonnegative(), completedDate: z.string().optional(), notes: optionalText })
@@ -35,35 +37,68 @@ const snapshotKeys = ['deviceName','deviceType','deviceCode','deviceConfig','qua
 function snapshot(item: Record<string, unknown>) { return Object.fromEntries(snapshotKeys.map(key => [key, item[key]])) }
 
 export async function changeRentalItem(input: RentalChangeInput) {
-  const { userId, name } = await actor()
+  const context = await getAccessContext('租赁操作')
+  const { userId, actorName: name, actorId } = context
   const value = changeSchema.parse(input)
-  const [item] = await db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId)))
-  if (!item) throw new Error('设备明细不存在')
-  dateOnly(value.eventDate)
-  if (item.startDate && value.eventDate < item.startDate) throw new Error('变更日期不能早于设备起租日期')
-  if (value.quantity !== item.quantity) throw new Error('配置变更不能调整数量，请使用独立的增配或设备处置流程')
-  if (availableQuantity(item) <= 0) throw new Error('已全部处置的设备不能变更配置')
-  const after = { ...snapshot(item), deviceName:value.deviceName, deviceType:value.deviceType, deviceCode:value.deviceCode||null, quantity:value.quantity, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null, monthlyRent:String(value.monthlyRent), totalRent:String(value.totalRent) }
-  const [[rental], items] = await Promise.all([
+  const [[item], [rental], items] = await Promise.all([
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId),eq(rentalItems.id,value.itemId))),
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId))),
   ])
-  if (!rental) throw new Error('租赁合同不存在')
-  const nextItems = items.map(current => current.id === item.id ? { ...current, ...after } : current)
-  const quantity = nextItems.reduce((sum,current)=>sum+availableQuantity(current),0)
-  const monthlyRentCents = nextItems.reduce((sum,current)=>sum+toCents(current.monthlyRent)*availableQuantity(current),0)
-  const totalRentCents = toCents(rental.totalRent)-toCents(item.totalRent)+toCents(value.totalRent)+toCents(value.feeAdjustment)
-  if (totalRentCents < 0) throw new Error('调整后合同金额不能小于 0')
+  if (!item) throw new Error('设备明细不存在')
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理变更')
+  dateOnly(value.eventDate)
+  if (item.startDate && value.eventDate < item.startDate) throw new Error('变更日期不能早于设备起租日期')
+  if (item.endDate && value.eventDate > item.endDate) throw new Error('变更日期不能晚于设备到期日期')
+  const available = availableQuantity(item)
+  if (available <= 0) throw new Error('已全部处置的设备不能变更')
+  const allCodes = expandDeviceCodes(item.deviceCode, item.quantity)
+  if (allCodes.length !== item.quantity) throw new Error('该明细的设备编号无法逐台识别，请先补全连续编号')
+  const selectedCodes = [...new Set(value.selectedDeviceCodes)]
+  if (selectedCodes.some((code) => !allCodes.includes(code))) throw new Error('所选设备编号不属于当前明细')
+  if (selectedCodes.length > available) throw new Error(`当前最多可变更 ${available} 台设备`)
+  const unselectedCodes = allCodes.filter((code) => !selectedCodes.includes(code))
+  const selectedCount = selectedCodes.length
+  const previousMonthlyRent = item.monthlyRent
+  const nextMonthlyRent = value.changeRent ? fromCents(toCents(value.monthlyRent)) : item.monthlyRent
+  const proration = proratedMonthlyRentChange({ effectiveDate: value.eventDate, oldMonthlyRent: previousMonthlyRent, newMonthlyRent: nextMonthlyRent, quantity: selectedCount })
+  const feeAdjustmentCents = value.changeRent ? toCents(proration.differenceAmount) : 0
+  const configurationPatch = value.changeConfiguration ? { deviceName:value.deviceName, deviceType:value.deviceType, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null } : {}
+  const selectedPatch = { ...configurationPatch, deviceCode:compressDeviceCodes(selectedCodes), quantity:selectedCount, monthlyRent:nextMonthlyRent, totalRent:item.totalRent, boughtOutQuantity:0, returnedQuantity:0, lostQuantity:0, updatedAt:new Date() }
+  const wholeGroup = selectedCount === item.quantity
+  const targetItemId = wholeGroup ? item.id : Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const eventId = targetItemId + 1
+  const futureMonthlyRentCents = items.reduce((sum,current) => {
+    if (current.id !== item.id) return sum + toCents(current.monthlyRent) * availableQuantity(current)
+    return sum + toCents(nextMonthlyRent) * selectedCount + toCents(item.monthlyRent) * unselectedCodes.length
+  }, 0)
+  const totalRentCents = toCents(rental.totalRent) + feeAdjustmentCents
   const paymentStatus = paymentStatusFromCents(totalRentCents, toCents(rental.paidAmount))
-  const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
-  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-    db.update(rentalItems).set({ ...after, monthlyRent: fromCents(toCents(value.monthlyRent)), totalRent: fromCents(toCents(value.totalRent)), updatedAt:new Date() }).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
-    db.update(rentals).set({ deviceName:nextItems.map(current=>current.deviceName).join('、'),deviceType:nextItems.length===1?nextItems[0].deviceType:'多设备',quantity,monthlyRent:fromCents(monthlyRentCents),totalRent:fromCents(totalRentCents),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
-    db.insert(rentalEvents).values({id:eventId,userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'配置变更',eventDate:value.eventDate,beforeSnapshot:snapshot(item),afterSnapshot:after,reason:value.reason,feeAdjustment:fromCents(toCents(value.feeAdjustment)),operatorName:name,notes:value.notes}),
-  ]
-  if (toCents(value.feeAdjustment) !== 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `CHANGE-${value.rentalId}-${eventId}`, periodStart: value.eventDate, periodEnd: value.eventDate, dueDate: value.eventDate, billType: value.feeAdjustment > 0 ? '配置变更补收' : '配置变更减免', amount: fromCents(toCents(value.feeAdjustment)), paidAmount: '0.00', status: value.feeAdjustment > 0 ? '待收' : '已减免', notes: value.reason }))
+  const after = { ...snapshot(item), ...selectedPatch }
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+  if (wholeGroup) {
+    statements.push(db.update(rentalItems).set(selectedPatch).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))))
+  } else {
+    statements.push(
+      db.update(rentalItems).set({ deviceCode:compressDeviceCodes(unselectedCodes), quantity:unselectedCodes.length, updatedAt:new Date() }).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
+      db.insert(rentalItems).values({ ...item, ...selectedPatch, id:targetItemId }),
+    )
+  }
+  statements.push(
+    db.update(rentals).set({ quantity:items.reduce((sum,current)=>sum+availableQuantity(current),0),monthlyRent:fromCents(futureMonthlyRentCents),totalRent:fromCents(totalRentCents),paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
+    db.insert(rentalEvents).values({id:eventId,userId,rentalId:value.rentalId,itemId:targetItemId,eventType:value.changeConfiguration&&value.changeRent?'配置与租金变更':value.changeRent?'租金变更':'配置变更',eventDate:value.eventDate,beforeSnapshot:{...snapshot(item),selectedDeviceCodes:selectedCodes},afterSnapshot:after,reason:value.reason,feeAdjustment:fromCents(feeAdjustmentCents),operatorName:name,notes:value.notes}),
+    db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'配置租金变更',resourceType:'租赁合同',resourceId:String(value.rentalId),summary:`${rental.contractNo} 变更 ${selectedCount} 台设备（${compressDeviceCodes(selectedCodes)}）`,metadata:{eventId,sourceItemId:item.id,targetItemId,selectedCodes,changeConfiguration:value.changeConfiguration,changeRent:value.changeRent,proration}}),
+  )
+  if (value.changeRent) {
+    statements.push(db.insert(rentalItemPricePeriods).values({userId,rentalId:value.rentalId,rentalItemId:targetItemId,sourceRentalItemId:item.id,deviceCodes:compressDeviceCodes(selectedCodes),quantity:selectedCount,effectiveDate:value.eventDate,previousMonthlyRent:fromCents(toCents(previousMonthlyRent)),newMonthlyRent:nextMonthlyRent,proratedDifference:proration.differenceAmount,reason:value.reason,operatorUserId:actorId,operatorName:name}))
+    if (feeAdjustmentCents !== 0) statements.push(
+      db.insert(receivableBills).values({userId,rentalId:value.rentalId,billNo:`PRICE-${value.rentalId}-${eventId}`,periodStart:value.eventDate,periodEnd:value.eventDate,dueDate:value.eventDate,billType:feeAdjustmentCents>0?'租金变更补收':'租金变更减免',amount:fromCents(feeAdjustmentCents),paidAmount:'0.00',status:feeAdjustmentCents>0?'待收':'已减免',notes:`${compressDeviceCodes(selectedCodes)}：${value.reason}`}),
+      db.insert(accountLedger).values({userId,rentalId:value.rentalId,entryType:'租金变更',amount:fromCents(feeAdjustmentCents),entryDate:value.eventDate,operatorName:name,notes:`生效月按 ${proration.daysInMonth} 天折算；${value.reason}`}),
+    )
+  }
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
+  revalidatePath('/finance')
 }
 
 export async function createRepairRecord(input: RepairInput) {

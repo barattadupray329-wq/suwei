@@ -70,6 +70,35 @@ export function renewalAdjustment(quantity: number, duration: number, currentAmo
   return { correctedAmount: fromCents(correctedAmountCents), differenceAmount: fromCents(differenceCents) }
 }
 
+export function proratedMonthlyRentChange(input: {
+  effectiveDate: string
+  oldMonthlyRent: number | string
+  newMonthlyRent: number | string
+  quantity: number
+}) {
+  const effective = dateOnly(input.effectiveDate)
+  const daysInMonth = new Date(Date.UTC(effective.getUTCFullYear(), effective.getUTCMonth() + 1, 0)).getUTCDate()
+  const oldDays = effective.getUTCDate() - 1
+  const newDays = daysInMonth - oldDays
+  const oldCents = toCents(input.oldMonthlyRent)
+  const newCents = toCents(input.newMonthlyRent)
+  const quantity = Math.max(1, Math.floor(input.quantity))
+  const oldPortionCents = Math.round((oldCents * oldDays * quantity) / daysInMonth)
+  const newPortionCents = Math.round((newCents * newDays * quantity) / daysInMonth)
+  const originalMonthCents = oldCents * quantity
+  const adjustedMonthCents = oldPortionCents + newPortionCents
+  return {
+    daysInMonth,
+    oldDays,
+    newDays,
+    oldPortion: fromCents(oldPortionCents),
+    newPortion: fromCents(newPortionCents),
+    adjustedMonthAmount: fromCents(adjustedMonthCents),
+    differenceAmount: fromCents(adjustedMonthCents - originalMonthCents),
+    futureMonthlyDifference: fromCents((newCents - oldCents) * quantity),
+  }
+}
+
 export type BillState = '已结清' | '部分收款' | '逾期' | '即将到期' | '待付款'
 
 export function billState(amount: number | string, paidAmount: number | string, dueDate: string, currentDate: string, warningDays = 7): BillState {
