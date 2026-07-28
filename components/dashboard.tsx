@@ -4748,12 +4748,20 @@ function ChangeForm({
                 <dd className="text-right font-medium">{value.eventDate}</dd>
               </div>
               {value.changeConfiguration && (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">配置</dt>
-                  <dd className="text-right font-medium">
-                    {value.deviceName}
-                  </dd>
-                </div>
+                <>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">配置</dt>
+                    <dd className="text-right font-medium">
+                      {value.deviceName}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">配件</dt>
+                    <dd className="max-w-[70%] text-right font-medium">
+                      {selectedItem.accessories || "未填写"} → {value.accessories || "未填写"}
+                    </dd>
+                  </div>
+                </>
               )}
               {value.changeRent && (
                 <div className="flex justify-between gap-4">

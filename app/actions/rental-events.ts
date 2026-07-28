@@ -59,15 +59,19 @@ export async function changeRentalItem(input: RentalChangeInput) {
   if (selectedCodes.length > available) throw new Error(`当前最多可变更 ${available} 台设备`)
   const unselectedCodes = allCodes.filter((code) => !selectedCodes.includes(code))
   const selectedCount = selectedCodes.length
+  if (selectedCount !== value.selectedDeviceCodes.length) throw new Error('设备编号存在重复，请重新选择变更设备')
   const previousMonthlyRent = item.monthlyRent
   const nextMonthlyRent = value.changeRent ? fromCents(toCents(value.monthlyRent)) : item.monthlyRent
+  if (value.changeRent && toCents(nextMonthlyRent) <= 0) throw new Error('新月租必须大于 0')
   const proration = proratedMonthlyRentChange({ effectiveDate: value.eventDate, oldMonthlyRent: previousMonthlyRent, newMonthlyRent: nextMonthlyRent, quantity: selectedCount })
   const feeAdjustmentCents = value.changeRent ? toCents(proration.differenceAmount) : 0
   const configurationPatch = value.changeConfiguration ? { deviceName:value.deviceName, deviceType:value.deviceType, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null } : {}
   const selectedPatch = { ...configurationPatch, deviceCode:compressDeviceCodes(selectedCodes), quantity:selectedCount, monthlyRent:nextMonthlyRent, totalRent:item.totalRent, boughtOutQuantity:0, returnedQuantity:0, lostQuantity:0, updatedAt:new Date() }
   const wholeGroup = selectedCount === item.quantity
-  const targetItemId = wholeGroup ? item.id : Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
-  const eventId = targetItemId + 1
+  const generatedId = () => Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const targetItemId = wholeGroup ? item.id : generatedId()
+  // 事件编号必须独立生成。整组变更会复用原设备明细 ID，不能再用 item.id + 1，否则会与历史事件主键冲突。
+  const eventId = generatedId()
   const futureMonthlyRentCents = items.reduce((sum,current) => {
     if (current.id !== item.id) return sum + toCents(current.monthlyRent) * availableQuantity(current)
     return sum + toCents(nextMonthlyRent) * selectedCount + toCents(item.monthlyRent) * unselectedCodes.length
@@ -96,9 +100,19 @@ export async function changeRentalItem(input: RentalChangeInput) {
       db.insert(accountLedger).values({userId,rentalId:value.rentalId,entryType:'租金变更',amount:fromCents(feeAdjustmentCents),entryDate:value.eventDate,operatorName:name,notes:`生效月按 ${proration.daysInMonth} 天折算；${value.reason}`}),
     )
   }
-  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  try {
+    await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (/rental_item_price_periods|no such table/i.test(message)) throw new Error('租金变更数据结构尚未就绪，请联系管理员完成数据库升级')
+    if (/unique constraint|primary key/i.test(message)) throw new Error('本次变更记录编号冲突，请重新提交')
+    throw error
+  }
   revalidatePath('/')
+  revalidatePath('/dashboard')
+  revalidatePath('/rentals')
   revalidatePath('/finance')
+  revalidatePath('/audit-logs')
 }
 
 export async function createRepairRecord(input: RepairInput) {
