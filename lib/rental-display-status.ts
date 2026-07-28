@@ -3,14 +3,14 @@ const terminalStatuses = new Set(["买断", "已买断", "已退租", "已退回
 export type RentalStatusInput = {
   endDate: string
   status: string
-  bills: Array<{ dueDate: string; amount: string | number; paidAmount: string | number }>
+  bills: Array<{ dueDate: string; amount: string | number; paidAmount: string | number; waivedAmount?: string | number }>
 }
 
 export function rentalOverdueAmount(rental: RentalStatusInput, today: string) {
   return rental.bills
     .filter((bill) => bill.dueDate <= today)
     .reduce(
-      (sum, bill) => sum + Math.max(0, Number(bill.amount) - Number(bill.paidAmount)),
+      (sum, bill) => sum + Math.max(0, Number(bill.amount) - Number(bill.paidAmount) - Number(bill.waivedAmount ?? 0)),
       0,
     )
 }

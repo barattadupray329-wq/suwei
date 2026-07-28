@@ -1,7 +1,7 @@
 import { moneyToCents } from './payment-allocation'
 import { availableQuantity, type RentalItemQuantities } from './rental-lifecycle'
 
-export type ReconciliationBill = { id?: number; amount: string | number; paidAmount: string | number; billType?: string }
+export type ReconciliationBill = { id?: number; amount: string | number; paidAmount: string | number; waivedAmount?: string | number; billType?: string }
 export type ReconciliationPayment = { amount: string | number; feeType?: string }
 export type ReconciliationAllocation = { amount: string | number }
 
@@ -10,7 +10,7 @@ export function contractAvailableQuantity(items: RentalItemQuantities[]) {
 }
 
 export function billsOutstandingCents(bills: ReconciliationBill[]) {
-  return bills.reduce((sum, bill) => sum + Math.max(0, moneyToCents(bill.amount) - moneyToCents(bill.paidAmount)), 0)
+  return bills.reduce((sum, bill) => sum + Math.max(0, moneyToCents(bill.amount) - moneyToCents(bill.paidAmount) - moneyToCents(bill.waivedAmount ?? 0)), 0)
 }
 
 export function billsReceivableCents(bills: ReconciliationBill[]) {

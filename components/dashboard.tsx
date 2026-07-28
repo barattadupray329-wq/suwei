@@ -242,6 +242,7 @@ type Bill = {
   billType: string;
   amount: string;
   paidAmount: string;
+  waivedAmount: string;
   status: string;
   notes: string | null;
 };
@@ -538,7 +539,7 @@ export function Dashboard({
     for (const rental of rentals) {
       const phone = rental.customerPhone.replace(/\D/g, "");
       const key = phone || rental.customerCompany?.trim().toLowerCase() || rental.customerName.trim().toLowerCase();
-      const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) }));
+      const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount) - Number(bill.waivedAmount)) }));
       const dueBills = bills.filter((bill) => bill.dueDate <= todayValue && bill.outstanding > 0);
       const dueAmount = dueBills.reduce((sum, bill) => sum + bill.outstanding, 0);
       const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, dueAmount: 0, contracts: [] };
@@ -2496,7 +2497,7 @@ function Detail(props: DetailProps) {
   const outstandingBills = rentBills.filter((bill) => billOutstandingCents(bill) > 0);
   const outstandingCents = rentBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const overdueBills = outstandingBills.filter(
-    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
+    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate, 7, bill.waivedAmount) === "逾期",
   );
   const nextBill = nextOpenBill(rentBills);
   const settledBills = rentBills
@@ -2837,11 +2838,11 @@ function DetailFinance({
                 <div key={bill.id} className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p>
-                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
+                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 已减免 {money(bill.waivedAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
                     {bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}
                   </div>
                   <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} />
+                    <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today, 7, bill.waivedAmount)} />
                     {bill.billType !== "押金" && outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
                   </div>
                 </div>
@@ -3244,7 +3245,7 @@ function LegacyDetail({
                 return <div key={bill.id} className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p>
-                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
+                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 已减免 {money(bill.waivedAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
                     {bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}
                   </div>
                   <div className="flex items-center gap-3 self-end sm:self-auto">
@@ -3782,26 +3783,35 @@ function RenewalForm({
 function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | null }) {
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
-  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
-  let preview: ReturnType<typeof allocatePayment> = [];
-  let previewError = "";
-  if (value.amount > 0 && value.feeType !== "押金") {
-    try { preview = allocatePayment(eligibleBills, value.amount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
-  }
-  const billMap = new Map(bills.map((bill) => [bill.id, bill]));
-  return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
-    {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
-    {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 期账单</p></div>}
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="收款金额（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
-      <Field label="收款日期" type="date" value={value.paymentDate} onChange={(paymentDate) => setValue({ ...value, paymentDate })} />
-      <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select className="h-10 rounded-lg border bg-background px-3" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label className="flex flex-col gap-2 text-sm font-medium">费用类型<select disabled={target !== null} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60" value={value.feeType} onChange={(e) => setValue({ ...value, feeType: e.target.value as PaymentInput["feeType"] })}>{["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
+  const availableCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
+  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(availableCents)), waiverAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, clientRequestId: crypto.randomUUID(), notes: "" });
+  const paymentCents = Math.round(Number(value.amount || 0) * 100);
+  const waiverCents = Math.round(Number(value.waiverAmount || 0) * 100);
+  const remainingCents = Math.max(0, availableCents - paymentCents - waiverCents);
+  const overLimit = paymentCents + waiverCents > availableCents;
+  const needsWaiverDetails = waiverCents > 0;
+  const invalidWaiver = needsWaiverDetails && (!value.waiverType || (value.waiverReason?.trim().length ?? 0) < 2);
+  const canSubmit = paymentCents + waiverCents > 0 && !overLimit && !invalidWaiver;
+
+  return <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) submit(value); }} className="flex flex-col gap-4">
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <p className="font-semibold">{targetBill ? "处理本期账单" : "处理待收账单"}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{targetBill ? `${targetBill.periodStart} 至 ${targetBill.periodEnd} · ` : ""}当前待收 {money(centsToMoney(availableCents))}</p>
     </div>
-    {value.feeType !== "押金" && value.amount > 0 && <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">分配 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">分配后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
-    <label className="flex flex-col gap-2 text-sm font-medium">备注<textarea className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} /></label>
-    <button disabled={pending || value.amount <= 0 || Boolean(previewError)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label="实际收款（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Math.max(0, Number(amount)) })} />
+      <Field label="优惠减免（元）" type="number" value={value.waiverAmount} onChange={(waiverAmount) => setValue({ ...value, waiverAmount: Math.max(0, Number(waiverAmount)) })} />
+      <Field label="处理日期" type="date" value={value.paymentDate} onChange={(paymentDate) => setValue({ ...value, paymentDate })} />
+      <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select disabled={paymentCents === 0} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-50" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
+    </div>
+    {needsWaiverDetails && <section className="flex flex-col gap-4 rounded-xl border border-border bg-muted p-4">
+      <div><h3 className="font-semibold">优惠减免信息</h3><p className="mt-1 text-sm text-muted-foreground">减免不是收款，不会计入微信、银行或现金收入。</p></div>
+      <label className="flex flex-col gap-2 text-sm font-medium">减免类型<select className="h-10 rounded-lg border bg-background px-3" value={value.waiverType ?? ""} onChange={(e) => setValue({ ...value, waiverType: e.target.value as PaymentInput["waiverType"] })}><option value="">请选择</option>{["客户议价", "活动优惠", "赠送", "差额调整"].map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label className="flex flex-col gap-2 text-sm font-medium">减免原因<textarea required minLength={2} className="min-h-20 rounded-lg border bg-background p-3 font-normal" placeholder="例如：客户续租议价，店长同意减免差额" value={value.waiverReason ?? ""} onChange={(e) => setValue({ ...value, waiverReason: e.target.value })} /></label>
+    </section>}
+    <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次账务核对</h3><div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4"><Info l="当前待收" v={money(centsToMoney(availableCents))} /><Info l="实际收款" v={money(centsToMoney(paymentCents))} /><Info l="优惠减免" v={money(centsToMoney(waiverCents))} /><Info l="处理后待收" v={money(centsToMoney(remainingCents))} /></div>{overLimit && <p className="mt-3 text-sm text-destructive">实际收款与优惠减免合计不能超过当前待收金额。</p>}</section>
+    <label className="flex flex-col gap-2 text-sm font-medium">收款备注（可选）<textarea className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} /></label>
+    <button disabled={pending || !canSubmit} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : paymentCents === 0 ? "确认减免" : waiverCents > 0 ? "确认收款并减免" : "确认收款"}</button>
   </form>;
 }
 function CustomerHistory({ phone }: { phone: string }) {

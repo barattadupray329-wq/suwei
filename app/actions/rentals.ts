@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user, waiverRecords } from '@/lib/db/schema'
 import { fromCents, overdueMonthlyAmount, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, compressDeviceCodes, expandDeviceCodes, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
@@ -18,6 +18,7 @@ import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
+import { safeOperationId } from '@/lib/rental-operation-hub'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -547,11 +548,19 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   return { ok: true }
 }
 
-const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })
+const paymentSchema = z.object({
+  amount: z.number().nonnegative(), waiverAmount: z.number().nonnegative().default(0), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), waiverType: z.enum(['客户议价', '活动优惠', '赠送', '差额调整']).optional(), waiverReason: z.string().trim().optional(), clientRequestId: z.string().uuid(), notes: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (moneyToCents(value.amount) + moneyToCents(value.waiverAmount) <= 0) ctx.addIssue({ code: 'custom', message: '实际收款和优惠减免不能同时为 0' })
+  if (value.waiverAmount > 0 && !value.waiverType) ctx.addIssue({ code: 'custom', message: '请选择优惠减免类型', path: ['waiverType'] })
+  if (value.waiverAmount > 0 && (value.waiverReason?.length ?? 0) < 2) ctx.addIssue({ code: 'custom', message: '请填写至少 2 个字的减免原因', path: ['waiverReason'] })
+  if (value.feeType === '押金' && value.waiverAmount > 0) ctx.addIssue({ code: 'custom', message: '押金不能使用优惠减免', path: ['waiverAmount'] })
+})
 export type PaymentInput = z.infer<typeof paymentSchema>
 
 export async function collectPayment(id: number, input: PaymentInput) {
-  const userId = await getUserId()
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
   const value = paymentSchema.parse(input)
   const [row] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, userId)))
   if (!row) throw new Error('记录不存在')
@@ -564,27 +573,54 @@ export async function collectPayment(id: number, input: PaymentInput) {
   const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter)).orderBy(receivableBills.dueDate)
   if (value.billId && !bills.some(bill => bill.id === value.billId)) throw new Error('目标账单不存在、已变更或不属于当前合同')
   const availableCents = value.billId ? billOutstandingCents(bills.find(bill => bill.id === value.billId)!) : bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
-  if (moneyToCents(value.amount) > availableCents) throw new Error(`收款金额超过当前待收金额，最多可收 ${centsToMoney(availableCents)} 元`)
-  const allocations = allocatePayment(bills, value.amount, value.billId)
-  const paymentId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
-  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-    db.insert(paymentRecords).values({ id: paymentId, userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: String(value.amount), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, notes: value.notes }),
-  ]
-  if (value.feeType === '押金') statements.push(db.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: String(value.amount), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前用户', notes: value.notes }))
-  for (const allocation of allocations) {
-    const bill = bills.find(item => item.id === allocation.billId)!
-    const nextPaidCents = moneyToCents(bill.paidAmount) + allocation.amountCents
-    statements.push(
-      db.insert(paymentAllocations).values({ userId, rentalId: id, paymentRecordId: paymentId, billId: bill.id, amount: centsToMoney(allocation.amountCents) }),
-      db.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: allocation.balanceAfterCents === 0 ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))),
-    )
+  const paymentCents = moneyToCents(value.amount)
+  const waiverCents = moneyToCents(value.waiverAmount)
+  if (paymentCents + waiverCents > availableCents) throw new Error(`本次处理金额超过当前待收金额，最多可处理 ${centsToMoney(availableCents)} 元`)
+
+  const paymentAllocationsForBills = paymentCents > 0 ? allocatePayment(bills, value.amount, value.billId) : []
+  const paymentByBill = new Map(paymentAllocationsForBills.map(allocation => [allocation.billId, allocation.amountCents]))
+  const afterPaymentBills = bills.map(bill => ({ ...bill, paidAmount: centsToMoney(moneyToCents(bill.paidAmount) + (paymentByBill.get(bill.id) ?? 0)) }))
+  const waiverAllocations = waiverCents > 0 ? allocatePayment(afterPaymentBills, value.waiverAmount, value.billId) : []
+  const waiverByBill = new Map(waiverAllocations.map(allocation => [allocation.billId, allocation.amountCents]))
+  const paymentId = paymentCents > 0 ? safeOperationId() : null
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+
+  if (paymentId) statements.push(db.insert(paymentRecords).values({ id: paymentId, userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: centsToMoney(paymentCents), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, operatorName: access.actorName, notes: value.notes }))
+  if (paymentId && value.feeType === '押金') statements.push(db.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: centsToMoney(paymentCents), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: access.actorName, notes: value.notes }))
+
+  for (const bill of bills) {
+    const allocatedPaymentCents = paymentByBill.get(bill.id) ?? 0
+    const allocatedWaiverCents = waiverByBill.get(bill.id) ?? 0
+    if (allocatedPaymentCents <= 0 && allocatedWaiverCents <= 0) continue
+    const nextPaidCents = moneyToCents(bill.paidAmount) + allocatedPaymentCents
+    const nextWaivedCents = moneyToCents(bill.waivedAmount) + allocatedWaiverCents
+    const balanceCents = Math.max(0, moneyToCents(bill.amount) - nextPaidCents - nextWaivedCents)
+    if (paymentId && allocatedPaymentCents > 0) statements.push(db.insert(paymentAllocations).values({ userId, rentalId: id, paymentRecordId: paymentId, billId: bill.id, amount: centsToMoney(allocatedPaymentCents) }))
+    if (allocatedWaiverCents > 0) statements.push(db.insert(waiverRecords).values({ id: safeOperationId(), userId, rentalId: id, billId: bill.id, clientRequestId: value.clientRequestId, amount: centsToMoney(allocatedWaiverCents), waiverDate: value.paymentDate, waiverType: value.waiverType!, reason: value.waiverReason!, operatorUserId: access.actorId, operatorName: access.actorName }))
+    statements.push(db.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), waivedAmount: centsToMoney(nextWaivedCents), status: balanceCents === 0 ? '已结清' : nextPaidCents > 0 || nextWaivedCents > 0 ? '部分处理' : '待收', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))))
   }
+
+  if (waiverCents > 0) statements.push(
+    db.insert(accountLedger).values({ userId, rentalId: id, entryType: '租金减免', amount: centsToMoney(waiverCents), entryDate: value.paymentDate, operatorName: access.actorName, notes: `${value.waiverType}：${value.waiverReason}` }),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '登记租金减免', resourceType: '租赁合同', resourceId: String(id), summary: `${row.contractNo} 减免 ${centsToMoney(waiverCents)} 元（${value.waiverType}）`, metadata: { clientRequestId: value.clientRequestId, billId: value.billId, amount: centsToMoney(waiverCents), reason: value.waiverReason } }),
+  )
   if (value.feeType !== '押金') {
-    const paidCents = moneyToCents(row.paidAmount) + moneyToCents(value.amount)
-    statements.push(db.update(rentals).set({ paidAmount: centsToMoney(paidCents), paymentStatus: paidCents >= moneyToCents(row.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId))))
+    const paidCents = moneyToCents(row.paidAmount) + paymentCents
+    const remainingCents = bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) - paymentCents - waiverCents
+    statements.push(db.update(rentals).set({ paidAmount: centsToMoney(paidCents), paymentStatus: remainingCents <= 0 ? '已结清' : paidCents > 0 || waiverCents > 0 ? '部分收款' : '待收款', updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId))))
   }
-  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  try {
+    await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (/waiver_records.*unique|unique constraint.*clientRequestId/i.test(message)) return { ok: true as const, repeated: true as const }
+    throw error
+  }
   revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/finance')
+  revalidatePath('/audit-logs')
+  return { ok: true as const, repeated: false as const }
 }
 
 export async function reversePayment(paymentId: number, reason: string) {
@@ -605,7 +641,9 @@ export async function reversePayment(paymentId: number, reason: string) {
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
       ...allocatedBills.map(({ allocation, bill }) => {
         const nextPaidCents = Math.max(0, moneyToCents(bill!.paidAmount) - moneyToCents(allocation.amount))
-        return tx.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: nextPaidCents === 0 ? '待收' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill!.id), eq(receivableBills.userId, userId)))
+        const handledCents = nextPaidCents + moneyToCents(bill!.waivedAmount)
+        const status = handledCents >= moneyToCents(bill!.amount) ? '已结清' : handledCents > 0 ? '部分处理' : '待收'
+        return tx.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status, updatedAt: new Date() }).where(and(eq(receivableBills.id, bill!.id), eq(receivableBills.userId, userId)))
       }),
       tx.insert(paymentRecords).values({ id: reversalId, userId, rentalId: payment.rentalId, amount: centsToMoney(-moneyToCents(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reason}` }),
       tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '收款冲正', amount: centsToMoney(-moneyToCents(payment.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: '当前用户', notes: reason }),

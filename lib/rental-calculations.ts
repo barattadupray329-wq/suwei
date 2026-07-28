@@ -101,11 +101,12 @@ export function proratedMonthlyRentChange(input: {
 
 export type BillState = '已结清' | '部分收款' | '逾期' | '即将到期' | '待付款'
 
-export function billState(amount: number | string, paidAmount: number | string, dueDate: string, currentDate: string, warningDays = 7): BillState {
+export function billState(amount: number | string, paidAmount: number | string, dueDate: string, currentDate: string, warningDays = 7, waivedAmount: number | string = 0): BillState {
   const amountCents = toCents(amount)
   const paidCents = toCents(paidAmount)
-  if (paidCents >= amountCents) return '已结清'
-  if (paidCents > 0) return '部分收款'
+  const handledCents = paidCents + toCents(waivedAmount)
+  if (handledCents >= amountCents) return '已结清'
+  if (handledCents > 0) return '部分收款'
   if (dueDate < currentDate) return '逾期'
   if (dueDate <= addCalendarDays(currentDate, warningDays)) return '即将到期'
   return '待付款'
@@ -115,14 +116,14 @@ export function billCoverageLabel(periodStart: string, periodEnd: string) {
   return `${periodStart} 至 ${addCalendarDays(periodEnd, 1)}（不含）`
 }
 
-export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[]) {
+export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; waivedAmount?: string | number; dueDate: string }>(bills: T[]) {
   return bills
-    .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))
+    .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount) + toCents(bill.waivedAmount ?? 0))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null
 }
 
-export function dueBillsAsOf<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[], currentDate: string) {
+export function dueBillsAsOf<T extends { amount: string | number; paidAmount: string | number; waivedAmount?: string | number; dueDate: string }>(bills: T[], currentDate: string) {
   return bills
-    .filter((bill) => bill.dueDate <= currentDate && toCents(bill.amount) > toCents(bill.paidAmount))
+    .filter((bill) => bill.dueDate <= currentDate && toCents(bill.amount) > toCents(bill.paidAmount) + toCents(bill.waivedAmount ?? 0))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }

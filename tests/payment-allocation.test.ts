@@ -34,4 +34,10 @@ describe("收款分配", () => {
     expect(billOutstandingCents(settled)).toBe(0);
     expect(allocatePayment([settled, ...bills], 10)[0].billId).toBe(1);
   });
+
+  it("从待收金额中同时扣除真实收款与优惠减免", () => {
+    const discounted = { id: 4, amount: "100.00", paidAmount: "60.00", waivedAmount: "15.50", dueDate: "2026-03-01" };
+    expect(billOutstandingCents(discounted)).toBe(2450);
+    expect(allocatePayment([discounted], 24.5)).toEqual([{ billId: 4, amountCents: 2450, balanceAfterCents: 0 }]);
+  });
 });
