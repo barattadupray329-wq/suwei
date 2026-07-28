@@ -73,6 +73,19 @@ export function buildRentalNumberPreview(
   return buildRentalNumbers(startDate, items)
 }
 
+export function buildNextDeviceCode(
+  date: string,
+  deviceType: RentalItemInput['deviceType'],
+  existingDeviceCodes: Array<string | null> = [],
+) {
+  return buildRentalNumbers(
+    date,
+    [{ deviceType, quantity: 1 }],
+    [],
+    existingDeviceCodes,
+  ).deviceCodes[0]
+}
+
 export function expandDeviceCodes(value: string | null | undefined, expected?: number) {
   const raw = value?.trim()
   if (!raw) return []

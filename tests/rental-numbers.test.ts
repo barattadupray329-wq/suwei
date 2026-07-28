@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildNextDeviceCode,
   buildRentalNumbers,
   buildRentalNumberPreview,
   compressDeviceCodes,
@@ -53,6 +54,18 @@ describe('租赁编号生成', () => {
       ['PC20260723-001～PC20260723-006'],
     )
     expect(result.deviceCodes).toEqual(['PC20260723-007'])
+  })
+
+  it('换机按日期、类型和已有范围自动生成下一编号', () => {
+    expect(
+      buildNextDeviceCode('2026-07-23', '台式机', [
+        'PC20260723-001～PC20260723-006',
+        'NB20260723-009',
+      ]),
+    ).toBe('PC20260723-007')
+    expect(buildNextDeviceCode('2026-07-24', '显示器', [])).toBe(
+      'MON20260724-001',
+    )
   })
 
   it('无效日期使用指定兜底日期', () => {

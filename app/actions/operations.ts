@@ -10,7 +10,7 @@ import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle
 import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
-import { compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
+import { buildNextDeviceCode, compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -90,7 +90,7 @@ export async function returnRentalItem(input: ReturnInput) {
 
 const exchangeText = z.string().trim().max(500).optional()
 const exchangeSchema = z.object({
-  rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), exchangeDate: z.string().min(1), newDeviceName: z.string().trim().min(2), newDeviceType: z.enum(['台式机','笔记本','显示器','一体机','其他']), newDeviceCode: z.string().trim().min(1), newDeviceConfig: exchangeText,
+  rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), exchangeDate: z.string().min(1), newDeviceName: z.string().trim().min(2), newDeviceType: z.enum(['台式机','笔记本','显示器','一体机','其他']), newDeviceConfig: exchangeText,
   cpu:exchangeText,motherboard:exchangeText,memory:exchangeText,storage:exchangeText,graphicsCard:exchangeText,powerSupply:exchangeText,caseModel:exchangeText,monitorInfo:exchangeText,screenSize:exchangeText,screenResolution:exchangeText,refreshRate:exchangeText,panelType:exchangeText,ports:exchangeText,batteryInfo:exchangeText,adapterInfo:exchangeText,accessories:exchangeText,colorGamut:exchangeText,
   reason: z.string().trim().min(2), notes: exchangeText,
 })
@@ -99,14 +99,17 @@ export type ExchangeInput = z.infer<typeof exchangeSchema>
 export async function exchangeRentalItem(input: ExchangeInput) {
   const { userId, name } = await actor()
   const value = exchangeSchema.parse(input)
-  const [[item], items] = await Promise.all([
+  const [[item], items, allDeviceCodes] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, value.rentalId), eq(rentalItems.id, value.rentalItemId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,value.rentalId))),
+    db.select({ deviceCode: rentalItems.deviceCode }).from(rentalItems).where(eq(rentalItems.userId, userId)),
   ])
   if (!item) throw new Error('设备不存在')
+  const newDeviceCode = buildNextDeviceCode(value.exchangeDate, value.newDeviceType, allDeviceCodes.map((row) => row.deviceCode))
+  if (allDeviceCodes.some((row) => expandDeviceCodes(row.deviceCode).includes(newDeviceCode))) throw new Error('新设备编号发生冲突，请重新提交')
   const keys = ['deviceName','deviceType','deviceCode','deviceConfig','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
   const before = Object.fromEntries(keys.map(key => [key, item[key]]))
-  const after = { deviceName:value.newDeviceName,deviceType:value.newDeviceType,deviceCode:value.newDeviceCode,deviceConfig:value.newDeviceConfig||null,cpu:value.cpu||null,motherboard:value.motherboard||null,memory:value.memory||null,storage:value.storage||null,graphicsCard:value.graphicsCard||null,powerSupply:value.powerSupply||null,caseModel:value.caseModel||null,monitorInfo:value.monitorInfo||null,screenSize:value.screenSize||null,screenResolution:value.screenResolution||null,refreshRate:value.refreshRate||null,panelType:value.panelType||null,ports:value.ports||null,batteryInfo:value.batteryInfo||null,adapterInfo:value.adapterInfo||null,accessories:value.accessories||null,colorGamut:value.colorGamut||null }
+  const after = { deviceName:value.newDeviceName,deviceType:value.newDeviceType,deviceCode:newDeviceCode,deviceConfig:value.newDeviceConfig||null,cpu:value.cpu||null,motherboard:value.motherboard||null,memory:value.memory||null,storage:value.storage||null,graphicsCard:value.graphicsCard||null,powerSupply:value.powerSupply||null,caseModel:value.caseModel||null,monitorInfo:value.monitorInfo||null,screenSize:value.screenSize||null,screenResolution:value.screenResolution||null,refreshRate:value.refreshRate||null,panelType:value.panelType||null,ports:value.ports||null,batteryInfo:value.batteryInfo||null,adapterInfo:value.adapterInfo||null,accessories:value.accessories||null,colorGamut:value.colorGamut||null }
   const nextItems = items.map(current => current.id === item.id ? { ...current, ...after } : current)
   await db.batch([
     db.update(rentalItems).set({ ...after, updatedAt: new Date() }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, item.id))),

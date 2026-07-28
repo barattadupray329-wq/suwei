@@ -4201,7 +4201,6 @@ function ExchangeForm({
     exchangeDate: today(),
     newDeviceName: "",
     newDeviceType: "台式机",
-    newDeviceCode: "",
     newDeviceConfig: "",
     cpu: "",
     motherboard: "",
@@ -4272,11 +4271,15 @@ function ExchangeForm({
           value={value.newDeviceName}
           onChange={(next) => update("newDeviceName", next)}
         />
-        <Field
-          label="新设备编号"
-          value={value.newDeviceCode}
-          onChange={(next) => update("newDeviceCode", next)}
-        />
+        <div className="flex flex-col gap-2 text-sm font-medium">
+          <span>新设备编号</span>
+          <div className="flex h-10 items-center rounded-lg border bg-muted px-3 text-muted-foreground">
+            系统将在提交时按设备类型和换机日期自动生成
+          </div>
+          <span className="text-xs font-normal text-muted-foreground">
+            操作员无需填写，避免重复编号影响后续查询。
+          </span>
+        </div>
         {(configs[value.newDeviceType] || []).map(([key, label]) => {
           const exchangeKey = key as keyof ExchangeInput;
           return (
