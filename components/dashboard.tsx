@@ -1709,7 +1709,7 @@ function RentalForm({
   const [numbersLoading, setNumbersLoading] = useState(false);
   const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
-  const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {} });
+  const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {}, monitorBrands: [] });
   useEffect(() => {
     let active = true;
     getRentalFormSuggestions().then((value) => { if (active) setHistorySuggestions(value); }).catch(() => {});
@@ -2014,6 +2014,8 @@ function RentalForm({
                       }
                       value={item.deviceName}
                       onChange={(v) => updateItem(index, "deviceName", v)}
+                      suggestions={item.deviceType === "显示器" ? historySuggestions.monitorBrands : []}
+                      listId={item.deviceType === "显示器" ? `rental-monitor-brand-${index}` : undefined}
                     />
                   )}
                   <Field
@@ -2097,7 +2099,7 @@ function RentalForm({
                 )}
                 <div className="mt-4">
                   <Field
-                    label="其他配置"
+                    label="备注"
                     value={item.deviceConfig || ""}
                     onChange={(v) => updateItem(index, "deviceConfig", v)}
                     suggestions={historySuggestions.configurations.deviceConfig || []}
@@ -3434,7 +3436,7 @@ function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; p
 }
 
 function SettlementFields({ label, value, onChange }: { label: string; value: SettlementInput; onChange: (value: SettlementInput) => void }) {
-  return <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{label}</legend><div className="grid gap-4 sm:grid-cols-3"><label className="flex flex-col gap-2 text-sm font-medium">结算时间<select className="h-10 rounded-lg border bg-background px-3" value={value.timing} onChange={(event) => onChange({ ...value, timing: event.target.value as SettlementInput["timing"] })}><option value="now">现在结算</option><option value="later">以后结算</option></select></label><Field label={value.timing === "now" ? "结算日期" : "约定日期"} type="date" value={value.date} onChange={(date) => onChange({ ...value, date })} /><label className="flex flex-col gap-2 text-sm font-medium">结算方式<select className="h-10 rounded-lg border bg-background px-3" value={value.method} onChange={(event) => onChange({ ...value, method: event.target.value as SettlementInput["method"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div><p className="mt-3 text-xs text-muted-foreground">{value.timing === "now" ? "保存后立即登记已结算金额。" : "保存后登记为待处理，后续再登记收付款。"}</p></fieldset>;
+  return <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{label}</legend><div className="grid gap-4 sm:grid-cols-3"><label className="flex flex-col gap-2 text-sm font-medium">结算时间<select className="h-10 rounded-lg border bg-background px-3" value={value.timing} onChange={(event) => onChange({ ...value, timing: event.target.value as SettlementInput["timing"] })}><option value="now">现在结算</option><option value="later">以后结算</option></select></label><Field label={value.timing === "now" ? "结算日期" : "预定日期"} type="date" value={value.date} onChange={(date) => onChange({ ...value, date })} /><label className="flex flex-col gap-2 text-sm font-medium">结算方式<select className="h-10 rounded-lg border bg-background px-3" value={value.method} onChange={(event) => onChange({ ...value, method: event.target.value as SettlementInput["method"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div><p className="mt-3 text-xs text-muted-foreground">{value.timing === "now" ? "保存后立即登记已结算金额。" : "保存后登记为待处理，后续再登记收付款。"}</p></fieldset>;
 }
 
 function RenewalForm({

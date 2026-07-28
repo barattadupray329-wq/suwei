@@ -617,13 +617,14 @@ export async function buyoutRentalItem(rentalId: number, rentalItemId: number, q
 export type RentalFormSuggestions = {
   contacts: Array<{ name: string; phone: string; company: string; address: string }>
   configurations: Record<string, string[]>
+  monitorBrands: string[]
 }
 
 export async function getRentalFormSuggestions(): Promise<RentalFormSuggestions> {
   const userId = await getUserId()
   const [contracts, items] = await Promise.all([
     db.select({ name: rentals.customerName, phone: rentals.customerPhone, company: rentals.customerCompany, address: rentals.customerAddress }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))).orderBy(desc(rentals.createdAt)).limit(300),
-    db.select({ cpu: rentalItems.cpu, motherboard: rentalItems.motherboard, memory: rentalItems.memory, storage: rentalItems.storage, graphicsCard: rentalItems.graphicsCard, powerSupply: rentalItems.powerSupply, caseModel: rentalItems.caseModel, monitorInfo: rentalItems.monitorInfo, screenSize: rentalItems.screenSize, screenResolution: rentalItems.screenResolution, refreshRate: rentalItems.refreshRate, panelType: rentalItems.panelType, ports: rentalItems.ports, batteryInfo: rentalItems.batteryInfo, adapterInfo: rentalItems.adapterInfo, accessories: rentalItems.accessories, colorGamut: rentalItems.colorGamut, deviceConfig: rentalItems.deviceConfig }).from(rentalItems).where(eq(rentalItems.userId, userId)).orderBy(desc(rentalItems.createdAt)).limit(500),
+    db.select({ deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, cpu: rentalItems.cpu, motherboard: rentalItems.motherboard, memory: rentalItems.memory, storage: rentalItems.storage, graphicsCard: rentalItems.graphicsCard, powerSupply: rentalItems.powerSupply, caseModel: rentalItems.caseModel, monitorInfo: rentalItems.monitorInfo, screenSize: rentalItems.screenSize, screenResolution: rentalItems.screenResolution, refreshRate: rentalItems.refreshRate, panelType: rentalItems.panelType, ports: rentalItems.ports, batteryInfo: rentalItems.batteryInfo, adapterInfo: rentalItems.adapterInfo, accessories: rentalItems.accessories, colorGamut: rentalItems.colorGamut, deviceConfig: rentalItems.deviceConfig }).from(rentalItems).where(eq(rentalItems.userId, userId)).orderBy(desc(rentalItems.createdAt)).limit(500),
   ])
   const contactKeys = new Set<string>()
   const contacts = contracts.flatMap((row) => {
@@ -634,7 +635,8 @@ export async function getRentalFormSuggestions(): Promise<RentalFormSuggestions>
   }).slice(0, 100)
   const configurationKeys = ['cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut','deviceConfig'] as const
   const configurations = Object.fromEntries(configurationKeys.map((key) => [key, [...new Set(items.map((item) => item[key]?.trim()).filter((value): value is string => Boolean(value)))].slice(0, 30)]))
-  return { contacts, configurations }
+  const monitorBrands = [...new Set(items.flatMap((item) => item.deviceType === '显示器' && item.deviceName.trim() ? [item.deviceName.trim()] : []))].slice(0, 30)
+  return { contacts, configurations, monitorBrands }
 }
 
 export async function getCustomerHistory(phone: string) {
