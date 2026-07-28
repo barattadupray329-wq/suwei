@@ -10,6 +10,7 @@ import { assertDateOrder, dateOnly, fromCents, inclusiveDays, proratedMonthlyRen
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { availableQuantity } from '@/lib/rental-lifecycle'
 import { compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
+import { userErrorMessage } from '@/lib/errors'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -36,7 +37,7 @@ export type RepairInput = z.infer<typeof repairSchema>
 const snapshotKeys = ['deviceName','deviceType','deviceCode','deviceConfig','quantity','monthlyRent','totalRent','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
 function snapshot(item: Record<string, unknown>) { return Object.fromEntries(snapshotKeys.map(key => [key, item[key]])) }
 
-export async function changeRentalItem(input: RentalChangeInput) {
+async function performRentalItemChange(input: RentalChangeInput) {
   const context = await getAccessContext('租赁操作')
   const { userId, actorName: name, actorId } = context
   const value = changeSchema.parse(input)
@@ -113,6 +114,15 @@ export async function changeRentalItem(input: RentalChangeInput) {
   revalidatePath('/rentals')
   revalidatePath('/finance')
   revalidatePath('/audit-logs')
+}
+
+export async function changeRentalItem(input: RentalChangeInput) {
+  try {
+    await performRentalItemChange(input)
+    return { ok: true as const }
+  } catch (error) {
+    return { ok: false as const, message: userErrorMessage(error, '配置与租金变更失败，请核对设备和生效日期后重试') }
+  }
 }
 
 export async function createRepairRecord(input: RepairInput) {

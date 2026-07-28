@@ -4750,17 +4750,21 @@ function ChangeForm({
               {value.changeConfiguration && (
                 <>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">配置</dt>
+                    <dt className="text-muted-foreground">设备名称</dt>
                     <dd className="text-right font-medium">
-                      {value.deviceName}
+                      {selectedItem.deviceName} → {value.deviceName}
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">配件</dt>
-                    <dd className="max-w-[70%] text-right font-medium">
-                      {selectedItem.accessories || "未填写"} → {value.accessories || "未填写"}
-                    </dd>
-                  </div>
+                  {(configs[value.deviceType] || [])
+                    .filter(([key]) => String(selectedItem[key as keyof Item] || "") !== String(value[key as keyof RentalChangeInput] || ""))
+                    .map(([key, label]) => (
+                      <div key={key} className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="max-w-[70%] text-right font-medium">
+                          {String(selectedItem[key as keyof Item] || "未填写")} → {String(value[key as keyof RentalChangeInput] || "未填写")}
+                        </dd>
+                      </div>
+                    ))}
                 </>
               )}
               {value.changeRent && (

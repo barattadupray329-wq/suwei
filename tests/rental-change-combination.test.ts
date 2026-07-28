@@ -20,10 +20,10 @@ describe('配置与租金组合变更', () => {
     expect(action).toContain('await db.batch(statements')
   })
 
-  test('组合变更确认页显示配件和新旧租金', () => {
-    expect(dashboard).toContain('<dt className="text-muted-foreground">配件</dt>')
-    expect(dashboard).toContain('selectedItem.accessories || "未填写"')
-    expect(dashboard).toContain('value.accessories || "未填写"')
+  test('组合变更确认页按实际字段显示显卡等配置和新旧租金', () => {
+    expect(dashboard).toContain('(configs[value.deviceType] || [])')
+    expect(dashboard).toContain('String(selectedItem[key as keyof Item] || "")')
+    expect(dashboard).toContain('String(value[key as keyof RentalChangeInput] || "")')
     expect(dashboard).toContain('value.monthlyRent.toLocaleString("zh-CN")')
   })
 
