@@ -227,9 +227,17 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [[summary], [draftSummary], activeDeviceRows] = await Promise.all([
-    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when ${rentals.status} not in ('已关闭', '已买断') then ${rentals.totalRent} - ${rentals.paidAmount} else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
-    db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
+  const [[summary], activeDeviceRows] = await Promise.all([
+    db.select({
+      total: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' then 1 else 0 end), 0)`,
+      draft: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'draft' then 1 else 0 end), 0)`,
+      active: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`,
+      overdue: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and (${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失'))) then 1 else 0 end), 0)`,
+      dueSoon: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`,
+      repairPending: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} = '维修中' then 1 else 0 end), 0)`,
+      revenue: sql<string>`coalesce(sum(case when ${rentals.orderType} = 'official' then ${rentals.paidAmount} else 0 end), 0)`,
+      receivable: sql<string>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} not in ('已关闭', '已买断') then ${rentals.totalRent} - ${rentals.paidAmount} else 0 end), 0)`,
+    }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active'))),
     db.select({
       deviceType: rentalItems.deviceType,
       quantity: sql<number>`coalesce(sum(max(${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity}, 0)), 0)`,
@@ -245,7 +253,7 @@ export async function getDashboard() {
   for (const row of activeDeviceRows) {
     if (row.deviceType in activeDevices) activeDevices[row.deviceType as keyof typeof activeDevices] = Number(row.quantity)
   }
-  return { ...summary, draft: draftSummary?.draft ?? 0, activeDevices }
+  return { ...summary, draft: summary?.draft ?? 0, activeDevices }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }
