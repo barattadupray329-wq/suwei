@@ -23,11 +23,12 @@ export async function getWebsitePackagesForAdmin(){const context=await requireSu
 export async function saveWebsitePackage(input:z.infer<typeof websitePackageSchema>&{id?:number}){const context=await requireSuperAdmin();const value=websitePackageSchema.parse(input);const now=new Date();if(input.id){await db.update(websitePackages).set({...value,updatedAt:now}).where(and(eq(websitePackages.id,input.id),eq(websitePackages.userId,context.userId)))}else{await db.insert(websitePackages).values({...value,userId:context.userId,createdAt:now,updatedAt:now})}revalidatePath('/');revalidatePath('/website-packages')}
 export async function deleteWebsitePackage(id:number){const context=await requireSuperAdmin();await db.delete(websitePackages).where(and(eq(websitePackages.id,id),eq(websitePackages.userId,context.userId)));revalidatePath('/');revalidatePath('/website-packages')}
 
-export async function getFinanceData(input: { query?: string; type?: string; method?: string; from?: string; to?: string; page?: number; pageSize?: number } = {}) {
+export async function getFinanceData(input: { query?: string; type?: string; method?: string; from?: string; to?: string; view?: 'receipts'; page?: number; pageSize?: number } = {}) {
   const id = await userId('资金查看')
   const page = Math.max(1, Math.min(500000, Math.trunc(input.page || 1)))
   const pageSize = Math.max(1, Math.min(100, Math.trunc(input.pageSize || 20)))
   const filters = [eq(paymentRecords.userId, id)]
+  if (input.view === 'receipts') filters.push(sql`${rentals.orderType} = 'official' and ${rentals.lifecycleStatus} = 'active' and ${rentals.deletedAt} is null`)
   if (input.from) filters.push(gte(paymentRecords.paymentDate, input.from))
   if (input.to) filters.push(lte(paymentRecords.paymentDate, input.to))
   if (input.type && input.type !== '全部') filters.push(eq(paymentRecords.feeType, input.type))
@@ -39,8 +40,8 @@ export async function getFinanceData(input: { query?: string; type?: string; met
   const [rows, [countRow], [summary], types] = await Promise.all([
     joined.where(where).orderBy(desc(paymentRecords.paymentDate), desc(paymentRecords.id)).limit(pageSize).offset((page - 1) * pageSize),
     db.select({ count: sql<number>`count(*)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
-    db.select({ today: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} = ${day} then cast(${paymentRecords.amount} as real) else 0 end),0)`, month: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${month + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, year: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${year + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, all: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).where(eq(paymentRecords.userId, id)),
-    db.select({ type: paymentRecords.feeType, amount: sql<number>`sum(cast(${paymentRecords.amount} as real))` }).from(paymentRecords).where(eq(paymentRecords.userId, id)).groupBy(paymentRecords.feeType),
+    db.select({ today: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} = ${day} then cast(${paymentRecords.amount} as real) else 0 end),0)`, month: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${month + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, year: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${year + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, all: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
+    db.select({ type: paymentRecords.feeType, amount: sql<number>`sum(cast(${paymentRecords.amount} as real))` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(input.view === 'receipts' ? and(eq(paymentRecords.userId, id), sql`${rentals.orderType} = 'official' and ${rentals.lifecycleStatus} = 'active' and ${rentals.deletedAt} is null`) : eq(paymentRecords.userId, id)).groupBy(paymentRecords.feeType),
   ])
   const total = Number(countRow?.count ?? 0)
   return { rows, summary: { today: Number(summary?.today ?? 0), month: Number(summary?.month ?? 0), year: Number(summary?.year ?? 0), all: Number(summary?.all ?? 0) }, types: types.map((row) => [row.type, Number(row.amount)] as [string, number]), total, page, pageCount: Math.max(1, Math.ceil(total / pageSize)) }

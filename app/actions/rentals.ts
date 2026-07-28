@@ -165,7 +165,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const remainingQuantity = sql<number>`coalesce((select sum(max(ri.quantity - ri."boughtOutQuantity" - ri."returnedQuantity" - ri."lostQuantity", 0)) from rental_items ri where ri."rentalId" = ${rentals.id} and ri."userId" = ${userId}), ${rentals.quantity}, 0)`
   if (value.activeOnly) filters.push(sql`${rentals.orderType} = 'official' and ${activeByDate} and ${remainingQuantity} > 0`)
-  if (value.hasReceivable) filters.push(sql`${rentals.orderType} = 'official' and cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) > 0`)
+  if (value.hasReceivable) filters.push(sql`${rentals.orderType} = 'official' and ${activeByDate} and max(cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real), 0) > 0`)
   const where = and(...filters)
   const finishedPriority = sql<number>`case when ${rentals.status} in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) or ${remainingQuantity} <= 0 then 1 else 0 end`
   const selectedOrder = value.sort === 'oldest'
@@ -179,7 +179,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const [[countRow], rows, matchingRentalRows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(...selectedOrder, desc(rentals.id)).limit(value.pageSize).offset(offset),
-    db.select({ id: rentals.id, endDate: rentals.endDate, status: rentals.status, monthlyRent: rentals.monthlyRent }).from(rentals).where(where),
+    db.select({ id: rentals.id, endDate: rentals.endDate, status: rentals.status, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount }).from(rentals).where(where),
   ])
   const allRentalIds = matchingRentalRows.map((row) => row.id)
   const allItemRows = allRentalIds.length
@@ -218,8 +218,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     }
   })
   const overdueRentTotal = matchingRentalRows.reduce((sum, row) => sum + overdueRent(row), 0)
+  const receivableTotal = matchingRentalRows.reduce((sum, row) => sum + Math.max(Number(row.totalRent) - Number(row.paidAmount), 0), 0)
   const total = Number(countRow?.count ?? 0)
-  return { rows: normalizedRows, total, overdueRentTotal, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+  return { rows: normalizedRows, total, overdueRentTotal, receivableTotal, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
 }
 
 export async function getRentalById(id: number) {
@@ -231,7 +232,7 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [[summary], activeDeviceRows] = await Promise.all([
+  const [[summary], activeDeviceRows, [receiptSummary]] = await Promise.all([
     db.select({
       total: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' then 1 else 0 end), 0)`,
       draft: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'draft' then 1 else 0 end), 0)`,
@@ -239,8 +240,8 @@ export async function getDashboard() {
       overdue: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and (${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失'))) then 1 else 0 end), 0)`,
       dueSoon: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`,
       repairPending: sql<number>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} = '维修中' then 1 else 0 end), 0)`,
-      revenue: sql<string>`coalesce(sum(case when ${rentals.orderType} = 'official' then ${rentals.paidAmount} else 0 end), 0)`,
-      receivable: sql<string>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} not in ('已关闭', '已买断') then ${rentals.totalRent} - ${rentals.paidAmount} else 0 end), 0)`,
+      revenue: sql<string>`0`,
+      receivable: sql<string>`coalesce(sum(case when ${rentals.orderType} = 'official' and ${rentals.status} not in ('买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '丢失', '已丢失') then max(cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real), 0) else 0 end), 0)`,
     }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active'))),
     db.select({
       deviceType: rentalItems.deviceType,
@@ -252,6 +253,12 @@ export async function getDashboard() {
       sql`${rentals.deletedAt} is null`,
       sql`${rentals.status} not in ('已关闭', '已完成', '已退回', '已买断', '已丢失')`,
     )).groupBy(rentalItems.deviceType),
+    db.select({ revenue: sql<string>`coalesce(sum(cast(${paymentRecords.amount} as real)), 0)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, paymentRecords.userId))).where(and(
+      eq(paymentRecords.userId, userId),
+      eq(rentals.orderType, 'official'),
+      eq(rentals.lifecycleStatus, 'active'),
+      sql`${rentals.deletedAt} is null`,
+    )),
   ])
   const activeDevices = { 台式机: 0, 显示器: 0, 一体机: 0, 笔本: 0 }
   for (const row of activeDeviceRows) {
@@ -288,7 +295,7 @@ export async function getDashboard() {
       deviceCode,
     }))
   })
-  return { ...summary, draft: summary?.draft ?? 0, activeDevices: { 台式机: activeDevices.台式机, 显示器: activeDevices.显示器, 一体机: activeDevices.一体机, 笔记本: activeDevices.笔本 }, activeDeviceList }
+  return { ...summary, revenue: receiptSummary?.revenue ?? '0', draft: summary?.draft ?? 0, activeDevices: { 台式机: activeDevices.台式机, 显示器: activeDevices.显示器, 一体机: activeDevices.一体机, 笔记本: activeDevices.笔本 }, activeDeviceList }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }

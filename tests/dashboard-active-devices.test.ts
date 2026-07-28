@@ -31,7 +31,7 @@ describe('经营总览在租设备统计', () => {
     expect(dashboard).toContain('/rentals?orderType=official')
     expect(dashboard).toContain('/rentals?activeOnly=1')
     expect(dashboard).toContain('/rentals?status=逾期')
-    expect(dashboard).toContain('/finance?type=收款')
+    expect(dashboard).toContain('/finance?view=receipts')
     expect(dashboard).toContain('/rentals?hasReceivable=1')
     expect(actions).toContain('if (value.activeOnly)')
     expect(actions).toContain('if (value.hasReceivable)')
