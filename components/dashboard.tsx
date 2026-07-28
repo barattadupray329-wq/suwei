@@ -3974,6 +3974,7 @@ function OperationForm({
   const [collectionSettlement, setCollectionSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [refundSettlement, setRefundSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
+  const [clientRequestId] = useState(() => crypto.randomUUID());
   return (
     <form
       onSubmit={(e) => {
@@ -3981,6 +3982,7 @@ function OperationForm({
         const base = {
           rentalId: rental.id,
           rentalItemId: itemId,
+          clientRequestId,
           deviceCodes: mode === "return" ? selectedCodes : undefined,
           quantity: mode === "return" ? selectedCodes.length : quantity,
           date,

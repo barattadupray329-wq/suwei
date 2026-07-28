@@ -11,10 +11,19 @@ import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { availableQuantity } from '@/lib/rental-lifecycle'
 import { compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
 import { userErrorMessage } from '@/lib/errors'
+import { safeOperationId } from '@/lib/rental-operation-hub'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
   return { userId: context.userId, name: context.actorName }
+}
+
+function revalidateRentalBusiness() {
+  revalidatePath('/')
+  revalidatePath('/dashboard')
+  revalidatePath('/rentals')
+  revalidatePath('/finance')
+  revalidatePath('/audit-logs')
 }
 
 const optionalText = z.string().trim().max(500).optional()
@@ -69,7 +78,7 @@ async function performRentalItemChange(input: RentalChangeInput) {
   const configurationPatch = value.changeConfiguration ? { deviceName:value.deviceName, deviceType:value.deviceType, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null } : {}
   const selectedPatch = { ...configurationPatch, deviceCode:compressDeviceCodes(selectedCodes), quantity:selectedCount, monthlyRent:nextMonthlyRent, totalRent:item.totalRent, boughtOutQuantity:0, returnedQuantity:0, lostQuantity:0, updatedAt:new Date() }
   const wholeGroup = selectedCount === item.quantity
-  const generatedId = () => Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const generatedId = () => safeOperationId()
   const targetItemId = wholeGroup ? item.id : generatedId()
   // 事件编号必须独立生成。整组变更会复用原设备明细 ID，不能再用 item.id + 1，否则会与历史事件主键冲突。
   const eventId = generatedId()
@@ -109,11 +118,7 @@ async function performRentalItemChange(input: RentalChangeInput) {
     if (/unique constraint|primary key/i.test(message)) throw new Error('本次变更记录编号冲突，请重新提交')
     throw error
   }
-  revalidatePath('/')
-  revalidatePath('/dashboard')
-  revalidatePath('/rentals')
-  revalidatePath('/finance')
-  revalidatePath('/audit-logs')
+  revalidateRentalBusiness()
 }
 
 export async function changeRentalItem(input: RentalChangeInput) {
@@ -143,7 +148,7 @@ export async function createRepairRecord(input: RepairInput) {
   if (availableQuantity(item) <= 0) throw new Error('已全部处置的设备不能登记维修')
   const totalRentCents = toCents(rental.totalRent) + toCents(value.customerCharge)
   const paymentStatus = paymentStatusFromCents(totalRentCents, toCents(rental.paidAmount))
-  const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const eventId = safeOperationId()
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
     db.update(rentals).set({totalRent:fromCents(totalRentCents),paymentStatus,updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
     db.insert(rentalEvents).values({id:eventId,userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'维修',status:value.status,eventDate:value.eventDate,beforeSnapshot:snapshot(item),faultDescription:value.faultDescription,resolution:value.resolution,repairCost:fromCents(toCents(value.repairCost)),customerCharge:fromCents(toCents(value.customerCharge)),completedDate:value.completedDate||null,operatorName:name,notes:value.notes}),
@@ -151,8 +156,7 @@ export async function createRepairRecord(input: RepairInput) {
   ]
   if (toCents(value.customerCharge) > 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `REPAIR-${value.rentalId}-${eventId}`, periodStart: value.eventDate, periodEnd: value.completedDate || value.eventDate, dueDate: value.completedDate || value.eventDate, billType: '维修费', amount: fromCents(toCents(value.customerCharge)), paidAmount: '0.00', status: '待收', notes: `${item.deviceName} 维修客户承担费用` }))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
-  revalidatePath('/')
-  revalidatePath('/audit-logs')
+  revalidateRentalBusiness()
 }
 
 const contractChangeSchema = z.object({
@@ -192,7 +196,7 @@ export async function changeRentalContract(input: ContractChangeInput) {
   const nextTotalCents = toCents(rental.totalRent) + toCents(value.feeAdjustment)
   if (nextTotalCents < 0) throw new Error('调整后合同金额不能小于 0')
   const paymentStatus = paymentStatusFromCents(nextTotalCents, toCents(rental.paidAmount))
-  const eventId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const eventId = safeOperationId()
   const eventNote = `${value.feeNote}；客户${value.customerConfirmed ? '已确认' : '未确认'}`
   const rentalPatch = value.changeType === '客户资料变更'
     ? { customerName: value.customerName!, customerPhone: value.customerPhone!, totalRent: fromCents(nextTotalCents), paymentStatus, updatedAt: new Date() }
@@ -208,8 +212,7 @@ export async function changeRentalContract(input: ContractChangeInput) {
     db.insert(auditLogs).values({ userId: context.userId, actorUserId: context.actorId, actorName: context.actorName, action: '租赁变更', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 办理${value.changeType}`, metadata: { eventId, beforeSnapshot, afterSnapshot, feeAdjustment: value.feeAdjustment, customerConfirmed: value.customerConfirmed } }),
   ]
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
-  revalidatePath('/dashboard')
-  revalidatePath('/finance')
+  revalidateRentalBusiness()
 }
 
 export async function getRentalEvents(rentalId:number) {

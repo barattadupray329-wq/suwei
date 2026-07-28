@@ -6,6 +6,7 @@ import {
   operationIdempotencyKey,
   operationNumber,
   operationWarnings,
+  safeOperationId,
 } from '../lib/rental-operation-hub'
 
 describe('统一租赁业务中心', () => {
@@ -26,6 +27,12 @@ describe('统一租赁业务中心', () => {
   it('业务编号可读且按类型区分', () => {
     expect(operationNumber('renewal', 12, new Date('2026-07-27T01:02:03Z'))).toBe('XR-20260727010203-12')
     expect(operationNumber('loss', 12, new Date('2026-07-27T01:02:03Z'))).toMatch(/^DS-/)
+  })
+
+  it('业务记录编号保持为安全整数并预留更大随机空间', () => {
+    const id = safeOperationId(1_700_000_000_000)
+    expect(Number.isSafeInteger(id)).toBe(true)
+    expect(Math.floor(id / 4096)).toBe(1_700_000_000_000)
   })
 
   it('到期和逾期默认自动发送，其余业务通知由操作人确认', () => {

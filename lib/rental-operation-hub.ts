@@ -67,6 +67,11 @@ export function operationIdempotencyKey(input: {
   return `${input.userId}:${input.rentalId}:${input.type}:${input.clientRequestId.trim()}`
 }
 
+export function safeOperationId(now = Date.now()) {
+  const random = crypto.getRandomValues(new Uint16Array(1))[0] & 0x0fff
+  return now * 4096 + random
+}
+
 export function operationNumber(type: RentalOperationType, rentalId: number, now = new Date()) {
   const stamp = now.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const code: Record<RentalOperationType, string> = {
