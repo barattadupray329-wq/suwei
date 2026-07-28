@@ -4242,6 +4242,13 @@ function ChangeForm({
 
   const codes = expandDeviceCodes(selectedItem.deviceCode, selectedItem.quantity);
   const codesUnavailable = codes.length !== selectedItem.quantity;
+  const itemSummary = (item: Item) => {
+    const fields =
+      item.deviceType === "显示器"
+        ? [item.screenSize, item.screenResolution, item.refreshRate, item.panelType]
+        : [item.cpu, item.memory, item.storage, item.graphicsCard];
+    return fields.filter(Boolean).join(" · ") || item.deviceConfig || "暂未填写配置";
+  };
   const update = (key: keyof RentalChangeInput, next: string | number | boolean) =>
     setValue((current) => ({ ...current, [key]: next }));
   const toggleCode = (code: string) =>
@@ -4302,21 +4309,61 @@ function ChangeForm({
       {step === 0 && (
         <div className="flex flex-col gap-4">
           {changeableItems.length > 1 && (
-            <label className="flex flex-col gap-2 text-sm font-medium">
-              设备明细
-              <select
-                value={itemId}
-                onChange={(e) => pickItem(Number(e.target.value))}
-                className="h-10 rounded-lg border bg-background px-3"
-              >
-                {changeableItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.deviceType} · {item.deviceName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-sm font-medium">先按当前配置选择设备组</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {changeableItems.map((item) => {
+                  const active = item.id === selectedItem.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => pickItem(item.id)}
+                      className={`flex flex-col gap-1 rounded-xl border p-3 text-left ${
+                        active
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-muted/50"
+                      }`}
+                    >
+                      <span className="flex w-full items-center justify-between gap-3">
+                        <strong className="text-sm">
+                          {item.deviceType} · {item.deviceName}
+                        </strong>
+                        <span className="shrink-0 text-xs font-medium text-primary">
+                          {item.quantity} 台
+                        </span>
+                      </span>
+                      <span className="text-xs leading-5 text-muted-foreground">
+                        {itemSummary(item)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {item.deviceCode || "未编号"} · ¥{Number(item.monthlyRent).toLocaleString("zh-CN")} / 台
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
           )}
+          <section className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">
+                  当前配置：{selectedItem.deviceType} · {selectedItem.deviceName}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {itemSummary(selectedItem)}
+                </p>
+              </div>
+              <span className="shrink-0 text-sm font-semibold text-primary">
+                ¥{Number(selectedItem.monthlyRent).toLocaleString("zh-CN")} / 台
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              下方编号目前都属于这套配置；曾单独变更过的设备会自动拆成另一张配置卡。
+            </p>
+          </section>
           {codesUnavailable ? (
             <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
               该明细的设备编号无法逐台识别，请先在设备资料中补全连续编号后再变更。
