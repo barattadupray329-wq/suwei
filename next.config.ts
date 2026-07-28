@@ -1,5 +1,9 @@
 import type { NextConfig } from 'next'
 
+const buildTime = new Date().toISOString()
+const buildIdentity = process.env.CF_VERSION_METADATA_ID || process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || Math.random().toString(36).slice(2, 9)
+const buildVersion = `${buildTime.replace(/[-:TZ.]/g, '').slice(0, 12)}-${buildIdentity.slice(0, 7)}`
+
 // React 开发模式需要 eval() 来重建调用栈等调试能力，生产环境保持严格策略不放行。
 const scriptSrc = process.env.NODE_ENV === 'production'
   ? "script-src 'self' 'unsafe-inline'"
@@ -32,6 +36,10 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  env: {
+    NEXT_PUBLIC_BUILD_TIME: buildTime,
+    NEXT_PUBLIC_BUILD_VERSION: buildVersion,
+  },
   reactCompiler: true,
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
