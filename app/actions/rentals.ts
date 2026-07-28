@@ -227,11 +227,25 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  const [[summary], [draftSummary]] = await Promise.all([
+  const [[summary], [draftSummary], activeDeviceRows] = await Promise.all([
     db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when ${rentals.status} not in ('已关闭', '已买断') then ${rentals.totalRent} - ${rentals.paidAmount} else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
+    db.select({
+      deviceType: rentalItems.deviceType,
+      quantity: sql<number>`coalesce(sum(max(${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity}, 0)), 0)`,
+    }).from(rentalItems).innerJoin(rentals, and(eq(rentals.id, rentalItems.rentalId), eq(rentals.userId, rentalItems.userId))).where(and(
+      eq(rentalItems.userId, userId),
+      eq(rentals.orderType, 'official'),
+      eq(rentals.lifecycleStatus, 'active'),
+      sql`${rentals.deletedAt} is null`,
+      sql`${rentals.status} not in ('已关闭', '已完成', '已退回', '已买断', '已丢失')`,
+    )).groupBy(rentalItems.deviceType),
   ])
-  return { ...summary, draft: draftSummary?.draft ?? 0 }
+  const activeDevices = { 台式机: 0, 显示器: 0, 一体机: 0, 笔记本: 0 }
+  for (const row of activeDeviceRows) {
+    if (row.deviceType in activeDevices) activeDevices[row.deviceType as keyof typeof activeDevices] = Number(row.quantity)
+  }
+  return { ...summary, draft: draftSummary?.draft ?? 0, activeDevices }
 }
 
 export type RentalAssignee = { id: string; name: string; role: 'admin' | 'employee' }

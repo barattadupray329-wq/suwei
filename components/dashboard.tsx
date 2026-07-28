@@ -243,6 +243,12 @@ type Summary = {
   repairPending: number;
   revenue: string;
   receivable: string;
+  activeDevices: {
+    台式机: number;
+    显示器: number;
+    一体机: number;
+    笔记本: number;
+  };
 };
 const money = (n: string | number) =>
   new Intl.NumberFormat("zh-CN", {
@@ -336,6 +342,25 @@ export function BusinessOverview({ summary }: { summary: Summary }) {
           <Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} />
           <Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} />
           <Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} />
+        </section>
+
+        <section aria-labelledby="active-devices-heading" className="rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 id="active-devices-heading" className="font-semibold">在租设备</h2>
+              <p className="text-sm text-muted-foreground">按当前实际未退租、未买断、未丢失的设备数量统计。</p>
+            </div>
+            <Monitor className="size-5 text-primary" aria-hidden="true" />
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {(Object.entries(summary.activeDevices) as Array<[keyof Summary["activeDevices"], number]>).map(([deviceType, quantity]) => (
+              <Link key={deviceType} href={`/rentals?query=${encodeURIComponent(deviceType)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary hover:bg-primary/5">
+                <p className="text-sm font-medium text-muted-foreground">{deviceType}</p>
+                <p className="mt-2 text-2xl font-bold text-primary">{quantity}<span className="ml-1 text-sm font-medium text-muted-foreground">台</span></p>
+                <p className="mt-1 text-xs text-muted-foreground">查看在租记录</p>
+              </Link>
+            ))}
+          </div>
         </section>
 
         <section className="rounded-xl border bg-card p-4">
