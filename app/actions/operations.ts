@@ -10,13 +10,14 @@ import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle
 import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
+import { compressDeviceCodes, expandDeviceCodes } from '@/lib/rental-numbers'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
   return { userId: context.userId, actorId: context.actorId, name: context.actorName }
 }
 
-const operationSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), date: z.string().min(1), notes: z.string().optional() })
+const operationSchema = z.object({ rentalId: z.number().int().positive(), rentalItemId: z.number().int().positive(), deviceCodes: z.array(z.string().trim().min(1)).min(1).optional(), quantity: z.number().int().positive(), date: z.string().min(1), notes: z.string().optional() })
 const settlementSchema = z.object({ timing: z.enum(['now', 'later']), method: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']) })
 export type ReturnInput = z.infer<typeof operationSchema> & { condition: '完好'|'轻微磨损'|'损坏'; deductionAmount: number; depositRefund: number; collectionSettlement: z.infer<typeof settlementSchema>; refundSettlement: z.infer<typeof settlementSchema> }
 export type LossInput = z.infer<typeof operationSchema> & { unitCompensation: number }
@@ -32,9 +33,21 @@ export async function returnRentalItem(input: ReturnInput) {
   dateOnly(value.date)
   if (item.startDate && value.date < item.startDate) throw new Error('退租日期不能早于设备起租日期')
   const available = availableQuantity(item)
+  const allCodes = expandDeviceCodes(item.deviceCode, item.quantity)
+  if (allCodes.length !== item.quantity) throw new Error('该设备编号无法逐台识别，请先补全编号')
+  const disposedCount = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity
+  const activeCodes = allCodes.slice(disposedCount)
+  const selectedCodes = [...new Set(value.deviceCodes ?? activeCodes.slice(0, value.quantity))]
+  if (selectedCodes.length !== value.quantity) throw new Error('退租数量与所选编号不一致')
+  if (selectedCodes.some((code) => !activeCodes.includes(code))) throw new Error('包含不可退租或不属于当前明细的编号')
   if (value.quantity>available) throw new Error(`最多可退 ${available} 台`)
-  const nextReturned = item.returnedQuantity + value.quantity
-  const nextItems = items.map(current => current.id === item.id ? { ...current, returnedQuantity: nextReturned } : current)
+  const unselectedCodes = allCodes.filter((code) => !selectedCodes.includes(code))
+  const wholeActiveGroup = value.quantity === item.quantity && disposedCount === 0
+  const targetItemId = wholeActiveGroup ? item.id : Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const nextReturned = wholeActiveGroup ? item.returnedQuantity + value.quantity : value.quantity
+  const nextItems = items.flatMap(current => current.id !== item.id ? [current] : wholeActiveGroup
+    ? [{ ...current, returnedQuantity: nextReturned }]
+    : [{ ...current, deviceCode: compressDeviceCodes(unselectedCodes), quantity: unselectedCodes.length }, { ...current, id: targetItemId, deviceCode: compressDeviceCodes(selectedCodes), quantity: value.quantity, boughtOutQuantity: 0, lostQuantity: 0, returnedQuantity: value.quantity }])
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId)))
   if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理退租')
   const availableAfter = nextItems.reduce((sum, current) => sum + availableQuantity(current), 0)
@@ -44,9 +57,14 @@ export async function returnRentalItem(input: ReturnInput) {
   const collectedAmount = value.collectionSettlement.timing === 'now' ? value.deductionAmount : 0
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
     db.insert(rentalOperations).values({ userId, rentalId: value.rentalId, operationNo, operationType: 'return', status: 'completed', idempotencyKey: operationIdempotencyKey({ userId, rentalId: value.rentalId, type: 'return', clientRequestId: requestId }), actorUserId: actorId, actorName: name, summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, beforeSnapshot: { itemId: item.id, availableQuantity: available, contractQuantity: rental.quantity, totalRent: rental.totalRent, paidAmount: rental.paidAmount }, afterSnapshot: { itemId: item.id, availableQuantity: available - value.quantity, contractQuantity: availableAfter }, resultJson: { returnRecordId: returnId }, completedAt: new Date() }),
-    db.update(rentalItems).set({returnedQuantity:nextReturned,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
-    db.insert(returnRecords).values({id:returnId,userId,rentalId:value.rentalId,rentalItemId:value.rentalItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:value.notes,operatorName:name}),
-    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: value.rentalItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { availableQuantity: available }, afterSnapshot: { availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition, collectionSettlement: value.collectionSettlement.timing, refundSettlement: value.refundSettlement.timing }, feeAdjustment: String(value.deductionAmount - value.depositRefund), operatorName: name, notes: value.notes }),
+    ...(wholeActiveGroup
+      ? [db.update(rentalItems).set({returnedQuantity:nextReturned,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id)))]
+      : [
+          db.update(rentalItems).set({deviceCode:compressDeviceCodes(unselectedCodes),quantity:unselectedCodes.length,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
+          db.insert(rentalItems).values({...item,id:targetItemId,deviceCode:compressDeviceCodes(selectedCodes),quantity:value.quantity,boughtOutQuantity:0,lostQuantity:0,returnedQuantity:value.quantity,totalRent:String(Number(item.monthlyRent)*value.quantity),updatedAt:new Date()}),
+        ]),
+    db.insert(returnRecords).values({id:returnId,userId,rentalId:value.rentalId,rentalItemId:targetItemId,quantity:value.quantity,returnDate:value.date,condition:value.condition,deductionAmount:String(value.deductionAmount),depositRefund:String(value.depositRefund),notes:`${compressDeviceCodes(selectedCodes)}${value.notes ? `；${value.notes}` : ''}`,operatorName:name}),
+    db.insert(rentalEvents).values({ userId, rentalId: value.rentalId, itemId: targetItemId, eventType: '退租', status: '已完成', eventDate: value.date, beforeSnapshot: { selectedDeviceCodes: selectedCodes, availableQuantity: available }, afterSnapshot: { selectedDeviceCodes: selectedCodes, availableQuantity: available - value.quantity, returnedQuantity: nextReturned, condition: value.condition, collectionSettlement: value.collectionSettlement.timing, refundSettlement: value.refundSettlement.timing }, feeAdjustment: String(value.deductionAmount - value.depositRefund), operatorName: name, notes: value.notes }),
     db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '办理退租', resourceType: '租赁合同', resourceId: String(value.rentalId), summary: `${rental.contractNo} 退租 ${item.deviceName} ${value.quantity} 台`, metadata: { rentalItemId: value.rentalItemId, quantity: value.quantity, condition: value.condition, deductionAmount: value.deductionAmount, depositRefund: value.depositRefund } }),
   ]
   const itemEndDate = item.endDate

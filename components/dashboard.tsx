@@ -179,6 +179,60 @@ type RentalEvent = {
   operatorName: string;
   notes: string | null;
 };
+const eventFieldLabels: Record<string, string> = {
+  deviceName: "设备名称 / 型号",
+  deviceType: "设备类型",
+  deviceConfig: "配置说明",
+  cpu: "CPU",
+  motherboard: "主板",
+  memory: "内存",
+  storage: "硬盘",
+  graphicsCard: "显卡",
+  powerSupply: "电源",
+  caseModel: "机箱",
+  monitorInfo: "显示器信息",
+  screenSize: "屏幕尺寸",
+  screenResolution: "分辨率",
+  refreshRate: "刷新率",
+  panelType: "面板",
+  ports: "接口",
+  batteryInfo: "电池",
+  adapterInfo: "适配器",
+  accessories: "配件",
+  colorGamut: "色域",
+  monthlyRent: "月租",
+  startDate: "起租日期",
+  endDate: "到期日期",
+  customerName: "客户姓名",
+  customerPhone: "客户电话",
+};
+
+function snapshotRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function eventDeviceCodes(event: RentalEvent, item?: Item) {
+  const before = snapshotRecord(event.beforeSnapshot);
+  const selected = before.selectedDeviceCodes;
+  if (Array.isArray(selected)) return selected.filter((code): code is string => typeof code === "string");
+  return item ? expandDeviceCodes(item.deviceCode, item.quantity) : [];
+}
+
+function eventDifferences(event: RentalEvent) {
+  const before = snapshotRecord(event.beforeSnapshot);
+  const after = snapshotRecord(event.afterSnapshot);
+  return Object.entries(eventFieldLabels).flatMap(([key, label]) => {
+    if (!(key in before) || !(key in after)) return [];
+    const previous = before[key] ?? "—";
+    const next = after[key] ?? "—";
+    if (String(previous) === String(next)) return [];
+    const format = key === "monthlyRent" ? (value: unknown) => money(String(value)) : (value: unknown) => String(value);
+    return [{ key, label, previous: format(previous), next: format(next) }];
+  });
+}
+
 type Bill = {
   id: number;
   billNo: string;
@@ -933,7 +987,7 @@ export function Dashboard({
                         <button key={rental.id} type="button" onClick={() => openDetail(rental)} className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center">
                           <div><p className="text-sm font-medium">{rental.contractNo}</p><p className="text-xs text-muted-foreground">{rental.quantity} 台 · {rental.items.map((item) => item.deviceName).join("、")}</p></div>
                           <div className="text-sm"><p>{rental.dueBills.length} 笔已到付款日</p><p className="text-xs text-muted-foreground">{rental.dueBills.map((bill) => `${bill.dueDate} · ${bill.billType} ${money(bill.outstanding)}`).join("；")}</p></div>
-                          <div className="sm:text-right"><p className="text-xs text-muted-foreground">本合同当前应付</p><p className="font-semibold text-destructive">{money(rental.dueAmount)}</p></div>
+                          <div className="sm:text-right"><p className="text-xs text-muted-foreground">本合同当前应收</p><p className="font-semibold text-destructive">{money(rental.dueAmount)}</p></div>
                         </button>
                       ))}
                     </div>
@@ -1513,13 +1567,13 @@ canViewFinance={canViewFinance}
           <BuyoutForm
             rental={selected}
             pending={pending}
-            submit={(itemId, quantity, price, date, settlement, notes) =>
-              run(
-                () =>
-                  buyoutRentalItem(
-                    selected.id,
-                    itemId,
-                    quantity,
+submit={(itemId, deviceCodes, price, date, settlement, notes) =>
+  run(
+  () =>
+  buyoutRentalItem(
+  selected.id,
+  itemId,
+  deviceCodes,
                     price,
                     date,
                     settlement,
@@ -3223,25 +3277,45 @@ function LegacyDetail({
         <section>
           <h3 className="mb-3 font-semibold">变更与维修记录</h3>
           <div className="flex flex-col gap-2">
-            {rental.events.map((event) => (
-              <article key={event.id} className="rounded-lg border p-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong>
-                    {event.eventType} · {event.eventDate}
-                  </strong>
-                  <Status value={event.status} />
-                </div>
-                <p className="mt-1 text-muted-foreground">
-                  {event.eventType === "维修"
-                    ? `${event.faultDescription || "维修记录"} · 客户承担 ${money(event.customerCharge)}`
-                    : `${event.reason || "配置调整"} · 应收调整 ${money(event.feeAdjustment)}`}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  经办人：{event.operatorName}
-                  {event.notes ? ` · ${event.notes}` : ""}
-                </p>
-              </article>
-            ))}
+            {rental.events.map((event) => {
+              const item = rental.items.find((candidate) => candidate.id === event.itemId);
+              const codes = eventDeviceCodes(event, item);
+              const differences = eventDifferences(event);
+              return (
+                <article key={event.id} className="rounded-lg border p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong>{event.eventType} · {event.eventDate}</strong>
+                    <Status value={event.status} />
+                  </div>
+                  {codes.length > 0 && (
+                    <p className="mt-2 font-medium">设备编号：{codes.join("、")}</p>
+                  )}
+                  {differences.length > 0 ? (
+                    <div className="mt-2 flex flex-col gap-1 rounded-lg bg-muted p-3">
+                      {differences.map((difference) => (
+                        <p key={difference.key}>
+                          <span className="text-muted-foreground">{difference.label}：</span>
+                          {difference.previous} → <strong>{difference.next}</strong>
+                        </p>
+                      ))}
+                    </div>
+                  ) : event.eventType === "维修" ? (
+                    <p className="mt-2 text-muted-foreground">
+                      {event.faultDescription || "维修记录"} · 客户承担 {money(event.customerCharge)}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-muted-foreground">
+                      {event.reason || "业务处理"} · 应收调整 {money(event.feeAdjustment)}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    经办人：{event.operatorName}
+                    {event.reason ? ` · 原因：${event.reason}` : ""}
+                    {event.notes ? ` · 备注：${event.notes}` : ""}
+                  </p>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
@@ -3457,9 +3531,12 @@ function RenewalForm({
     Object.fromEntries(
       available.filter((item) => initialItemIds === null || initialItemIds.includes(item.id)).map((item) => {
         const end = item.endDate || rental.endDate;
+        const disposed = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity;
+        const deviceCodes = expandDeviceCodes(item.deviceCode, item.quantity).slice(disposed);
         return [item.id, {
           rentalItemId: item.id,
-          quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
+          deviceCodes,
+          quantity: deviceCodes.length,
           billingUnit: "month" as const,
           duration: 1,
           unitPrice: Number(item.monthlyRent),
@@ -3476,9 +3553,12 @@ function RenewalForm({
       if (next[item.id]) delete next[item.id];
       else {
         const end = item.endDate || rental.endDate;
+        const disposed = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity;
+        const deviceCodes = expandDeviceCodes(item.deviceCode, item.quantity).slice(disposed);
         next[item.id] = {
           rentalItemId: item.id,
-          quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
+          deviceCodes,
+          quantity: deviceCodes.length,
           billingUnit: "month",
           duration: 1,
           unitPrice: Number(item.monthlyRent),
@@ -3540,13 +3620,39 @@ function RenewalForm({
                 </span>
               </label>
               {row && (
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                  <Field
-                    label="续租数量"
-                    type="number"
-                    value={row.quantity}
-                    onChange={(v) => update(item.id, "quantity", Number(v))}
-                  />
+                <>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium">选择续租编号（默认全选）</p>
+                    <button
+                      type="button"
+                      className="text-sm font-medium text-primary"
+                      onClick={() => {
+                        const disposed = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity;
+                        const codes = expandDeviceCodes(item.deviceCode, item.quantity).slice(disposed);
+                        const nextCodes = row.deviceCodes.length === codes.length ? [] : codes;
+                        setRows((current) => ({ ...current, [item.id]: { ...current[item.id], deviceCodes: nextCodes, quantity: nextCodes.length } }));
+                      }}
+                    >
+                      {row.deviceCodes.length === max ? "取消全选" : "全选"}
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {expandDeviceCodes(item.deviceCode, item.quantity).slice(item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity).map((code) => (
+                      <label key={code} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 ${row.deviceCodes.includes(code) ? "border-primary bg-primary/5" : ""}`}>
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={row.deviceCodes.includes(code)}
+                          onChange={() => {
+                            const nextCodes = row.deviceCodes.includes(code) ? row.deviceCodes.filter((value) => value !== code) : [...row.deviceCodes, code];
+                            setRows((current) => ({ ...current, [item.id]: { ...current[item.id], deviceCodes: nextCodes, quantity: nextCodes.length } }));
+                          }}
+                        />
+                        <span className="font-mono text-sm">{code}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <label className="flex flex-col gap-2 text-sm font-medium">
                     计费方式
                     <select
@@ -3617,7 +3723,8 @@ function RenewalForm({
                       覆盖 {addDays(item.endDate || rental.endDate, 1)} 至 {addDays(row.newEndDate, 1)}（不含）
                     </p>
                   </div>
-                </div>
+                  </div>
+                </>
               )}
               {row && row.quantity > max && (
                 <p className="mt-2 text-sm text-destructive">
@@ -3844,6 +3951,9 @@ function OperationForm({
       0,
   );
   const [itemId, setItemId] = useState(available[0]?.id || 0);
+  const initialItem = available[0];
+  const initialDisposed = initialItem ? initialItem.boughtOutQuantity + initialItem.returnedQuantity + initialItem.lostQuantity : 0;
+  const [selectedCodes, setSelectedCodes] = useState<string[]>(initialItem ? expandDeviceCodes(initialItem.deviceCode, initialItem.quantity).slice(initialDisposed) : []);
   const [quantity, setQuantity] = useState(1);
   const [date, setDate] = useState(today());
   const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">(
@@ -3861,7 +3971,8 @@ function OperationForm({
         const base = {
           rentalId: rental.id,
           rentalItemId: itemId,
-          quantity,
+          deviceCodes: mode === "return" ? selectedCodes : undefined,
+          quantity: mode === "return" ? selectedCodes.length : quantity,
           date,
           notes,
         };
@@ -3884,7 +3995,15 @@ function OperationForm({
         设备明细
         <select
           value={itemId}
-          onChange={(e) => setItemId(Number(e.target.value))}
+          onChange={(e) => {
+            const nextId = Number(e.target.value);
+            setItemId(nextId);
+            const nextItem = available.find((item) => item.id === nextId);
+            if (nextItem && mode === "return") {
+              const disposed = nextItem.boughtOutQuantity + nextItem.returnedQuantity + nextItem.lostQuantity;
+              setSelectedCodes(expandDeviceCodes(nextItem.deviceCode, nextItem.quantity).slice(disposed));
+            }
+          }}
           className="h-10 rounded-lg border bg-background px-3"
         >
           {available.map((i) => (
@@ -3900,13 +4019,36 @@ function OperationForm({
           ))}
         </select>
       </label>
+      {mode === "return" && (() => {
+        const item = available.find((candidate) => candidate.id === itemId);
+        if (!item) return null;
+        const disposed = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity;
+        const codes = expandDeviceCodes(item.deviceCode, item.quantity).slice(disposed);
+        return (
+          <section className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="font-medium">选择退租编号</p><p className="text-xs text-muted-foreground">默认全选，可取消部分编号</p></div>
+              <button type="button" className="text-sm font-medium text-primary" onClick={() => setSelectedCodes(selectedCodes.length === codes.length ? [] : codes)}>{selectedCodes.length === codes.length ? "取消全选" : "全选"}</button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {codes.map((code) => (
+                <label key={code} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 ${selectedCodes.includes(code) ? "border-primary bg-primary/5" : ""}`}>
+                  <input type="checkbox" className="size-4" checked={selectedCodes.includes(code)} onChange={() => setSelectedCodes(selectedCodes.includes(code) ? selectedCodes.filter((value) => value !== code) : [...selectedCodes, code])} />
+                  <span className="font-mono text-sm">{code}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">已选择 {selectedCodes.length} 台，未选择编号继续在租。</p>
+          </section>
+        );
+      })()}
       <div className="grid grid-cols-2 gap-4">
-        <Field
+        {mode === "loss" && <Field
           label="数量"
           type="number"
           value={quantity}
           onChange={(v) => setQuantity(Number(v))}
-        />
+        />}
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}
           type="date"
@@ -3954,8 +4096,8 @@ function OperationForm({
         />
       </label>
       <button
-        disabled={pending || !available.length}
-        className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground"
+        disabled={pending || !available.length || (mode === "return" && selectedCodes.length === 0)}
+        className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : mode === "return" ? "确认退租" : "确认丢失"}
       </button>
@@ -4798,7 +4940,7 @@ function BuyoutForm({
   rental: Rental;
   submit: (
     itemId: number,
-    quantity: number,
+    deviceCodes: string[],
     price: number,
     date: string,
     settlement: SettlementInput,
@@ -4807,10 +4949,12 @@ function BuyoutForm({
   pending: boolean;
 }) {
   const available = rental.items.filter(
-    (i) => i.boughtOutQuantity < i.quantity,
+    (i) => i.quantity - i.boughtOutQuantity - i.returnedQuantity - i.lostQuantity > 0,
   );
   const [itemId, setItemId] = useState(available[0]?.id || 0);
-  const [quantity, setQuantity] = useState(1);
+  const firstItem = available[0];
+  const firstDisposed = firstItem ? firstItem.boughtOutQuantity + firstItem.returnedQuantity + firstItem.lostQuantity : 0;
+  const [selectedCodes, setSelectedCodes] = useState<string[]>(firstItem ? expandDeviceCodes(firstItem.deviceCode, firstItem.quantity).slice(firstDisposed) : []);
   const [price, setPrice] = useState(0);
   const [date, setDate] = useState(today());
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
@@ -4820,7 +4964,7 @@ function BuyoutForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(itemId, quantity, price, date, settlement, notes);
+        submit(itemId, selectedCodes, price, date, settlement, notes);
       }}
       className="flex flex-col gap-4"
     >
@@ -4830,8 +4974,13 @@ function BuyoutForm({
           className="h-11 rounded-lg border bg-background px-3"
           value={itemId}
           onChange={(e) => {
-            setItemId(Number(e.target.value));
-            setQuantity(1);
+            const nextId = Number(e.target.value);
+            setItemId(nextId);
+            const nextItem = available.find((candidate) => candidate.id === nextId);
+            if (nextItem) {
+              const disposed = nextItem.boughtOutQuantity + nextItem.returnedQuantity + nextItem.lostQuantity;
+              setSelectedCodes(expandDeviceCodes(nextItem.deviceCode, nextItem.quantity).slice(disposed));
+            }
           }}
         >
           {available.map((i) => (
@@ -4842,13 +4991,28 @@ function BuyoutForm({
           ))}
         </select>
       </label>
+      {item && (() => {
+        const disposed = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity;
+        const codes = expandDeviceCodes(item.deviceCode, item.quantity).slice(disposed);
+        return (
+          <section className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="font-medium">选择买断编号</p><p className="text-xs text-muted-foreground">默认全选，可取消部分编号</p></div>
+              <button type="button" className="text-sm font-medium text-primary" onClick={() => setSelectedCodes(selectedCodes.length === codes.length ? [] : codes)}>{selectedCodes.length === codes.length ? "取消全选" : "全选"}</button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {codes.map((code) => (
+                <label key={code} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 ${selectedCodes.includes(code) ? "border-primary bg-primary/5" : ""}`}>
+                  <input type="checkbox" className="size-4" checked={selectedCodes.includes(code)} onChange={() => setSelectedCodes(selectedCodes.includes(code) ? selectedCodes.filter((value) => value !== code) : [...selectedCodes, code])} />
+                  <span className="font-mono text-sm">{code}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">已选择 {selectedCodes.length} 台，未选择编号继续在租。</p>
+          </section>
+        );
+      })()}
       <div className="grid grid-cols-2 gap-4">
-        <Field
-          label="买断数量"
-          type="number"
-          value={quantity}
-          onChange={(v) => setQuantity(Number(v))}
-        />
         <Field
           label="买断单价（元）"
           type="number"
@@ -4859,16 +5023,11 @@ function BuyoutForm({
         <div className="rounded-lg bg-muted p-3">
           <p className="text-xs text-muted-foreground">本次买断金额</p>
           <p className="mt-1 text-lg font-semibold">
-            {money(quantity * price)}
+            {money(selectedCodes.length * price)}
           </p>
         </div>
       </div>
       <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
-      {item && quantity > item.quantity - item.boughtOutQuantity && (
-        <p className="text-sm text-destructive">
-          买断数量不能超过剩余 {item.quantity - item.boughtOutQuantity} 台
-        </p>
-      )}
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
         <textarea
@@ -4881,9 +5040,8 @@ function BuyoutForm({
         disabled={
           pending ||
           !item ||
-          quantity <= 0 ||
-          price <= 0 ||
-          quantity > item.quantity - item.boughtOutQuantity
+          selectedCodes.length === 0 ||
+          price <= 0
         }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >

@@ -9,7 +9,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, overdueMonthlyAmount, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
-import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
+import { buildRentalNumbers, compressDeviceCodes, expandDeviceCodes, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
 import { safeError } from '@/lib/errors'
@@ -386,7 +386,7 @@ export async function updateRentalAssignee(rentalId: number, assigneeUserId: str
 const settlementSchema = z.object({ timing: z.enum(['now', 'later']), date: z.string().min(1), method: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']) })
 export type SettlementInput = z.infer<typeof settlementSchema>
 
-const renewalSchema = z.object({ rentalItemId: z.number().int().positive(), quantity: z.number().int().positive(), billingUnit: z.enum(['month', 'day']), duration: z.number().int().min(1).max(3650), unitPrice: z.number().positive('续租单价必须大于 0'), newEndDate: z.string().min(1), notes: z.string().optional() })
+const renewalSchema = z.object({ rentalItemId: z.number().int().positive(), deviceCodes: z.array(z.string().trim().min(1)).min(1), quantity: z.number().int().positive(), billingUnit: z.enum(['month', 'day']), duration: z.number().int().min(1).max(3650), unitPrice: z.number().positive('续租单价必须大于 0'), newEndDate: z.string().min(1), notes: z.string().optional() })
 export type RenewalInput = z.infer<typeof renewalSchema>
 
 function addCalendarMonths(date: string, months: number) {
@@ -420,27 +420,37 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const startDate = item.startDate ?? rental.startDate
       if (value.newEndDate <= oldEndDate) throw new Error(`${item.deviceName} 的新到期日必须晚于原到期日`)
       const available = availableQuantity(item)
+      const allCodes = expandDeviceCodes(item.deviceCode, item.quantity)
+      if (allCodes.length !== item.quantity) throw new Error(`${item.deviceName} 的设备编号无法逐台识别，请先补全编号`)
+      const disposedCount = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity
+      const activeCodes = allCodes.slice(disposedCount)
+      const selectedCodes = [...new Set(value.deviceCodes)]
+      if (selectedCodes.length !== value.quantity) throw new Error(`${item.deviceName} 的续租数量与所选编号不一致`)
+      if (selectedCodes.some((code) => !activeCodes.includes(code))) throw new Error(`${item.deviceName} 包含不可续租或不属于当前明细的编号`)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
+      const unselectedCodes = allCodes.filter((code) => !selectedCodes.includes(code))
       const newEndDate = value.billingUnit === 'month' ? addCalendarMonths(oldEndDate, value.duration) : addCalendarDays(oldEndDate, value.duration)
       if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不一致`)
       const amount = Number(renewalAmount(value.quantity, value.unitPrice, value.duration))
       addedRent = Number(fromCents(toCents(addedRent) + toCents(amount)))
       const effectiveMonthlyRent = value.billingUnit === 'month' ? value.unitPrice : value.unitPrice * 30
       let renewedItemId = item.id
-      if (value.quantity === available && item.boughtOutQuantity === 0) {
-        await tx.update(rentalItems).set({ endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), totalRent: String(effectiveMonthlyRent * item.quantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
+      const wholeGroup = selectedCodes.length === item.quantity && disposedCount === 0
+      if (wholeGroup) {
+        await tx.update(rentalItems).set({ deviceCode: compressDeviceCodes(selectedCodes), endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), totalRent: String(effectiveMonthlyRent * item.quantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
       } else {
         const remainingQuantity = item.quantity - value.quantity
-        await tx.update(rentalItems).set({ quantity: remainingQuantity, totalRent: String(Number(item.monthlyRent) * remainingQuantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
-        const [split] = await tx.insert(rentalItems).values({ userId, rentalId, deviceName: item.deviceName, deviceType: item.deviceType, deviceCode: item.deviceCode, deviceConfig: item.deviceConfig, quantity: value.quantity, startDate, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), totalRent: String(effectiveMonthlyRent * value.quantity), boughtOutQuantity: 0, buyoutAmount: '0', cpu: item.cpu, motherboard: item.motherboard, memory: item.memory, storage: item.storage, graphicsCard: item.graphicsCard, powerSupply: item.powerSupply, caseModel: item.caseModel, monitorInfo: item.monitorInfo, screenSize: item.screenSize, screenResolution: item.screenResolution, refreshRate: item.refreshRate, panelType: item.panelType, ports: item.ports, batteryInfo: item.batteryInfo, adapterInfo: item.adapterInfo, accessories: item.accessories, colorGamut: item.colorGamut }).returning({ id: rentalItems.id })
+        await tx.update(rentalItems).set({ deviceCode: compressDeviceCodes(unselectedCodes), quantity: remainingQuantity, totalRent: String(Number(item.monthlyRent) * remainingQuantity), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId)))
+        const [split] = await tx.insert(rentalItems).values({ userId, rentalId, deviceName: item.deviceName, deviceType: item.deviceType, deviceCode: compressDeviceCodes(selectedCodes), deviceConfig: item.deviceConfig, quantity: value.quantity, startDate, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), totalRent: String(effectiveMonthlyRent * value.quantity), boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0, buyoutAmount: '0', cpu: item.cpu, motherboard: item.motherboard, memory: item.memory, storage: item.storage, graphicsCard: item.graphicsCard, powerSupply: item.powerSupply, caseModel: item.caseModel, monitorInfo: item.monitorInfo, screenSize: item.screenSize, screenResolution: item.screenResolution, refreshRate: item.refreshRate, panelType: item.panelType, ports: item.ports, batteryInfo: item.batteryInfo, adapterInfo: item.adapterInfo, accessories: item.accessories, colorGamut: item.colorGamut }).returning({ id: rentalItems.id })
         renewedItemId = split.id
       }
       const renewalDate = new Date().toISOString().slice(0, 10)
       const renewalPeriodStart = addCalendarDays(oldEndDate, 1)
       const [renewal] = await tx.insert(renewalRecords).values({ userId, rentalId, sourceRentalItemId: item.id, renewedRentalItemId: renewedItemId, quantity: value.quantity, renewalMonths: value.billingUnit === 'month' ? value.duration : null, billingUnit: value.billingUnit, duration: value.duration, unitPrice: String(value.unitPrice), oldMonthlyRent: item.monthlyRent, newMonthlyRent: String(effectiveMonthlyRent), oldEndDate, newEndDate, renewalAmount: String(amount), renewalDate, notes: value.notes }).returning({ id: renewalRecords.id })
-      await tx.insert(receivableBills).values({ userId, rentalId, billNo: `RENEW-${rentalId}-${renewal.id}`, periodStart: renewalPeriodStart, periodEnd: newEndDate, dueDate: settlement.date, billType: '续租费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName} ${value.quantity} 台续租 ${value.duration}${value.billingUnit === 'month' ? '个月' : '天'}；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` })
-      if (settlement.timing === 'now') await tx.insert(paymentRecords).values({ userId, rentalId, renewalRecordId: renewal.id, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '续租费', operatorName: access.actorName, notes: `${item.deviceName} ${value.quantity} 台续租即时收款` })
-      await tx.insert(rentalEvents).values({ userId, rentalId, itemId: renewedItemId, eventType: '续租', status: '已完成', eventDate: renewalDate, beforeSnapshot: { quantity: value.quantity, endDate: oldEndDate, monthlyRent: item.monthlyRent }, afterSnapshot: { quantity: value.quantity, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes: value.notes })
+      const codeSummary = compressDeviceCodes(selectedCodes)
+      await tx.insert(receivableBills).values({ userId, rentalId, billNo: `RENEW-${rentalId}-${renewal.id}`, periodStart: renewalPeriodStart, periodEnd: newEndDate, dueDate: settlement.date, billType: '续租费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName}（${codeSummary}）续租 ${value.duration}${value.billingUnit === 'month' ? '个月' : '天'}；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` })
+      if (settlement.timing === 'now') await tx.insert(paymentRecords).values({ userId, rentalId, renewalRecordId: renewal.id, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '续租费', operatorName: access.actorName, notes: `${item.deviceName}（${codeSummary}）续租即时收款` })
+      await tx.insert(rentalEvents).values({ userId, rentalId, itemId: renewedItemId, eventType: '续租', status: '已完成', eventDate: renewalDate, beforeSnapshot: { selectedDeviceCodes: selectedCodes, quantity: value.quantity, endDate: oldEndDate, monthlyRent: item.monthlyRent }, afterSnapshot: { selectedDeviceCodes: selectedCodes, quantity: value.quantity, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes: value.notes })
     }
     const allItems = await tx.select().from(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
     const active = allItems.filter((item) => availableQuantity(item) > 0)
@@ -585,11 +595,12 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
   revalidatePath('/')
 }
 
-export async function buyoutRentalItem(rentalId: number, rentalItemId: number, quantity: number, unitPrice: number, buyoutDate: string, settlementInput: SettlementInput, notes = '') {
+export async function buyoutRentalItem(rentalId: number, rentalItemId: number, deviceCodes: string[], unitPrice: number, buyoutDate: string, settlementInput: SettlementInput, notes = '') {
   const access = await getAccessContext('租赁操作')
   const userId = access.userId
   const settlement = settlementSchema.parse(settlementInput)
-  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('买断数量必须为正整数')
+  const selectedCodes = [...new Set(z.array(z.string().trim().min(1)).min(1).parse(deviceCodes))]
+  const quantity = selectedCodes.length
   if (unitPrice <= 0 || !buyoutDate) throw new Error('请填写有效的买断单价和日期')
   const [[item], allItems] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId))),
@@ -597,26 +608,41 @@ export async function buyoutRentalItem(rentalId: number, rentalItemId: number, q
   ])
   if (!item) throw new Error('设备明细不存在')
   const remaining = availableQuantity(item)
+  const allCodes = expandDeviceCodes(item.deviceCode, item.quantity)
+  if (allCodes.length !== item.quantity) throw new Error('该设备编号无法逐台识别，请先补全编号')
+  const disposedCount = item.boughtOutQuantity + item.returnedQuantity + item.lostQuantity
+  const activeCodes = allCodes.slice(disposedCount)
+  if (selectedCodes.some((code) => !activeCodes.includes(code))) throw new Error('包含不可买断或不属于当前明细的编号')
   if (quantity > remaining) throw new Error(`最多可买断 ${remaining} 台`)
+  const unselectedCodes = allCodes.filter((code) => !selectedCodes.includes(code))
+  const wholeActiveGroup = quantity === item.quantity && disposedCount === 0
+  const targetItemId = wholeActiveGroup ? item.id : Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
   if (!rental) throw new Error('租赁合同不存在')
   assertOfficialRental(rental)
   const amount = quantity * unitPrice
-  const nextBought = item.boughtOutQuantity + quantity
-  const nextItems = allItems.map(row => row.id === item.id ? { ...row, boughtOutQuantity: nextBought } : row)
+  const nextBought = wholeActiveGroup ? item.boughtOutQuantity + quantity : quantity
+  const nextItems = allItems.flatMap(row => row.id !== item.id ? [row] : wholeActiveGroup
+    ? [{ ...row, boughtOutQuantity: nextBought }]
+    : [{ ...row, deviceCode: compressDeviceCodes(unselectedCodes), quantity: unselectedCodes.length }, { ...row, id: targetItemId, deviceCode: compressDeviceCodes(selectedCodes), quantity, boughtOutQuantity: quantity, returnedQuantity: 0, lostQuantity: 0 }])
   const nextTotal = Number(rental.totalRent) + amount
   const availableAfter = nextItems.reduce((sum, row) => sum + availableQuantity(row), 0)
   const buyoutId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   const paidAmount = Number(rental.paidAmount) + (settlement.timing === 'now' ? amount : 0)
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-    db.update(rentalItems).set({ boughtOutQuantity: nextBought, buyoutAmount: String(Number(item.buyoutAmount) + amount), updatedAt: new Date() }).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.userId, userId))),
-    db.insert(buyoutRecords).values({ id: buyoutId, userId, rentalId, rentalItemId, quantity, unitPrice: String(unitPrice), amount: String(amount), buyoutDate, notes }),
-    db.insert(receivableBills).values({ userId, rentalId, billNo: `BUYOUT-${rentalId}-${buyoutId}`, periodStart: buyoutDate, periodEnd: buyoutDate, dueDate: settlement.date, billType: '买断费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName} ${quantity} 台买断；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` }),
-    db.insert(rentalEvents).values({ userId, rentalId, itemId: rentalItemId, eventType: '买断', status: '已完成', eventDate: buyoutDate, beforeSnapshot: { availableQuantity: remaining }, afterSnapshot: { availableQuantity: remaining - quantity, boughtOutQuantity: nextBought, settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes }),
+    ...(wholeActiveGroup
+      ? [db.update(rentalItems).set({ boughtOutQuantity: nextBought, buyoutAmount: String(Number(item.buyoutAmount) + amount), updatedAt: new Date() }).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.userId, userId)))]
+      : [
+          db.update(rentalItems).set({ deviceCode: compressDeviceCodes(unselectedCodes), quantity: unselectedCodes.length, updatedAt: new Date() }).where(and(eq(rentalItems.id, rentalItemId), eq(rentalItems.userId, userId))),
+          db.insert(rentalItems).values({ ...item, id: targetItemId, deviceCode: compressDeviceCodes(selectedCodes), quantity, boughtOutQuantity: quantity, returnedQuantity: 0, lostQuantity: 0, buyoutAmount: String(amount), totalRent: String(Number(item.monthlyRent) * quantity), updatedAt: new Date() }),
+        ]),
+    db.insert(buyoutRecords).values({ id: buyoutId, userId, rentalId, rentalItemId: targetItemId, quantity, unitPrice: String(unitPrice), amount: String(amount), buyoutDate, notes: `${compressDeviceCodes(selectedCodes)}${notes ? `；${notes}` : ''}` }),
+    db.insert(receivableBills).values({ userId, rentalId, billNo: `BUYOUT-${rentalId}-${buyoutId}`, periodStart: buyoutDate, periodEnd: buyoutDate, dueDate: settlement.date, billType: '买断费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName}（${compressDeviceCodes(selectedCodes)}）买断；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` }),
+    db.insert(rentalEvents).values({ userId, rentalId, itemId: targetItemId, eventType: '买断', status: '已完成', eventDate: buyoutDate, beforeSnapshot: { selectedDeviceCodes: selectedCodes, availableQuantity: remaining }, afterSnapshot: { selectedDeviceCodes: selectedCodes, availableQuantity: remaining - quantity, boughtOutQuantity: nextBought, settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes }),
     db.update(rentals).set({ quantity: availableAfter, totalRent: String(nextTotal), paidAmount: String(paidAmount), status: rentalLifecycleStatus(nextItems), paymentStatus: paidAmount >= nextTotal ? '已结清' : paidAmount > 0 ? '部分收款' : '待收款', updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
     db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '办理买断', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} 买断 ${item.deviceName} ${quantity} 台，${settlement.timing === 'now' ? '已收' : '待收'} ${amount.toFixed(2)} 元`, metadata: { rentalItemId, quantity, amount, settlement: settlement.timing } }),
   ]
-  if (settlement.timing === 'now') statements.push(db.insert(paymentRecords).values({ userId, rentalId, buyoutRecordId: buyoutId, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '买断费', operatorName: access.actorName, notes: `${item.deviceName} ${quantity} 台买断即时收款` }))
+  if (settlement.timing === 'now') statements.push(db.insert(paymentRecords).values({ userId, rentalId, buyoutRecordId: buyoutId, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '买断费', operatorName: access.actorName, notes: `${item.deviceName}（${compressDeviceCodes(selectedCodes)}）买断即时收款` }))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
   revalidatePath('/audit-logs')
