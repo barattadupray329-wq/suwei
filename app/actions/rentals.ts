@@ -162,11 +162,19 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
-  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : desc(rentals.createdAt)
+  const remainingQuantity = sql<number>`coalesce((select sum(max(ri.quantity - ri."boughtOutQuantity" - ri."returnedQuantity" - ri."lostQuantity", 0)) from rental_items ri where ri."rentalId" = ${rentals.id} and ri."userId" = ${userId}), ${rentals.quantity}, 0)`
+  const finishedPriority = sql<number>`case when ${rentals.status} in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) or ${remainingQuantity} <= 0 then 1 else 0 end`
+  const selectedOrder = value.sort === 'oldest'
+    ? [finishedPriority, asc(rentals.createdAt)]
+    : value.sort === 'due'
+      ? [finishedPriority, asc(rentals.endDate)]
+      : value.sort === 'amount'
+        ? [finishedPriority, desc(sql`cast(${rentals.totalRent} as real)`)]
+        : [finishedPriority, asc(rentals.endDate), desc(rentals.createdAt)]
   const offset = (value.page - 1) * value.pageSize
   const [[countRow], rows, matchingRentalRows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
-    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(...selectedOrder, desc(rentals.id)).limit(value.pageSize).offset(offset),
     db.select({ id: rentals.id, endDate: rentals.endDate, status: rentals.status, monthlyRent: rentals.monthlyRent }).from(rentals).where(where),
   ])
   const allRentalIds = matchingRentalRows.map((row) => row.id)
