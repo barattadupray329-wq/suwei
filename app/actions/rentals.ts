@@ -170,8 +170,11 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     else 3
   end`
   const offset = (value.page - 1) * value.pageSize
-  const [[countRow], rows] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
+  const [[summaryRow], rows] = await Promise.all([
+    db.select({
+      count: sql<number>`count(*)`,
+      overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
+    }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
@@ -193,8 +196,15 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const status = expired ? '逾期' : lifecycleStatus
     return { ...row, quantity, status }
   })
-  const total = Number(countRow?.count ?? 0)
-  return { rows: normalizedRows, total, page: value.page, pageSize: value.pageSize, pageCount: Math.max(1, Math.ceil(total / value.pageSize)) }
+  const total = Number(summaryRow?.count ?? 0)
+  return {
+    rows: normalizedRows,
+    total,
+    overdueReceivable: String(summaryRow?.overdueReceivable ?? '0'),
+    page: value.page,
+    pageSize: value.pageSize,
+    pageCount: Math.max(1, Math.ceil(total / value.pageSize)),
+  }
 }
 
 export async function getRentalById(id: number) {
