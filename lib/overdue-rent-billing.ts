@@ -19,16 +19,17 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     db.select({ rentalItemId: buyoutRecords.rentalItemId, quantity: buyoutRecords.quantity, date: buyoutRecords.buyoutDate }).from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: returnRecords.rentalItemId, quantity: returnRecords.quantity, date: returnRecords.returnDate }).from(returnRecords).where(and(eq(returnRecords.userId, userId), inArray(returnRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: lossRecords.rentalItemId, quantity: lossRecords.quantity, date: lossRecords.lossDate }).from(lossRecords).where(and(eq(lossRecords.userId, userId), inArray(lossRecords.rentalId, rentalIds))),
-    db.select({ billNo: receivableBills.billNo }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
+    db.select({ rentalId: receivableBills.rentalId, billNo: receivableBills.billNo, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
   ])
   const existing = new Set(existingBills.map((bill) => bill.billNo))
+  const existingOverduePeriods = new Set(existingBills.filter((bill) => bill.billType.includes('逾期')).map((bill) => `${bill.rentalId}:${bill.periodStart}`))
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   const itemsByRental = new Map<number, typeof items>()
   for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
 
   const bills = contracts.flatMap((contract) => overdueRentPeriods(contract.endDate, today).flatMap(({ periodStart, periodEnd }) => {
     const billNo = `OVERDUE-${contract.id}-${periodStart}`
-    if (existing.has(billNo)) return []
+    if (existing.has(billNo) || existingOverduePeriods.has(`${contract.id}:${periodStart}`)) return []
     const amountCents = (itemsByRental.get(contract.id) ?? []).reduce((sum, item) => {
       return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals)
     }, 0)

@@ -85,7 +85,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, ledger] = await Promise.all([
+  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, allocations, ledger] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
@@ -93,6 +93,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
     db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), inArray(rentalEvents.rentalId, ids))).orderBy(desc(rentalEvents.eventDate), desc(rentalEvents.createdAt)),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids))).orderBy(receivableBills.dueDate),
+    db.select({ id: paymentAllocations.id, rentalId: paymentAllocations.rentalId, billId: paymentAllocations.billId, amount: paymentAllocations.amount, paymentRecordId: paymentRecords.id, paymentDate: paymentRecords.paymentDate, paymentMethod: paymentRecords.paymentMethod, operatorName: paymentRecords.operatorName, notes: paymentRecords.notes, receivedAt: paymentRecords.createdAt }).from(paymentAllocations).innerJoin(paymentRecords, and(eq(paymentRecords.id, paymentAllocations.paymentRecordId), eq(paymentRecords.userId, userId))).where(and(eq(paymentAllocations.userId, userId), inArray(paymentAllocations.rentalId, ids))).orderBy(asc(paymentRecords.paymentDate), asc(paymentRecords.createdAt)),
     db.select().from(accountLedger).where(and(eq(accountLedger.userId, userId), inArray(accountLedger.rentalId, ids))).orderBy(desc(accountLedger.entryDate), desc(accountLedger.createdAt)),
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
@@ -108,7 +109,10 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const renewalMap = groupByRental(renewalsWithCorrections)
   const paymentMap = groupByRental(payments)
   const eventMap = groupByRental(events)
-  const billMap = groupByRental(bills)
+  const allocationsByBill = new Map<number, typeof allocations>()
+  for (const allocation of allocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
+  const billMap = groupByRental(billsWithAllocations)
   const ledgerMap = groupByRental(ledger)
   return rows.map((row) => {
     const rentalItemRows = itemMap.get(row.id) ?? []
