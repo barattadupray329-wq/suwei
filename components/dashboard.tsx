@@ -1367,11 +1367,9 @@ canViewFinance={canViewFinance}
             rental={selected}
             mode="return"
             pending={pending}
-            submit={(value) =>
+            submit={(values) =>
               run(
-                () => value.rentalItemId === 0
-                  ? Promise.all(selected.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).map((item) => returnRentalItem({ ...(value as ReturnInput), rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, depositRefund: 0 }))).then(() => undefined)
-                  : returnRentalItem(value as ReturnInput),
+                () => Promise.all(values.map((value) => returnRentalItem(value as ReturnInput))).then(() => undefined),
                 "退租已登记",
               )
             }
@@ -1388,8 +1386,8 @@ canViewFinance={canViewFinance}
             rental={selected}
             mode="loss"
             pending={pending}
-            submit={(value) =>
-              run(() => reportLostItem(value as LossInput), "丢失已登记")
+            submit={(values) =>
+              run(() => Promise.all(values.map((value) => reportLostItem(value as LossInput))).then(() => undefined), "丢失已登记")
             }
           />
         )}
@@ -2450,7 +2448,7 @@ function Detail(props: DetailProps) {
           <div className="grid grid-cols-3 gap-4 text-sm">
             <Info l="剩余在租" v={`${remainingDevices} 台`} />
             <Info l="待收金额" v={money(centsToMoney(outstandingCents))} />
-            <Info l="下次付款" v={nextBill?.dueDate ?? "无待付"} />
+            <Info l="下次付款" v={nextBill?.dueDate ?? "��待付"} />
           </div>
         </div>
         {todos.length > 0 ? (
@@ -3784,7 +3782,7 @@ function OperationForm({
 }: {
   rental: Rental;
   mode: "return" | "loss";
-  submit: (value: ReturnInput | LossInput) => void;
+  submit: (values: Array<ReturnInput | LossInput>) => void;
   pending: boolean;
 }) {
   const available = rental.items.filter(
@@ -3792,8 +3790,16 @@ function OperationForm({
       i.quantity - i.boughtOutQuantity - i.returnedQuantity - i.lostQuantity >
       0,
   );
-  const [itemId, setItemId] = useState(available[0]?.id || 0);
-  const [quantity, setQuantity] = useState(1);
+  const [rows, setRows] = useState<Record<number, number>>({});
+  const selectedRows = Object.entries(rows).map(([itemId, quantity]) => ({ itemId: Number(itemId), quantity }));
+  const allSelected = available.length > 0 && selectedRows.length === available.length;
+  const toggleItem = (item: Item) => setRows((current) => {
+    const next = { ...current };
+    if (next[item.id]) delete next[item.id];
+    else next[item.id] = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+    return next;
+  });
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity])));
   const [date, setDate] = useState(today());
   const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">(
     "完好",
@@ -3807,59 +3813,49 @@ function OperationForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        const base = {
-          rentalId: rental.id,
-          rentalItemId: itemId,
-          quantity,
-          date,
-          notes,
-        };
-        submit(
-          mode === "return"
+        submit(selectedRows.map((row) => {
+          const base = {
+            rentalId: rental.id,
+            rentalItemId: row.itemId,
+            quantity: row.quantity,
+            date,
+            notes,
+          };
+          return mode === "return"
             ? {
                 ...base,
                 condition,
                 deductionAmount: amount,
-                depositRefund: refund,
+                depositRefund: refund / selectedRows.length,
                 collectionSettlement: { timing: collectionSettlement.timing, method: collectionSettlement.method },
                 refundSettlement: { timing: refundSettlement.timing, method: refundSettlement.method },
               }
-            : { ...base, unitCompensation: amount },
-        );
+            : { ...base, unitCompensation: amount };
+        }));
       }}
       className="flex flex-col gap-4"
     >
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        设备明细
-          <select
-            value={itemId}
-            onChange={(e) => {
-              setItemId(Number(e.target.value));
-              setQuantity(1);
-            }}
-            className="h-10 rounded-lg border bg-background px-3"
-          >
-            {mode === "return" && <option value={0}>全部设备（全选）</option>}
-            {available.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.deviceType} · {i.deviceName} · {i.deviceCode || "无编号"}
-              （可处理{" "}
-              {i.quantity -
-                i.boughtOutQuantity -
-                i.returnedQuantity -
-                i.lostQuantity}{" "}
-              台）
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="grid grid-cols-2 gap-4">
-        <Field
-          label="数量"
-          type="number"
-          value={quantity}
-          onChange={(v) => setQuantity(Number(v))}
-        />
+      <section className="flex flex-col gap-3" aria-label="选择设备">
+        <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+          <span className="text-sm text-muted-foreground">已选 {selectedRows.length}/{available.length} 项，共 {selectedRows.reduce((sum, row) => sum + row.quantity, 0)} 台</span>
+          <button type="button" onClick={toggleAll} disabled={!available.length} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{allSelected ? "取消全选" : "全选全部设备"}</button>
+        </div>
+        {available.map((item) => {
+          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const selected = rows[item.id] !== undefined;
+          return <article key={item.id} className={`rounded-xl border p-4 ${selected ? "border-primary bg-primary/5" : ""}`}>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" checked={selected} onChange={() => toggleItem(item)} className="mt-1 size-4 accent-primary" />
+              <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可处理 {max} 台</span></span>
+            </label>
+            {selected && <label className="mt-3 flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>}
+          </article>;
+        })}
+      </section>
+      <section className="rounded-xl border bg-muted/40 p-4">
+        <p className="mb-3 text-sm font-semibold">批量默认值</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
+        <div className="grid grid-cols-2 gap-4">
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}
           type="date"
@@ -3894,7 +3890,8 @@ function OperationForm({
             onChange={(v) => setRefund(Number(v))}
           />
         )}
-      </div>
+        </div>
+      </section>
       {mode === "return" && amount > 0 && <SettlementFields label="退租扣款/赔偿收款" value={collectionSettlement} onChange={setCollectionSettlement} />}
       {mode === "return" && refund > 0 && <SettlementFields label="押金退款" value={refundSettlement} onChange={setRefundSettlement} />}
       {mode === "return" && (amount > 0 || refund > 0) && <div className="rounded-xl bg-muted p-4 text-sm"><p className="font-semibold">本次结算摘要</p><p className="mt-1 text-muted-foreground">应收 {money(amount)}（{collectionSettlement.timing === "now" ? "现在收" : "以后收"}） · 应退 {money(refund)}（{refundSettlement.timing === "now" ? "现在退" : "以后退"}）</p></div>}
@@ -3907,7 +3904,7 @@ function OperationForm({
         />
       </label>
       <button
-        disabled={pending || !available.length}
+        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0)}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground"
       >
         {pending ? "处理中" : mode === "return" ? "确认退租" : "确认丢失"}
@@ -4178,7 +4175,7 @@ function ChangeForm({
   const [value, setValue] = useState<RentalChangeInput>(() =>
     first ? itemToChange(first) : ({} as RentalChangeInput),
   );
-  if (!first) return <p>暂无可变更设备</p>;
+  if (!first) return <p>暂无可变更设��</p>;
   const selectedItem = rental.items.find((item) => item.id === value.itemId) ?? first;
   const currentEndDate = selectedItem.endDate || rental.endDate;
   const remainingDays = value.eventDate && value.eventDate <= currentEndDate
@@ -4458,32 +4455,33 @@ function BuyoutForm({
 }: {
   rental: Rental;
   submit: (
-    itemId: number,
-    quantity: number,
-    price: number,
-    date: string,
+    values: Array<{ itemId: number; quantity: number; price: number; date: string; notes: string }>,
     settlement: SettlementInput,
-    notes: string,
   ) => void;
   pending: boolean;
 }) {
   const available = rental.items.filter(
     (i) => i.boughtOutQuantity < i.quantity,
   );
-  const [itemId, setItemId] = useState(available[0]?.id || 0);
-  const [quantity, setQuantity] = useState(1);
+  type BuyoutRow = { itemId: number; quantity: number; price: number; date: string; notes: string };
+  const [rows, setRows] = useState<Record<number, BuyoutRow>>({});
   const [price, setPrice] = useState(0);
   const [date, setDate] = useState(today());
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
-  const item = available.find((i) => i.id === itemId);
-  const allQuantity = available.reduce((sum, current) => sum + current.quantity - current.boughtOutQuantity - current.returnedQuantity - current.lostQuantity, 0);
-  const effectiveQuantity = itemId === 0 ? allQuantity : quantity;
+  const selected = Object.values(rows);
+  const allSelected = available.length > 0 && selected.length === available.length;
+  const defaultRow = (item: Item): BuyoutRow => ({ itemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, price, date, notes });
+  const toggle = (item: Item) => setRows((current) => { const next = { ...current }; if (next[item.id]) delete next[item.id]; else next[item.id] = defaultRow(item); return next; });
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, defaultRow(item)])));
+  const applyDefaults = () => setRows((current) => Object.fromEntries(Object.values(current).map((row) => [row.itemId, { ...row, price, date, notes }])));
+  const totalQuantity = selected.reduce((sum, row) => sum + row.quantity, 0);
+  const totalAmount = selected.reduce((sum, row) => sum + row.quantity * row.price, 0);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(itemId, quantity, price, date, settlement, notes);
+        submit(selected, settlement);
       }}
       className="flex flex-col gap-4"
     >
