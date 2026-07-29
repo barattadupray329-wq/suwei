@@ -1368,7 +1368,12 @@ canViewFinance={canViewFinance}
             mode="return"
             pending={pending}
             submit={(value) =>
-              run(() => returnRentalItem(value as ReturnInput), "退租已登记")
+              run(
+                () => value.rentalItemId === 0
+                  ? Promise.all(selected.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).map((item) => returnRentalItem({ ...(value as ReturnInput), rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, depositRefund: 0 }))).then(() => undefined)
+                  : returnRentalItem(value as ReturnInput),
+                "退租已登记",
+              )
             }
           />
         )}
@@ -1400,7 +1405,12 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(value) =>
-              run(() => changeRentalItem(value), "配置与应收已更新")
+              run(
+                () => value.itemId === 0
+                  ? Promise.all(selected.items.map((item) => changeRentalItem({ ...value, itemId: item.id, quantity: item.quantity, totalRent: Number(value.monthlyRent) * item.quantity }))).then(() => undefined)
+                  : changeRentalItem(value),
+                "配置与应收已更新",
+              )
             }
           />
         )}
@@ -1450,7 +1460,12 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(value) =>
-              run(() => exchangeRentalItem(value), "换机调拨已登记")
+              run(
+                () => value.rentalItemId === 0
+                  ? Promise.all(selected.items.map((item) => exchangeRentalItem({ ...value, rentalItemId: item.id }))).then(() => undefined)
+                  : exchangeRentalItem(value),
+                "换机调拨已登记",
+              )
             }
           />
         )}
@@ -1466,16 +1481,9 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(itemId, quantity, price, date, settlement, notes) =>
               run(
-                () =>
-                  buyoutRentalItem(
-                    selected.id,
-                    itemId,
-                    quantity,
-                    price,
-                    date,
-                    settlement,
-                    notes,
-                  ),
+                () => itemId === 0
+                  ? Promise.all(selected.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).map((item) => buyoutRentalItem(selected.id, item.id, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, price, date, settlement, notes))).then(() => undefined)
+                  : buyoutRentalItem(selected.id, itemId, quantity, price, date, settlement, notes),
                 "买断已登记",
               )
             }
@@ -3430,6 +3438,11 @@ function RenewalForm({
       [id]: { ...current[id], [key]: value },
     }));
   const selected = Object.values(rows);
+  const allSelected = available.length > 0 && selected.length === available.length;
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => {
+    const end = item.endDate || rental.endDate;
+    return [item.id, { rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, billingUnit: "month" as const, duration: 1, unitPrice: Number(item.monthlyRent), newEndDate: addMonths(end, 1), notes: "" }];
+  })));
   const totalQty = selected.reduce((sum, row) => sum + row.quantity, 0);
   const renewalTotal = selected.reduce(
     (sum, row) => sum + row.quantity * row.unitPrice * row.duration,
@@ -3446,8 +3459,12 @@ function RenewalForm({
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
         续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。部分数量续租时系统会自动拆分。
       </div>
-      <div className="flex flex-col gap-3">
-        {available.map((item) => {
+      <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+    <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQty} 台</span>
+    <button type="button" onClick={toggleAll} disabled={!available.length} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{allSelected ? "取消全选" : "全选全部设备"}</button>
+  </div>
+  <div className="flex flex-col gap-3">
+  {available.map((item) => {
           const row = rows[item.id];
           const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
           return (
@@ -3814,12 +3831,16 @@ function OperationForm({
     >
       <label className="flex flex-col gap-2 text-sm font-medium">
         设备明细
-        <select
-          value={itemId}
-          onChange={(e) => setItemId(Number(e.target.value))}
-          className="h-10 rounded-lg border bg-background px-3"
-        >
-          {available.map((i) => (
+          <select
+            value={itemId}
+            onChange={(e) => {
+              setItemId(Number(e.target.value));
+              setQuantity(1);
+            }}
+            className="h-10 rounded-lg border bg-background px-3"
+          >
+            {mode === "return" && <option value={0}>全部设备（全选）</option>}
+            {available.map((i) => (
             <option key={i.id} value={i.id}>
               {i.deviceType} · {i.deviceName} · {i.deviceCode || "无编号"}
               （可处理{" "}
@@ -4025,12 +4046,13 @@ function ExchangeForm({
     >
       <label className="flex flex-col gap-2 text-sm font-medium">
         原设备
-        <select
-          className="h-10 rounded-lg border bg-background px-3"
-          value={itemId}
-          onChange={(e) => setItemId(Number(e.target.value))}
-        >
-          {rental.items.map((item) => (
+          <select
+            className="h-10 rounded-lg border bg-background px-3"
+            value={itemId}
+            onChange={(e) => setItemId(Number(e.target.value))}
+          >
+            <option value={0}>全部设备（全选）</option>
+            {rental.items.map((item) => (
             <option key={item.id} value={item.id}>
               {item.deviceType} · {item.deviceName} ·{" "}
               {item.deviceCode || "无编号"}
@@ -4179,6 +4201,10 @@ function ChangeForm({
         <select
           value={value.itemId}
           onChange={(e) => {
+            if (Number(e.target.value) === 0) {
+              setValue((current) => ({ ...current, itemId: 0 }));
+              return;
+            }
             const item = rental.items.find(
               (current) => current.id === Number(e.target.value),
             );
@@ -4186,6 +4212,7 @@ function ChangeForm({
           }}
           className="h-10 rounded-lg border bg-background px-3"
         >
+          <option value={0}>全部设备（全选并应用相同配置与月租）</option>
           {rental.items.map((current) => (
             <option key={current.id} value={current.id}>
               {current.deviceType} · {current.deviceName} ·{" "}
@@ -4450,6 +4477,8 @@ function BuyoutForm({
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
   const item = available.find((i) => i.id === itemId);
+  const allQuantity = available.reduce((sum, current) => sum + current.quantity - current.boughtOutQuantity - current.returnedQuantity - current.lostQuantity, 0);
+  const effectiveQuantity = itemId === 0 ? allQuantity : quantity;
   return (
     <form
       onSubmit={(e) => {
@@ -4468,6 +4497,7 @@ function BuyoutForm({
             setQuantity(1);
           }}
         >
+          <option value={0}>全部设备（全选）</option>
           {available.map((i) => (
             <option key={i.id} value={i.id}>
               {i.deviceType} · {i.deviceName} · {i.deviceCode || "无编号"}，剩余{" "}
@@ -4493,7 +4523,7 @@ function BuyoutForm({
         <div className="rounded-lg bg-muted p-3">
           <p className="text-xs text-muted-foreground">本次买断金额</p>
           <p className="mt-1 text-lg font-semibold">
-            {money(quantity * price)}
+            {money(effectiveQuantity * price)}
           </p>
         </div>
       </div>
@@ -4514,10 +4544,10 @@ function BuyoutForm({
       <button
         disabled={
           pending ||
-          !item ||
-          quantity <= 0 ||
+          (itemId !== 0 && !item) ||
+          effectiveQuantity <= 0 ||
           price <= 0 ||
-          quantity > item.quantity - item.boughtOutQuantity
+          (itemId !== 0 && item && quantity > item.quantity - item.boughtOutQuantity)
         }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
