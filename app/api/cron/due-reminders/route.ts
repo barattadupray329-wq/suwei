@@ -4,11 +4,13 @@ import { processAutomaticDueReminders, processAutomaticOverdueReminders } from '
 import { db } from '@/lib/db'
 import { rentals } from '@/lib/db/schema'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
 export const dynamic = 'force-dynamic'
 
 function authorized(request: Request) {
-  const secret = process.env.CRON_SECRET
+  const env = getCloudflareContext().env as CloudflareEnv & { CRON_SECRET?: string }
+  const secret = env.CRON_SECRET ?? process.env.CRON_SECRET
   const authorization = request.headers.get('authorization') ?? ''
   const provided = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
   if (!secret || !provided || secret.length !== provided.length) return false
