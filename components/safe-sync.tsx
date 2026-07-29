@@ -50,30 +50,30 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
         schedule()
         return
       }
-      if (protectedByOperator()) {
-        setStatus('操作中，暂停更新')
-        schedule()
-        return
-      }
       try {
         const response = await fetch('/api/sync-state', { cache: 'no-store', headers: { Accept: 'application/json' } })
         if (!response.ok) { schedule(); return }
         const next = await response.json() as SyncState
         setOverdueReceivable(next.overdueReceivable)
         setOutstandingReceivable(next.outstandingReceivable)
+        const operatorIsBusy = protectedByOperator()
         if (!baseline.current) {
           baseline.current = next
           setDisplayVersion(next.version)
-          setStatus('已同步')
+          setStatus(operatorIsBusy ? '操作中，暂停更新' : '已同步')
         } else if ((next.state !== baseline.current.state || next.version !== baseline.current.version) && !refreshing.current) {
-          refreshing.current = true
-          setStatus('正在同步')
-          baseline.current = next
-          setDisplayVersion(next.version)
-          router.refresh()
-          window.setTimeout(() => { refreshing.current = false; setStatus('已同步') }, 1500)
+          if (operatorIsBusy) {
+            setStatus('操作中，暂停更新')
+          } else {
+            refreshing.current = true
+            setStatus('正在同步')
+            baseline.current = next
+            setDisplayVersion(next.version)
+            router.refresh()
+            window.setTimeout(() => { refreshing.current = false; setStatus('已同步') }, 1500)
+          }
         } else {
-          setStatus('已同步')
+          setStatus(operatorIsBusy ? '操作中，暂停更新' : '已同步')
         }
       } catch {
         setStatus(navigator.onLine ? '已同步' : '离线')
