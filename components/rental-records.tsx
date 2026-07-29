@@ -8,7 +8,11 @@ type Row = { id: number; orderType: string; lifecycleStatus: string; deletedAt: 
 type Filters = { query: string; status: string; startDate: string; endDate: string; assignee: string; orderType: string; lifecycleStatus: string; sort: string; receivable: string; page: number }
 type Assignee = { id: string; name: string }
 
-const money = (value: string) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 0 }).format(Number(value))
+const money = (value: string) => {
+  const amount = Number(value)
+  const hasCents = Math.round(amount * 100) % 100 !== 0
+  return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: hasCents ? 2 : 0 }).format(amount)
+}
 const terminalStatuses = new Set(['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '丢失'])
 const statusTone = (status: string) => status === '逾期'
   ? 'border border-destructive/30 bg-destructive/10 text-destructive'

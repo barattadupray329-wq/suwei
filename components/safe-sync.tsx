@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-type SyncState = { version: string; state: string; overdueReceivable: number }
+type SyncState = { version: string; state: string; overdueReceivable: number; outstandingReceivable: number }
 type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线'
 
 const POLL_INTERVAL = 15_000
@@ -26,6 +26,7 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
   const [status, setStatus] = useState<SyncStatus>('已同步')
   const [displayVersion, setDisplayVersion] = useState(initialVersion)
   const [overdueReceivable, setOverdueReceivable] = useState<number | null>(null)
+  const [outstandingReceivable, setOutstandingReceivable] = useState<number | null>(null)
 
   const protectedByOperator = useCallback(() => hasActiveWork() || Date.now() - lastInteraction.current < QUIET_PERIOD, [])
 
@@ -59,6 +60,7 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
         if (!response.ok) { schedule(); return }
         const next = await response.json() as SyncState
         setOverdueReceivable(next.overdueReceivable)
+        setOutstandingReceivable(next.outstandingReceivable)
         if (!baseline.current) {
           baseline.current = next
           setDisplayVersion(next.version)
@@ -84,5 +86,6 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [pathname, protectedByOperator, router])
 
-  return <div className="flex flex-col gap-1.5 text-[11px] leading-4 text-muted-foreground" aria-live="polite">{overdueReceivable !== null && <a href="/rentals?receivable=overdue&sort=outstanding" className="flex items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 font-semibold text-destructive transition-colors hover:bg-destructive/10"><span>逾期待收总计</span><span>{new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 0 }).format(overdueReceivable)}</span></a>}<div className="flex items-center justify-between gap-2"><span>{status}</span><span className="font-mono">v{displayVersion}</span></div></div>
+  const formatMoney = (amount: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: Math.round(amount * 100) % 100 ? 2 : 0, maximumFractionDigits: Math.round(amount * 100) % 100 ? 2 : 0 }).format(amount)
+  return <div className="flex flex-col gap-1.5 text-[11px] leading-4 text-muted-foreground" aria-live="polite">{outstandingReceivable !== null && outstandingReceivable > 0 && <a href="/rentals?receivable=outstanding&sort=outstanding" className="flex items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 font-semibold text-primary transition-colors hover:bg-primary/10"><span>待收总计</span><span>{formatMoney(outstandingReceivable)}</span></a>}{overdueReceivable !== null && overdueReceivable > 0 && <a href="/rentals?receivable=overdue&sort=outstanding" className="flex items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 font-semibold text-destructive transition-colors hover:bg-destructive/10"><span>逾期待收</span><span>{formatMoney(overdueReceivable)}</span></a>}<div className="flex items-center justify-between gap-2"><span>{status}</span><span className="font-mono">v{displayVersion}</span></div></div>
 }
