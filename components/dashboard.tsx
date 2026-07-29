@@ -3617,25 +3617,28 @@ function PaymentForm({ submit, pending, bills, target }: { submit: (value: Payme
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
   const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
+  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), discountAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
+  const settlementAmount = value.amount + value.discountAmount;
   let preview: ReturnType<typeof allocatePayment> = [];
   let previewError = "";
-  if (value.amount > 0 && value.feeType !== "押金") {
-    try { preview = allocatePayment(eligibleBills, value.amount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
+  if (settlementAmount > 0 && value.feeType !== "押金") {
+    try { preview = allocatePayment(eligibleBills, settlementAmount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
   }
   const billMap = new Map(bills.map((bill) => [bill.id, bill]));
   return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
     {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
     {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 期账单</p></div>}
     <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="收款金额（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
+      <Field label="实际收款（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
+      <Field label="优惠金额（元）" type="number" value={value.discountAmount} onChange={(discountAmount) => setValue({ ...value, discountAmount: Math.max(0, Number(discountAmount)) })} />
       <Field label="收款日期" type="date" value={value.paymentDate} onChange={(paymentDate) => setValue({ ...value, paymentDate })} />
       <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select className="h-10 rounded-lg border bg-background px-3" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
       <label className="flex flex-col gap-2 text-sm font-medium">费用类型<select disabled={target !== null} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60" value={value.feeType} onChange={(e) => setValue({ ...value, feeType: e.target.value as PaymentInput["feeType"] })}>{["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
     </div>
-    {value.feeType !== "押金" && value.amount > 0 && <section className="rounded-xl bg-muted p-4"><h3 className="font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">分配 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">分配后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
-    <label className="flex flex-col gap-2 text-sm font-medium">备注<textarea className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} /></label>
-    <button disabled={pending || value.amount <= 0 || Boolean(previewError)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
+    {value.feeType !== "押金" && settlementAmount > 0 && <section className="rounded-xl bg-muted p-4"><div className="grid grid-cols-3 gap-3 border-b pb-4"><Info l="实际到账" v={money(value.amount)} /><Info l="优惠减免" v={money(value.discountAmount)} /><Info l="合计核销" v={money(settlementAmount)} /></div><h3 className="mt-4 font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">核销 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">核销后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
+    {value.feeType === "押金" && value.discountAmount > 0 && <p className="text-sm text-destructive">押金收取不能使用优惠，请将优惠金额改为 0。</p>}
+    <label className="flex flex-col gap-2 text-sm font-medium">{value.discountAmount > 0 ? "备注 / 优惠原因（必填）" : "备注"}<textarea required={value.discountAmount > 0} minLength={value.discountAmount > 0 ? 2 : undefined} className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} placeholder={value.discountAmount > 0 ? "例如：抹零优惠、老客户优惠" : undefined} /></label>
+    <button disabled={pending || value.amount <= 0 || Boolean(previewError) || (value.discountAmount > 0 && ((value.notes?.trim().length ?? 0) < 2 || value.feeType === "押金"))} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
   </form>;
 }
 function CustomerHistory({ phone }: { phone: string }) {

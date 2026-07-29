@@ -2,7 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { cookies } from 'next/headers'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { accountLedger, businessSettings, buyoutRecords, customerPortals, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, businessSettings, buyoutRecords, customerPortals, paymentDiscounts, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_portal_session'
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
@@ -55,12 +55,13 @@ export async function getCustomerPortalData(token: string) {
   if (!portal || portal.accessTokenHash !== digest(token)) return null
   const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, portal.userId), eq(rentals.customerPhone, portal.phone)))
   const ids = contracts.map((contract) => contract.id)
-  const empty = { items: [], bills: [], payments: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
+  const empty = { items: [], bills: [], payments: [], discounts: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
   if (!ids.length) return { portal, settings: null, contracts: [], ...empty }
-  const [items, bills, payments, ledger, renewals, buyouts, returns, events, [settings], [assignee]] = await Promise.all([
+  const [items, bills, payments, discounts, ledger, renewals, buyouts, returns, events, [settings], [assignee]] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, portal.userId), inArray(rentalItems.rentalId, ids))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, portal.userId), inArray(receivableBills.rentalId, ids))),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, portal.userId), inArray(paymentRecords.rentalId, ids))),
+    db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.userId, portal.userId), inArray(paymentDiscounts.rentalId, ids))),
     db.select().from(accountLedger).where(and(eq(accountLedger.userId, portal.userId), inArray(accountLedger.rentalId, ids))),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, portal.userId), inArray(renewalRecords.rentalId, ids))),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, portal.userId), inArray(buyoutRecords.rentalId, ids))),
@@ -70,5 +71,5 @@ export async function getCustomerPortalData(token: string) {
     portal.assigneeUserId ? db.select({ name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, portal.assigneeUserId)) : Promise.resolve([]),
   ])
   const manager = { name: assignee?.name || settings?.contactName || '门店客服', title: '客户经理', phone: assignee?.phone || settings?.phone || '' }
-  return { portal, settings, manager, contracts, items, bills, payments, ledger, renewals, buyouts, returns, events }
+  return { portal, settings, manager, contracts, items, bills, payments, discounts, ledger, renewals, buyouts, returns, events }
 }

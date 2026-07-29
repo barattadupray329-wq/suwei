@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { fromCents, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
@@ -435,7 +435,7 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   return { ok: true }
 }
 
-const paymentSchema = z.object({ amount: z.number().positive(), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() })
+const paymentSchema = z.object({ amount: z.number().positive(), discountAmount: z.number().nonnegative().default(0), paymentDate: z.string().min(1), paymentMethod: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']), feeType: z.enum(['原合同租金', '续租费', '押金', '买断费', '其他']), billId: z.number().int().positive().optional(), renewalRecordId: z.number().int().positive().optional(), notes: z.string().optional() }).superRefine((value, context) => { if (value.feeType === '押金' && value.discountAmount > 0) context.addIssue({ code: 'custom', path: ['discountAmount'], message: '押金收取不能使用优惠' }); if (value.discountAmount > 0 && (value.notes?.trim().length ?? 0) < 2) context.addIssue({ code: 'custom', path: ['notes'], message: '有优惠时请填写至少 2 个字的优惠原因' }) })
 export type PaymentInput = z.infer<typeof paymentSchema>
 
 export async function collectPayment(id: number, input: PaymentInput) {
@@ -452,12 +452,21 @@ export async function collectPayment(id: number, input: PaymentInput) {
   const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter)).orderBy(receivableBills.dueDate)
   if (value.billId && !bills.some(bill => bill.id === value.billId)) throw new Error('目标账单不存在、已变更或不属于当前合同')
   const availableCents = value.billId ? billOutstandingCents(bills.find(bill => bill.id === value.billId)!) : bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
-  if (moneyToCents(value.amount) > availableCents) throw new Error(`收款金额超过当前待收金额，最多可收 ${centsToMoney(availableCents)} 元`)
-  const allocations = allocatePayment(bills, value.amount, value.billId)
+  const amountCents = moneyToCents(value.amount)
+  const discountCents = moneyToCents(value.discountAmount)
+  const settlementCents = amountCents + discountCents
+  if (settlementCents > availableCents) throw new Error(`实收与优惠合计超过当前待收金额，最多可核销 ${centsToMoney(availableCents)} 元`)
+  const allocations = allocatePayment(bills, centsToMoney(settlementCents), value.billId)
   const paymentId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
   const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-    db.insert(paymentRecords).values({ id: paymentId, userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: String(value.amount), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, notes: value.notes }),
+    db.insert(paymentRecords).values({ id: paymentId, userId, rentalId: id, renewalRecordId: value.renewalRecordId, amount: centsToMoney(amountCents), paymentDate: value.paymentDate, paymentMethod: value.paymentMethod, feeType: value.feeType, notes: value.notes }),
   ]
+  if (discountCents > 0) {
+    statements.push(
+      db.insert(paymentDiscounts).values({ userId, rentalId: id, paymentRecordId: paymentId, amount: centsToMoney(discountCents), reason: value.notes!.trim() }),
+      db.insert(accountLedger).values({ userId, rentalId: id, entryType: '收款优惠', amount: centsToMoney(-discountCents), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前用户', notes: value.notes }),
+    )
+  }
   if (value.feeType === '押金') statements.push(db.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: String(value.amount), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前用户', notes: value.notes }))
   for (const allocation of allocations) {
     const bill = bills.find(item => item.id === allocation.billId)!
@@ -468,8 +477,10 @@ export async function collectPayment(id: number, input: PaymentInput) {
     )
   }
   if (value.feeType !== '押金') {
-    const paidCents = moneyToCents(row.paidAmount) + moneyToCents(value.amount)
-    statements.push(db.update(rentals).set({ paidAmount: centsToMoney(paidCents), paymentStatus: paidCents >= moneyToCents(row.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId))))
+    const paidCents = moneyToCents(row.paidAmount) + amountCents
+    const totalCents = moneyToCents(row.totalRent) - discountCents
+    if (totalCents < paidCents) throw new Error('优惠后合同应收不能小于累计实收')
+    statements.push(db.update(rentals).set({ totalRent: centsToMoney(totalCents), paidAmount: centsToMoney(paidCents), paymentStatus: paidCents >= totalCents ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, userId))))
   }
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
@@ -486,6 +497,9 @@ export async function reversePayment(paymentId: number, reason: string) {
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId)))
     if (!rental) throw new Error('合同不存在')
     const allocations = await tx.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId)))
+    const [discount] = await tx.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.paymentRecordId, paymentId), eq(paymentDiscounts.userId, userId)))
+    if (discount?.reversedAt) throw new Error('该收款优惠已冲正')
+    const discountCents = discount ? moneyToCents(discount.amount) : 0
     const allocatedBills = await Promise.all(allocations.map(async (allocation) => ({ allocation, bill: (await tx.select().from(receivableBills).where(and(eq(receivableBills.id, allocation.billId), eq(receivableBills.userId, userId))).limit(1))[0] })))
     if (allocatedBills.some(({ bill }) => !bill)) throw new Error('原收款的账单分配记录不完整，禁止冲正')
     const date = new Date().toISOString().slice(0, 10)
@@ -498,9 +512,16 @@ export async function reversePayment(paymentId: number, reason: string) {
       tx.insert(paymentRecords).values({ id: reversalId, userId, rentalId: payment.rentalId, amount: centsToMoney(-moneyToCents(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reason}` }),
       tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '收款冲正', amount: centsToMoney(-moneyToCents(payment.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: '当前用户', notes: reason }),
     ]
+    if (discount) {
+      statements.push(
+        tx.update(paymentDiscounts).set({ reversedAt: new Date() }).where(and(eq(paymentDiscounts.id, discount.id), eq(paymentDiscounts.userId, userId))),
+        tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '优惠冲正', amount: centsToMoney(discountCents), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: '当前用户', notes: reason }),
+      )
+    }
     if (payment.feeType !== '押金') {
       const paidCents = Math.max(0, moneyToCents(rental.paidAmount) - moneyToCents(payment.amount))
-      statements.push(tx.update(rentals).set({ paidAmount: centsToMoney(paidCents), paymentStatus: paidCents <= 0 ? '待收款' : paidCents >= moneyToCents(rental.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId))))
+      const totalCents = moneyToCents(rental.totalRent) + discountCents
+      statements.push(tx.update(rentals).set({ totalRent: centsToMoney(totalCents), paidAmount: centsToMoney(paidCents), paymentStatus: paidCents <= 0 ? '待收款' : paidCents >= totalCents ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId))))
     }
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   }

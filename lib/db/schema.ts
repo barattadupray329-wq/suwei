@@ -37,6 +37,10 @@ export const receivableBills = sqliteTable('receivable_bills', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), billNo: text('billNo').notNull(), periodStart: text('periodStart').notNull(), periodEnd: text('periodEnd').notNull(), dueDate: text('dueDate').notNull(), billType: text('billType').notNull().default('租金'), amount: text('amount').notNull(), paidAmount: text('paidAmount').notNull().default('0'), status: text('status').notNull().default('待收'), notes: text('notes'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [unique().on(table.userId, table.billNo)])
 
+export const paymentDiscounts = sqliteTable('payment_discounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), paymentRecordId: integer('paymentRecordId').notNull().unique(), amount: text('amount').notNull(), reason: text('reason').notNull(), reversedAt: integer('reversedAt', { mode: 'timestamp_ms' }), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [index('payment_discounts_user_rental_idx').on(table.userId, table.rentalId)])
+
 export const paymentAllocations = sqliteTable('payment_allocations', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), paymentRecordId: integer('paymentRecordId').notNull(), billId: integer('billId').notNull(), amount: text('amount').notNull(), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })

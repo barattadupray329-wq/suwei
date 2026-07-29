@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { MAX_CLOUD_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
-import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, notificationPolicies, paymentAllocations, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, smsDeliveryLogs } from '@/lib/db/schema'
+import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, notificationPolicies, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, smsDeliveryLogs } from '@/lib/db/schema'
 
-export const BACKUP_VERSION = 2
-export const backupTables = { rentals, rentalItems, buyoutRecords, renewalRecords, renewalAdjustments, paymentRecords, receivableBills, paymentAllocations, accountLedger, rentalEvents, returnRecords, lossRecords, rentalOperations, notificationPolicies, smsDeliveryLogs, businessSettings, contractSnapshots, customerPortals } as const
+export const BACKUP_VERSION = 3
+export const backupTables = { rentals, rentalItems, buyoutRecords, renewalRecords, renewalAdjustments, paymentRecords, paymentDiscounts, receivableBills, paymentAllocations, accountLedger, rentalEvents, returnRecords, lossRecords, rentalOperations, notificationPolicies, smsDeliveryLogs, businessSettings, contractSnapshots, customerPortals } as const
 export type BackupPayload = { format: 'suwei-rental-backup'; schemaVersion: number; createdAt: string; userId: string; tables: Record<string, unknown[]> }
 
 export async function buildBackup(userId: string): Promise<BackupPayload> {
@@ -18,11 +18,12 @@ export function validateBackup(value: unknown, userId: string) {
   if (!value || typeof value !== 'object') throw new Error('备份文件格式无效')
   const payload = value as BackupPayload
   if (payload.format !== 'suwei-rental-backup') throw new Error('不是本系统生成的恢复包')
-  if (![1, BACKUP_VERSION].includes(payload.schemaVersion)) throw new Error(`备份版本 ${payload.schemaVersion} 与当前版本 ${BACKUP_VERSION} 不兼容`)
+  if (![1, 2, BACKUP_VERSION].includes(payload.schemaVersion)) throw new Error(`备份版本 ${payload.schemaVersion} 与当前版本 ${BACKUP_VERSION} 不兼容`)
   if (payload.userId !== userId) throw new Error('备份所属账号与当前门店不匹配')
   if (!payload.tables || typeof payload.tables !== 'object') throw new Error('备份缺少数据表')
   for (const name of Object.keys(backupTables)) {
     if (payload.schemaVersion === 1 && ['rentalOperations', 'notificationPolicies', 'smsDeliveryLogs'].includes(name) && payload.tables[name] === undefined) payload.tables[name] = []
+    if (payload.schemaVersion < 3 && name === 'paymentDiscounts' && payload.tables[name] === undefined) payload.tables[name] = []
     if (!Array.isArray(payload.tables[name])) throw new Error(`备份缺少数据表：${name}`)
   }
   return payload
@@ -67,7 +68,7 @@ function hydrateBackupRow(row: unknown) {
 export async function restoreBackup(userId: string, rawPayload: unknown) {
   const payload = validateBackup(rawPayload, userId)
   await saveCloudSnapshot(userId, 'pre-restore')
-  const deletionOrder = [smsDeliveryLogs, rentalOperations, notificationPolicies, paymentAllocations, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalAdjustments, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
+  const deletionOrder = [smsDeliveryLogs, rentalOperations, notificationPolicies, paymentAllocations, paymentDiscounts, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalAdjustments, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
   await db.transaction(async (tx) => {
     for (const table of deletionOrder) await tx.delete(table).where(eq(table.userId, userId))
     for (const [name, table] of Object.entries(backupTables)) {
