@@ -48,7 +48,7 @@ import {
   type SettlementInput,
 } from "@/app/actions/rentals";
 import {
-  exchangeRentalItem,
+  exchangeRentalItems,
   reportLostItem,
   returnRentalItem,
   type ExchangeInput,
@@ -257,6 +257,15 @@ const today = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+
+function validateBusinessBatch<T extends { rentalId: number }>(values: T[], itemId: (value: T) => number) {
+  if (!values.length) throw new Error("请至少选择一项设备");
+  if (values.length > 100) throw new Error("单次最多办理 100 项设备");
+  const rentalId = values[0].rentalId;
+  if (values.some((value) => value.rentalId !== rentalId)) throw new Error("批量业务必须属于同一合同");
+  if (new Set(values.map(itemId)).size !== values.length) throw new Error("同一设备不能重复提交");
+  return values;
+}
 function calculateEndDate(
   startDate: string,
   billingType: "monthly" | "daily",
@@ -1369,7 +1378,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values) =>
               run(
-                () => Promise.all(values.map((value) => returnRentalItem(value as ReturnInput))).then(() => undefined),
+                () => Promise.all(validateBusinessBatch(values as ReturnInput[], (value) => value.rentalItemId).map((value) => returnRentalItem(value))).then(() => undefined),
                 "退租已登记",
               )
             }
@@ -1387,7 +1396,7 @@ canViewFinance={canViewFinance}
             mode="loss"
             pending={pending}
             submit={(values) =>
-              run(() => Promise.all(values.map((value) => reportLostItem(value as LossInput))).then(() => undefined), "丢失已登记")
+              run(() => Promise.all(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId).map((value) => reportLostItem(value))).then(() => undefined), "丢失已登记")
             }
           />
         )}
@@ -1404,7 +1413,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values) =>
               run(
-                () => Promise.all(values.map((value) => changeRentalItem(value))).then(() => undefined),
+                () => Promise.all(validateBusinessBatch(values, (value) => value.itemId).map((value) => changeRentalItem(value))).then(() => undefined),
                 "配置与应收已更新",
               )
             }
@@ -1422,7 +1431,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values) =>
-              run(() => Promise.all(values.map((value) => createRepairRecord(value))).then(() => undefined), "维修记录已保存")
+              run(() => Promise.all(validateBusinessBatch(values, (value) => value.itemId).map((value) => createRepairRecord(value))).then(() => undefined), "维修记录已保存")
             }
           />
         )}
@@ -1457,7 +1466,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values) =>
               run(
-                () => Promise.all(values.map((value) => exchangeRentalItem(value))).then(() => undefined),
+                () => exchangeRentalItems(values),
                 "换机调拨已登记",
               )
             }
@@ -1475,7 +1484,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values, settlement) =>
               run(
-                () => Promise.all(values.map((value) => buyoutRentalItem(selected.id, value.itemId, value.quantity, value.price, value.date, settlement, value.notes))).then(() => undefined),
+                () => Promise.all(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId).map((value) => buyoutRentalItem(value.rentalId, value.itemId, value.quantity, value.price, value.date, settlement, value.notes))).then(() => undefined),
                 "买断已登记",
               )
             }
