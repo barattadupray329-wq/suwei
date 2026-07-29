@@ -150,10 +150,18 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : desc(rentals.createdAt)
+  // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
+  // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
+  const businessPriority = sql<number>`case
+    when (${isExpired}) and (${hasOutstanding}) then 0
+    when ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) then 1
+    when (${hasOutstanding}) then 2
+    else 3
+  end`
   const offset = (value.page - 1) * value.pageSize
   const [[countRow], rows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(rentals).where(where),
-    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
