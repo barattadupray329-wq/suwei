@@ -41,7 +41,10 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   }))
   if (!bills.length) return { created: 0, amount: '0.00' }
 
-  await db.insert(receivableBills).values(bills).onConflictDoNothing()
+  const insertBatchSize = 20
+  for (let index = 0; index < bills.length; index += insertBatchSize) {
+    await db.insert(receivableBills).values(bills.slice(index, index + insertBatchSize)).onConflictDoNothing()
+  }
   const affectedIds = [...new Set(bills.map((bill) => bill.rentalId))]
   for (const rentalId of affectedIds) {
     const [contractBills, [contract]] = await Promise.all([

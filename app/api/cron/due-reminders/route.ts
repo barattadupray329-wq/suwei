@@ -19,12 +19,17 @@ function authorized(request: Request) {
 
 export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ ok: false, message: '未授权' }, { status: 401 })
-  const userRows = await db.selectDistinct({ userId: rentals.userId }).from(rentals)
-  const billing = []
-  for (const { userId } of userRows) billing.push({ userId, ...await ensureOverdueRentBills(userId) })
-  const [due, overdue] = await Promise.all([
-    processAutomaticDueReminders(),
-    processAutomaticOverdueReminders(),
-  ])
-  return NextResponse.json({ ok: true, billing, due, overdue })
+  try {
+    const userRows = await db.selectDistinct({ userId: rentals.userId }).from(rentals)
+    const billing = []
+    for (const { userId } of userRows) billing.push({ userId, ...await ensureOverdueRentBills(userId) })
+    const [due, overdue] = await Promise.all([
+      processAutomaticDueReminders(),
+      processAutomaticOverdueReminders(),
+    ])
+    return NextResponse.json({ ok: true, billing, due, overdue })
+  } catch (error) {
+    console.error('[v0] Automatic billing task failed:', error)
+    return NextResponse.json({ ok: false, message: error instanceof Error ? error.message : '自动补账失败' }, { status: 500 })
+  }
 }
