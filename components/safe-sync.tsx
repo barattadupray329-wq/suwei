@@ -1,0 +1,86 @@
+'use client'
+
+import { usePathname, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+type SyncState = { version: string; state: string }
+type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线'
+
+const POLL_INTERVAL = 15_000
+const QUIET_PERIOD = 3_000
+
+function hasActiveWork() {
+  const active = document.activeElement
+  const editing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || active?.getAttribute('contenteditable') === 'true'
+  const dialogOpen = Boolean(document.querySelector('[role="dialog"], dialog[open], [aria-modal="true"]'))
+  const submitting = Boolean(document.querySelector('form[aria-busy="true"], button[aria-busy="true"], [data-submitting="true"]'))
+  return editing || dialogOpen || submitting
+}
+
+export function SafeSync({ initialVersion }: { initialVersion: string }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const baseline = useRef<SyncState | null>(null)
+  const lastInteraction = useRef(Date.now())
+  const refreshing = useRef(false)
+  const [status, setStatus] = useState<SyncStatus>('已同步')
+  const [displayVersion, setDisplayVersion] = useState(initialVersion)
+
+  const protectedByOperator = useCallback(() => hasActiveWork() || Date.now() - lastInteraction.current < QUIET_PERIOD, [])
+
+  useEffect(() => {
+    const markInteraction = () => { lastInteraction.current = Date.now() }
+    const events: (keyof DocumentEventMap)[] = ['input', 'change', 'keydown', 'pointerdown', 'submit']
+    events.forEach((event) => document.addEventListener(event, markInteraction, true))
+    return () => events.forEach((event) => document.removeEventListener(event, markInteraction, true))
+  }, [])
+
+  useEffect(() => {
+    if (pathname === '/sign-in' || pathname.startsWith('/portal/')) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+
+    const schedule = () => { timer = setTimeout(check, POLL_INTERVAL) }
+    const check = async () => {
+      if (stopped) return
+      if (document.hidden || !navigator.onLine) {
+        setStatus(navigator.onLine ? '已同步' : '离线')
+        schedule()
+        return
+      }
+      if (protectedByOperator()) {
+        setStatus('操作中，暂停更新')
+        schedule()
+        return
+      }
+      try {
+        const response = await fetch('/api/sync-state', { cache: 'no-store', headers: { Accept: 'application/json' } })
+        if (!response.ok) { schedule(); return }
+        const next = await response.json() as SyncState
+        if (!baseline.current) {
+          baseline.current = next
+          setDisplayVersion(next.version)
+          setStatus('已同步')
+        } else if ((next.state !== baseline.current.state || next.version !== baseline.current.version) && !refreshing.current) {
+          refreshing.current = true
+          setStatus('正在同步')
+          baseline.current = next
+          setDisplayVersion(next.version)
+          router.refresh()
+          window.setTimeout(() => { refreshing.current = false; setStatus('已同步') }, 1500)
+        } else {
+          setStatus('已同步')
+        }
+      } catch {
+        setStatus(navigator.onLine ? '已同步' : '离线')
+      }
+      schedule()
+    }
+    const onVisible = () => { if (!document.hidden) check() }
+    document.addEventListener('visibilitychange', onVisible)
+    check()
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [pathname, protectedByOperator, router])
+
+  return <div className="flex items-center justify-between gap-2 text-[11px] leading-4 text-muted-foreground" aria-live="polite"><span>{status}</span><span className="font-mono">v{displayVersion}</span></div>
+}

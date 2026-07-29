@@ -13,6 +13,7 @@ const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.cn'), title: { default: '速维电脑租赁｜台式机、笔记本与显示器租赁', template: '%s' }, description: '面向电商、公司、个人和游戏工作室提供电脑设备租赁，以台式机为主，并提供笔记本、显示器和一体机，支持单台租用与批量部署。', applicationName: '速维电脑租赁', keywords: ['台式机租赁','电脑租赁','笔记本租赁','显示器租赁','一体机租赁','电商电脑租赁','公司电脑租赁','游戏工作室电脑租赁','龙岩电脑租赁','速维租赁'] }
 export const viewport: Viewport = { themeColor: '#f5f7f6', width: 'device-width', initialScale: 1 }
 export const dynamic = 'force-dynamic'
+const APP_VERSION = process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev'
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const requestHeaders = await headers()
   const hasRequestContext = requestHeaders.has('host')
@@ -29,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     }
   }
   const content = shell && session?.user
-    ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions}>{children}</AppShell>
+    ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions} version={APP_VERSION}>{children}</AppShell>
     : children
   return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>{content}<Toaster richColors position="top-center" /></body></html>
 }
