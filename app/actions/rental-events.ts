@@ -76,6 +76,94 @@ export async function changeRentalItem(input: RentalChangeInput) {
   revalidatePath('/')
 }
 
+export async function changeRentalItems(input: RentalChangeInput[]) {
+  const { userId, actorId, name } = await actor()
+  const values = z.array(changeSchema).min(1).max(100).parse(input)
+  const rentalId = values[0].rentalId
+  if (values.some((value) => value.rentalId !== rentalId)) throw new Error('批量配置变更必须属于同一合同')
+  if (new Set(values.map((value) => value.itemId)).size !== values.length) throw new Error('同一设备不能重复提交')
+  const [[rental], items] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, rentalId))),
+  ])
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理配置变更')
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const now = new Date()
+  const changes = values.map((value, index) => {
+    const item = byId.get(value.itemId)
+    if (!item || availableQuantity(item) <= 0) throw new Error('包含不存在或已处置的设备')
+    dateOnly(value.eventDate)
+    const oldEndDate = item.endDate ?? rental.endDate
+    if ((item.startDate && value.eventDate < item.startDate) || value.eventDate > oldEndDate) throw new Error(`${item.deviceName} 的变更日期不在租期内`)
+    if (value.quantity !== item.quantity) throw new Error('配置变更不能调整数量')
+    const adjustedEndDate = value.giftDays > 0 ? addDays(oldEndDate, value.giftDays) : oldEndDate
+    const remainingDays = inclusiveDays(value.eventDate, oldEndDate)
+    const feeCents = Math.round((toCents(value.monthlyRent) - toCents(item.monthlyRent)) * availableQuantity(item) * remainingDays / 30)
+    if (toCents(value.feeAdjustment) !== feeCents) throw new Error(`${item.deviceName} 的配置补差已变化，请刷新后重试`)
+    const lineTotalCents = toCents(value.monthlyRent) * item.quantity
+    const after = { ...snapshot(item), deviceName:value.deviceName, deviceType:value.deviceType, deviceCode:value.deviceCode||null, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null, monthlyRent:fromCents(toCents(value.monthlyRent)), totalRent:fromCents(lineTotalCents), endDate:adjustedEndDate, giftDays:value.giftDays }
+    return { value, item, oldEndDate, adjustedEndDate, remainingDays, feeCents, lineTotalCents, after, eventId: Date.now() * 1000 + index }
+  })
+  const finalItems = items.map((item) => {
+    const change = changes.find((entry) => entry.item.id === item.id)
+    return change ? { ...item, ...change.after } : item
+  })
+  const quantity = finalItems.reduce((sum, item) => sum + availableQuantity(item), 0)
+  const monthlyRentCents = finalItems.reduce((sum, item) => sum + toCents(item.monthlyRent) * availableQuantity(item), 0)
+  const totalRentCents = toCents(rental.totalRent) + changes.reduce((sum, change) => sum - toCents(change.item.totalRent) + change.lineTotalCents + change.feeCents, 0)
+  if (totalRentCents < 0) throw new Error('调整后合同金额不能小于 0')
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+  for (const change of changes) {
+    statements.push(
+      db.update(rentalItems).set({ ...change.after, updatedAt: now }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, change.item.id))),
+      db.insert(rentalEvents).values({ id:change.eventId,userId,rentalId,itemId:change.item.id,eventType:'配置变更',eventDate:change.value.eventDate,beforeSnapshot:{...snapshot(change.item),endDate:change.oldEndDate},afterSnapshot:change.after,reason:change.value.reason,feeAdjustment:fromCents(change.feeCents),operatorName:name,notes:[change.value.notes,change.value.giftDays ? `赠送 ${change.value.giftDays} 天，到期日顺延至 ${change.adjustedEndDate}` : ''].filter(Boolean).join('；') }),
+      db.insert(auditLogs).values({ userId,actorUserId:actorId,actorName:name,action:'配置变更',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 批量配置变更：${change.item.deviceName}`,metadata:{itemId:change.item.id,feeAdjustment:fromCents(change.feeCents)} }),
+    )
+    if (change.feeCents !== 0) statements.push(db.insert(receivableBills).values({ userId,rentalId,billNo:`CHANGE-${rentalId}-${change.eventId}`,periodStart:change.value.eventDate,periodEnd:change.oldEndDate,dueDate:change.value.eventDate,billType:change.feeCents > 0 ? '配置变更补收' : '配置变更减免',amount:fromCents(change.feeCents),paidAmount:'0.00',status:change.feeCents > 0 ? '待收' : '已减免',notes:`${change.value.reason}；剩余 ${change.remainingDays} 天按 30 天折算` }))
+  }
+  statements.push(db.update(rentals).set({ deviceName:finalItems.map((item)=>item.deviceName).join('、'),deviceType:finalItems.length===1?finalItems[0].deviceType:'多设备',quantity,monthlyRent:fromCents(monthlyRentCents),totalRent:fromCents(totalRentCents),endDate:finalItems.map((item)=>item.endDate ?? rental.endDate).sort().at(-1) ?? rental.endDate,paymentStatus:paymentStatusFromCents(totalRentCents,toCents(rental.paidAmount)),updatedAt:now }).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+  revalidatePath('/audit-logs')
+}
+
+export async function createRepairRecords(input: RepairInput[]) {
+  const context = await getAccessContext('租赁操作')
+  const values = z.array(repairSchema).min(1).max(100).parse(input)
+  const rentalId = values[0].rentalId
+  if (values.some((value) => value.rentalId !== rentalId)) throw new Error('批量维修必须属于同一合同')
+  if (new Set(values.map((value) => value.itemId)).size !== values.length) throw new Error('同一设备不能重复提交')
+  const [[rental], items] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId,context.userId),eq(rentals.id,rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId,context.userId),eq(rentalItems.rentalId,rentalId))),
+  ])
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以登记维修')
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const rows = values.map((value, index) => {
+    const item = byId.get(value.itemId)
+    if (!item || availableQuantity(item) <= 0) throw new Error('包含不存在或已处置的设备')
+    dateOnly(value.eventDate)
+    if (item.startDate && value.eventDate < item.startDate) throw new Error(`${item.deviceName} 的维修日期不能早于起租日期`)
+    if (value.completedDate) assertDateOrder(value.eventDate,value.completedDate,'维修完成日期不能早于维修登记日期')
+    if (value.status === '已完成' && !value.completedDate) throw new Error('维修完成时必须填写完成日期')
+    return { value, item, eventId: Date.now() * 1000 + index }
+  })
+  const chargeCents = rows.reduce((sum, row) => sum + toCents(row.value.customerCharge), 0)
+  const totalRentCents = toCents(rental.totalRent) + chargeCents
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+  for (const row of rows) {
+    statements.push(
+      db.insert(rentalEvents).values({ id:row.eventId,userId:context.userId,rentalId,itemId:row.item.id,eventType:'维修',status:row.value.status,eventDate:row.value.eventDate,beforeSnapshot:snapshot(row.item),faultDescription:row.value.faultDescription,resolution:row.value.resolution,repairCost:fromCents(toCents(row.value.repairCost)),customerCharge:fromCents(toCents(row.value.customerCharge)),completedDate:row.value.completedDate||null,operatorName:context.actorName,notes:row.value.notes }),
+      db.insert(auditLogs).values({ userId:context.userId,actorUserId:context.actorId,actorName:context.actorName,action:'登记维修',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 登记 ${row.item.deviceName} 维修，客户承担 ${row.value.customerCharge.toFixed(2)} 元`,metadata:{eventId:row.eventId,itemId:row.item.id,status:row.value.status} }),
+    )
+    if (toCents(row.value.customerCharge) > 0) statements.push(db.insert(receivableBills).values({ userId:context.userId,rentalId,billNo:`REPAIR-${rentalId}-${row.eventId}`,periodStart:row.value.eventDate,periodEnd:row.value.completedDate||row.value.eventDate,dueDate:row.value.completedDate||row.value.eventDate,billType:'维修费',amount:fromCents(toCents(row.value.customerCharge)),paidAmount:'0.00',status:'待收',notes:`${row.item.deviceName} 维修客户承担费用` }))
+  }
+  statements.push(db.update(rentals).set({ totalRent:fromCents(totalRentCents),paymentStatus:paymentStatusFromCents(totalRentCents,toCents(rental.paidAmount)),updatedAt:new Date() }).where(and(eq(rentals.userId,context.userId),eq(rentals.id,rentalId))))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+  revalidatePath('/audit-logs')
+}
+
 export async function createRepairRecord(input: RepairInput) {
   const context = await getAccessContext('租赁操作')
   const userId = context.userId

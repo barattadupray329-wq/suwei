@@ -36,6 +36,7 @@ import {
   getNextRentalNumbers,
   getRentalFormSuggestions,
   recordDepositAction,
+  buyoutRentalItems,
   renewRentalItems,
   reversePayment,
   updateRentalAssignee,
@@ -49,8 +50,8 @@ import {
 } from "@/app/actions/rentals";
 import {
   exchangeRentalItems,
-  reportLostItem,
-  returnRentalItem,
+  reportLostItems,
+  returnRentalItems,
   type ExchangeInput,
   type LossInput,
   type ReturnInput,
@@ -58,8 +59,8 @@ import {
 import { sendRentalCreatedNotice, sendRentalReminders } from "@/app/actions/sms-reminders";
 import {
   changeRentalContract,
-  changeRentalItem,
-  createRepairRecord,
+  changeRentalItems,
+  createRepairRecords,
   type ContractChangeInput,
   type RentalChangeInput,
   type RepairInput,
@@ -1378,7 +1379,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values) =>
               run(
-                () => Promise.all(validateBusinessBatch(values as ReturnInput[], (value) => value.rentalItemId).map((value) => returnRentalItem(value))).then(() => undefined),
+                () => returnRentalItems(validateBusinessBatch(values as ReturnInput[], (value) => value.rentalItemId)),
                 "退租已登记",
               )
             }
@@ -1396,7 +1397,7 @@ canViewFinance={canViewFinance}
             mode="loss"
             pending={pending}
             submit={(values) =>
-              run(() => Promise.all(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId).map((value) => reportLostItem(value))).then(() => undefined), "丢失已登记")
+              run(() => reportLostItems(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId)), "丢失已登记")
             }
           />
         )}
@@ -1413,7 +1414,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values) =>
               run(
-                () => Promise.all(validateBusinessBatch(values, (value) => value.itemId).map((value) => changeRentalItem(value))).then(() => undefined),
+                () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
                 "配置与应收已更新",
               )
             }
@@ -1431,7 +1432,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values) =>
-              run(() => Promise.all(validateBusinessBatch(values, (value) => value.itemId).map((value) => createRepairRecord(value))).then(() => undefined), "维修记录已保存")
+              run(() => createRepairRecords(validateBusinessBatch(values, (value) => value.itemId)), "维修记录已保存")
             }
           />
         )}
@@ -1484,7 +1485,7 @@ canViewFinance={canViewFinance}
             pending={pending}
             submit={(values, settlement) =>
               run(
-                () => Promise.all(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId).map((value) => buyoutRentalItem(value.rentalId, value.itemId, value.quantity, value.price, value.date, settlement, value.notes))).then(() => undefined),
+                () => buyoutRentalItems(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId), settlement),
                 "买断已登记",
               )
             }
