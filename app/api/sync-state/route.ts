@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { accountLedger, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 import { and, eq, max, sql } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
+import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,6 +12,7 @@ const BUILD_VERSION = process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_S
 export async function GET() {
   try {
     const access = await getAccessContext()
+    await ensureOverdueRentBills(access.userId)
     const [rentalState, itemState, eventState, ledgerState, overdueState, outstandingState] = await Promise.all([
       db.select({ count: sql<number>`count(*)`, changed: max(rentals.updatedAt), newest: max(rentals.id) }).from(rentals).where(and(eq(rentals.userId, access.userId), eq(rentals.orderType, 'official'))),
       db.select({ count: sql<number>`count(*)`, changed: max(rentalItems.updatedAt), newest: max(rentalItems.id) }).from(rentalItems).where(eq(rentalItems.userId, access.userId)),
