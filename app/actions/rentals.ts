@@ -140,11 +140,14 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const pattern = `%${value.query}%`
     filters.push(or(like(rentals.contractNo, pattern), like(rentals.customerCompany, pattern), like(rentals.customerName, pattern), like(rentals.customerPhone, pattern), like(rentals.deviceName, pattern), like(rentals.deviceCode, pattern))!)
   }
-  const terminalStatuses = ['买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失']
-  const isExpired = sql<boolean>`${rentals.endDate} < current_date and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
+  const terminalStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '丢失']
+  const businessToday = sql<string>`date('now', '+8 hours')`
+  const isExpired = sql<boolean>`${rentals.endDate} < ${businessToday} and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
   const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
   if (value.status === '逾期') filters.push(isExpired)
   else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
+  else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
+  else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
   if (value.receivable === 'outstanding') filters.push(hasOutstanding)
   else if (value.receivable === 'overdue') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)

@@ -36,5 +36,6 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
     query: value('query'), status: value('status') || '全部', startDate: value('startDate'), endDate: value('endDate'), assignee: value('assignee'), orderType, lifecycleStatus: 'active' as const, sort, receivable, page: Math.max(1, Number(value('page')) || 1),
   }
   const [result, assignees] = await Promise.all([getRentalPage({ ...filters, pageSize: 20 }), getRentalAssignees()])
-  return <RentalRecords {...result} filters={filters} assignees={assignees} />
+  const filterKey = JSON.stringify(filters)
+  return <RentalRecords key={filterKey} {...result} filters={filters} assignees={assignees} />
 }
