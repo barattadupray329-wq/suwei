@@ -143,7 +143,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const terminalStatuses = ['买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失']
   const isExpired = sql<boolean>`${rentals.endDate} < current_date and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
   const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
-  if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
+  if (value.status === '逾期') filters.push(isExpired)
   else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
   if (value.receivable === 'outstanding') filters.push(hasOutstanding)
@@ -184,9 +184,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
     const expired = row.endDate < today && !terminalStatuses.includes(lifecycleStatus)
-    const status = expired
-      ? Number(row.paidAmount) < Number(row.totalRent) ? '逾期' : '已到期'
-      : lifecycleStatus
+    const status = expired ? '逾期' : lifecycleStatus
     return { ...row, quantity, status }
   })
   const total = Number(countRow?.count ?? 0)

@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-type SyncState = { version: string; state: string }
+type SyncState = { version: string; state: string; overdueReceivable: number }
 type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线'
 
 const POLL_INTERVAL = 15_000
@@ -25,6 +25,7 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
   const refreshing = useRef(false)
   const [status, setStatus] = useState<SyncStatus>('已同步')
   const [displayVersion, setDisplayVersion] = useState(initialVersion)
+  const [overdueReceivable, setOverdueReceivable] = useState<number | null>(null)
 
   const protectedByOperator = useCallback(() => hasActiveWork() || Date.now() - lastInteraction.current < QUIET_PERIOD, [])
 
@@ -57,6 +58,7 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
         const response = await fetch('/api/sync-state', { cache: 'no-store', headers: { Accept: 'application/json' } })
         if (!response.ok) { schedule(); return }
         const next = await response.json() as SyncState
+        setOverdueReceivable(next.overdueReceivable)
         if (!baseline.current) {
           baseline.current = next
           setDisplayVersion(next.version)
@@ -82,5 +84,5 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [pathname, protectedByOperator, router])
 
-  return <div className="flex items-center justify-between gap-2 text-[11px] leading-4 text-muted-foreground" aria-live="polite"><span>{status}</span><span className="font-mono">v{displayVersion}</span></div>
+  return <div className="flex flex-col gap-1.5 text-[11px] leading-4 text-muted-foreground" aria-live="polite">{overdueReceivable !== null && <a href="/rentals?receivable=overdue&sort=outstanding" className="flex items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 font-semibold text-destructive transition-colors hover:bg-destructive/10"><span>逾期待收总计</span><span>{new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 0 }).format(overdueReceivable)}</span></a>}<div className="flex items-center justify-between gap-2"><span>{status}</span><span className="font-mono">v{displayVersion}</span></div></div>
 }
