@@ -98,6 +98,38 @@ export async function exchangeRentalItem(input: ExchangeInput) {
   revalidatePath('/')
 }
 
+export async function exchangeRentalItems(input: ExchangeInput[]) {
+  const { userId, name } = await actor()
+  const values = z.array(exchangeSchema).min(1).max(100).parse(input)
+  const rentalId = values[0].rentalId
+  if (values.some((value) => value.rentalId !== rentalId)) throw new Error('批量换机必须属于同一合同')
+  if (new Set(values.map((value) => value.rentalItemId)).size !== values.length) throw new Error('同一设备不能重复提交')
+  const [[rental], items] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, rentalId))),
+  ])
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以办理换机')
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const keys = ['deviceName','deviceType','deviceCode','deviceConfig','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
+  const changes = values.map((value) => {
+    const item = byId.get(value.rentalItemId)
+    if (!item || availableQuantity(item) <= 0) throw new Error('包含不存在或已处置的设备')
+    dateOnly(value.exchangeDate)
+    if (item.startDate && value.exchangeDate < item.startDate) throw new Error('换机日期不能早于设备起租日期')
+    const before = Object.fromEntries(keys.map((key) => [key, item[key]]))
+    const after = { deviceName:value.newDeviceName,deviceType:value.newDeviceType,deviceCode:value.newDeviceCode,deviceConfig:value.newDeviceConfig||null,cpu:value.cpu||null,motherboard:value.motherboard||null,memory:value.memory||null,storage:value.storage||null,graphicsCard:value.graphicsCard||null,powerSupply:value.powerSupply||null,caseModel:value.caseModel||null,monitorInfo:value.monitorInfo||null,screenSize:value.screenSize||null,screenResolution:value.screenResolution||null,refreshRate:value.refreshRate||null,panelType:value.panelType||null,ports:value.ports||null,batteryInfo:value.batteryInfo||null,adapterInfo:value.adapterInfo||null,accessories:value.accessories||null,colorGamut:value.colorGamut||null }
+    return { value, item, before, after }
+  })
+  const finalItems = items.map((item) => changes.find((change) => change.item.id === item.id) ? { ...item, ...changes.find((change) => change.item.id === item.id)!.after } : item)
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = changes.flatMap(({ value, item, before, after }) => [
+    db.update(rentalItems).set({ ...after, updatedAt: new Date() }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, item.id))),
+    db.insert(rentalEvents).values({ userId, rentalId, eventType: '换机调拨', status: '已完成', eventDate: value.exchangeDate, itemId: item.id, beforeSnapshot: before, afterSnapshot: after, reason: value.reason, operatorName: name, notes: value.notes }),
+  ])
+  statements.push(db.update(rentals).set({ deviceName: finalItems.map((item) => item.deviceName).join('、'), deviceType: finalItems.length === 1 ? finalItems[0].deviceType : '多设备', updatedAt: new Date() }).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+}
+
 export async function reportLostItem(input: LossInput) {
   const { userId, actorId, name } = await actor()
   const value = operationSchema.extend({ unitCompensation: z.number().positive() }).parse(input)

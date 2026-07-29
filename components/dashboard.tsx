@@ -1402,11 +1402,9 @@ canViewFinance={canViewFinance}
           <ChangeForm
             rental={selected}
             pending={pending}
-            submit={(value) =>
+            submit={(values) =>
               run(
-                () => value.itemId === 0
-                  ? Promise.all(selected.items.map((item) => changeRentalItem({ ...value, itemId: item.id, quantity: item.quantity, totalRent: Number(value.monthlyRent) * item.quantity }))).then(() => undefined)
-                  : changeRentalItem(value),
+                () => Promise.all(values.map((value) => changeRentalItem(value))).then(() => undefined),
                 "配置与应收已更新",
               )
             }
@@ -1423,8 +1421,8 @@ canViewFinance={canViewFinance}
           <RepairForm
             rental={selected}
             pending={pending}
-            submit={(value) =>
-              run(() => createRepairRecord(value), "维修记录已保存")
+            submit={(values) =>
+              run(() => Promise.all(values.map((value) => createRepairRecord(value))).then(() => undefined), "维修记录已保存")
             }
           />
         )}
@@ -1457,11 +1455,9 @@ canViewFinance={canViewFinance}
           <ExchangeForm
             rental={selected}
             pending={pending}
-            submit={(value) =>
+            submit={(values) =>
               run(
-                () => value.rentalItemId === 0
-                  ? Promise.all(selected.items.map((item) => exchangeRentalItem({ ...value, rentalItemId: item.id }))).then(() => undefined)
-                  : exchangeRentalItem(value),
+                () => Promise.all(values.map((value) => exchangeRentalItem(value))).then(() => undefined),
                 "换机调拨已登记",
               )
             }
@@ -1477,11 +1473,9 @@ canViewFinance={canViewFinance}
           <BuyoutForm
             rental={selected}
             pending={pending}
-            submit={(itemId, quantity, price, date, settlement, notes) =>
+            submit={(values, settlement) =>
               run(
-                () => itemId === 0
-                  ? Promise.all(selected.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).map((item) => buyoutRentalItem(selected.id, item.id, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, price, date, settlement, notes))).then(() => undefined)
-                  : buyoutRentalItem(selected.id, itemId, quantity, price, date, settlement, notes),
+                () => Promise.all(values.map((value) => buyoutRentalItem(selected.id, value.itemId, value.quantity, value.price, value.date, settlement, value.notes))).then(() => undefined),
                 "买断已登记",
               )
             }
@@ -2448,7 +2442,7 @@ function Detail(props: DetailProps) {
           <div className="grid grid-cols-3 gap-4 text-sm">
             <Info l="剩余在租" v={`${remainingDevices} 台`} />
             <Info l="待收金额" v={money(centsToMoney(outstandingCents))} />
-            <Info l="下次付款" v={nextBill?.dueDate ?? "��待付"} />
+            <Info l="下次付款" v={nextBill?.dueDate ?? "暂无待付"} />
           </div>
         </div>
         {todos.length > 0 ? (
@@ -3999,11 +3993,11 @@ function ExchangeForm({
   pending,
 }: {
   rental: Rental;
-  submit: (value: ExchangeInput) => void;
+  submit: (values: ExchangeInput[]) => void;
   pending: boolean;
 }) {
-  const [itemId, setItemId] = useState(rental.items[0]?.id || 0);
-  const [value, setValue] = useState<ExchangeInput>({
+  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const createValue = (itemId: number): ExchangeInput => ({
     rentalId: rental.id,
     rentalItemId: itemId,
     exchangeDate: today(),
@@ -4031,33 +4025,37 @@ function ExchangeForm({
     reason: "",
     notes: "",
   });
+  const [rows, setRows] = useState<Record<number, ExchangeInput>>({});
+  const [activeId, setActiveId] = useState(available[0]?.id || 0);
+  const value = rows[activeId] ?? createValue(activeId);
+  const selected = Object.values(rows);
+  const allSelected = available.length > 0 && selected.length === available.length;
+  const toggleItem = (itemId: number) => setRows((current) => {
+    const next = { ...current };
+    if (next[itemId]) delete next[itemId];
+    else next[itemId] = createValue(itemId);
+    setActiveId(itemId);
+    return next;
+  });
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, createValue(item.id)])));
   const update = (key: keyof ExchangeInput, next: string | number) =>
-    setValue((current) => ({ ...current, [key]: next }));
+    setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? createValue(activeId)), [key]: next } }));
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit({ ...value, rentalItemId: itemId });
+        submit(selected);
       }}
       className="flex flex-col gap-4"
     >
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        原设备
-          <select
-            className="h-10 rounded-lg border bg-background px-3"
-            value={itemId}
-            onChange={(e) => setItemId(Number(e.target.value))}
-          >
-            <option value={0}>全部设备（全选）</option>
-            {rental.items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.deviceType} · {item.deviceName} ·{" "}
-              {item.deviceCode || "无编号"}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <section className="flex flex-col gap-3" aria-label="选择换机设备">
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
+        <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item.id)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "无编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
+      </section>
+      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请先选择需要换机的设备，每台原设备可分别填写新设备信息。</p>}
+      {rows[activeId] && <section className="flex flex-col gap-4 rounded-xl border p-4">
+        <p className="text-sm font-semibold">填写当前设备的新机信息</p>
+        <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="换机日期"
           type="date"
@@ -4117,12 +4115,13 @@ function ExchangeForm({
           onChange={(next) => update("notes", next)}
           required={false}
         />
-      </div>
+        </div>
+      </section>}
       <button
-        disabled={pending}
+        disabled={pending || !selected.length || selected.some((row) => !row.newDeviceName.trim() || !row.newDeviceCode.trim() || !row.reason.trim())}
         className="h-10 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-50"
       >
-        确认换机
+        {pending ? "处理中" : `确认换机 ${selected.length} 项`}
       </button>
     </form>
   );
@@ -4168,15 +4167,20 @@ function ChangeForm({
   pending,
 }: {
   rental: Rental;
-  submit: (value: RentalChangeInput) => void;
+  submit: (values: RentalChangeInput[]) => void;
   pending: boolean;
 }) {
-  const first = rental.items[0];
-  const [value, setValue] = useState<RentalChangeInput>(() =>
-    first ? itemToChange(first) : ({} as RentalChangeInput),
-  );
-  if (!first) return <p>暂无可变更设��</p>;
-  const selectedItem = rental.items.find((item) => item.id === value.itemId) ?? first;
+  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const first = available[0];
+  const [rows, setRows] = useState<Record<number, RentalChangeInput>>({});
+  const [activeId, setActiveId] = useState(first?.id || 0);
+  if (!first) return <p>暂无可变更设备</p>;
+  const value = rows[activeId] ?? itemToChange(available.find((item) => item.id === activeId) ?? first);
+  const selected = Object.values(rows);
+  const allSelected = selected.length === available.length;
+  const toggleItem = (item: Item) => setRows((current) => { const next = { ...current }; if (next[item.id]) delete next[item.id]; else next[item.id] = itemToChange(item); setActiveId(item.id); return next; });
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, itemToChange(item)])));
+  const selectedItem = available.find((item) => item.id === activeId) ?? first;
   const currentEndDate = selectedItem.endDate || rental.endDate;
   const remainingDays = value.eventDate && value.eventDate <= currentEndDate
     ? Math.floor((Date.parse(`${currentEndDate}T00:00:00Z`) - Date.parse(`${value.eventDate}T00:00:00Z`)) / 86400000) + 1
@@ -4184,40 +4188,28 @@ function ChangeForm({
   const calculatedAdjustment = Math.round((Number(value.monthlyRent) - Number(selectedItem.monthlyRent)) * (selectedItem.quantity - selectedItem.boughtOutQuantity - selectedItem.returnedQuantity - selectedItem.lostQuantity) * remainingDays / 30 * 100) / 100;
   const adjustedEndDate = addDays(currentEndDate, Number(value.giftDays || 0));
   const update = (key: keyof RentalChangeInput, next: string | number) =>
-    setValue((current) => ({ ...current, [key]: next }));
+    setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? itemToChange(selectedItem)), [key]: next } }));
+  const finalize = (row: RentalChangeInput) => {
+    const item = available.find((current) => current.id === row.itemId) ?? first;
+    const endDate = item.endDate || rental.endDate;
+    const days = row.eventDate && row.eventDate <= endDate ? Math.floor((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${row.eventDate}T00:00:00Z`)) / 86400000) + 1 : 0;
+    const availableCount = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+    const feeAdjustment = Math.round((Number(row.monthlyRent) - Number(item.monthlyRent)) * availableCount * days / 30 * 100) / 100;
+    return { ...row, feeAdjustment, totalRent: Number(row.monthlyRent) * row.quantity };
+  };
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit({ ...value, feeAdjustment: calculatedAdjustment, totalRent: Number(value.monthlyRent) * value.quantity });
+        submit(selected.map(finalize));
       }}
       className="flex flex-col gap-4"
     >
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        设备明细
-        <select
-          value={value.itemId}
-          onChange={(e) => {
-            if (Number(e.target.value) === 0) {
-              setValue((current) => ({ ...current, itemId: 0 }));
-              return;
-            }
-            const item = rental.items.find(
-              (current) => current.id === Number(e.target.value),
-            );
-            if (item) setValue(itemToChange(item));
-          }}
-          className="h-10 rounded-lg border bg-background px-3"
-        >
-          <option value={0}>全部设备（全选并应用相同配置与月租）</option>
-          {rental.items.map((current) => (
-            <option key={current.id} value={current.id}>
-              {current.deviceType} · {current.deviceName} ·{" "}
-              {current.deviceCode || "未编号"}
-            </option>
-          ))}
-        </select>
-      </label>
+      <section className="flex flex-col gap-3" aria-label="选择配置变更设备">
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每项可单独修改配置和月租</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
+        <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "未编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
+      </section>
+      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请选择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="变更日期"
@@ -4258,7 +4250,7 @@ function ChangeForm({
           type="number"
           value={value.quantity}
           onChange={(next) =>
-            update("quantity", Math.max(first.quantity, Number(next)))
+            update("quantity", Math.max(selectedItem.quantity, Number(next)))
           }
         />
         {(configs[value.deviceType] || []).map(([key, label]) => {
@@ -4310,10 +4302,10 @@ function ChangeForm({
         />
       </label>
       <button
-        disabled={pending}
+        disabled={pending || !selected.length || selected.some((row) => !row.reason.trim() || !row.eventDate || Number(row.monthlyRent) < 0)}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
-        {pending ? "处理中" : "确认变更"}
+        {pending ? "处理中" : `确认变更 ${selected.length} 项`}
       </button>
     </form>
   );
@@ -4324,12 +4316,13 @@ function RepairForm({
   pending,
 }: {
   rental: Rental;
-  submit: (value: RepairInput) => void;
+  submit: (values: RepairInput[]) => void;
   pending: boolean;
 }) {
-  const [value, setValue] = useState<RepairInput>({
+  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const createValue = (itemId: number): RepairInput => ({
     rentalId: rental.id,
-    itemId: rental.items[0]?.id || 0,
+    itemId,
     eventDate: today(),
     status: "待维修",
     faultDescription: "",
@@ -4339,47 +4332,39 @@ function RepairForm({
     completedDate: "",
     notes: "",
   });
+  const [rows, setRows] = useState<Record<number, RepairInput>>({});
+  const [activeId, setActiveId] = useState(available[0]?.id || 0);
+  const value = rows[activeId] ?? createValue(activeId);
+  const selected = Object.values(rows);
+  const allSelected = available.length > 0 && selected.length === available.length;
+  const toggleItem = (itemId: number) => setRows((current) => { const next = { ...current }; if (next[itemId]) delete next[itemId]; else next[itemId] = createValue(itemId); setActiveId(itemId); return next; });
+  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, createValue(item.id)])));
+  const update = (changes: Partial<RepairInput>) => setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? createValue(activeId)), ...changes } }));
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(value);
+        submit(selected);
       }}
       className="flex flex-col gap-4"
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-2 text-sm font-medium">
-          设备明细
-          <select
-            value={value.itemId}
-            onChange={(e) =>
-              setValue({ ...value, itemId: Number(e.target.value) })
-            }
-            className="h-10 rounded-lg border bg-background px-3"
-          >
-            {rental.items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.deviceType} · {item.deviceName} ·{" "}
-                {item.deviceCode || "无编号"}
-              </option>
-            ))}
-          </select>
-        </label>
+        <section className="flex flex-col gap-3 sm:col-span-2" aria-label="选择维修设备">
+          <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每台设备独立登记故障和费用</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
+          <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item.id)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "无编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
+        </section>
         <Field
           label="报修日期"
           type="date"
           value={value.eventDate}
-          onChange={(eventDate) => setValue({ ...value, eventDate })}
+          onChange={(eventDate) => update({ eventDate })}
         />
         <label className="flex flex-col gap-2 text-sm font-medium">
           维修状态
           <select
             value={value.status}
             onChange={(e) =>
-              setValue({
-                ...value,
-                status: e.target.value as RepairInput["status"],
-              })
+              update({ status: e.target.value as RepairInput["status"] })
             }
             className="h-10 rounded-lg border bg-background px-3"
           >
@@ -4392,7 +4377,7 @@ function RepairForm({
           label="完成日期"
           type="date"
           value={value.completedDate || ""}
-          onChange={(completedDate) => setValue({ ...value, completedDate })}
+          onChange={(completedDate) => update({ completedDate })}
           required={false}
         />
         <Field
@@ -4400,7 +4385,7 @@ function RepairForm({
           type="number"
           value={value.repairCost}
           onChange={(repairCost) =>
-            setValue({ ...value, repairCost: Number(repairCost) })
+            update({ repairCost: Number(repairCost) })
           }
         />
         <Field
@@ -4408,7 +4393,7 @@ function RepairForm({
           type="number"
           value={value.customerCharge}
           onChange={(customerCharge) =>
-            setValue({ ...value, customerCharge: Number(customerCharge) })
+            update({ customerCharge: Number(customerCharge) })
           }
         />
       </div>
@@ -4419,7 +4404,7 @@ function RepairForm({
           className="min-h-20 rounded-lg border bg-background p-3"
           value={value.faultDescription}
           onChange={(e) =>
-            setValue({ ...value, faultDescription: e.target.value })
+            update({ faultDescription: e.target.value })
           }
         />
       </label>
@@ -4428,7 +4413,7 @@ function RepairForm({
         <textarea
           className="min-h-20 rounded-lg border bg-background p-3"
           value={value.resolution || ""}
-          onChange={(e) => setValue({ ...value, resolution: e.target.value })}
+          onChange={(e) => update({ resolution: e.target.value })}
         />
       </label>
       <label className="flex flex-col gap-2 text-sm font-medium">
@@ -4436,14 +4421,14 @@ function RepairForm({
         <textarea
           className="min-h-20 rounded-lg border bg-background p-3"
           value={value.notes || ""}
-          onChange={(e) => setValue({ ...value, notes: e.target.value })}
+onChange={(e) => update({ notes: e.target.value })}
         />
       </label>
       <button
-        disabled={pending}
+        disabled={pending || !selected.length || selected.some((row) => !row.eventDate || !row.faultDescription.trim() || (row.status === "已完成" && !row.completedDate))}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
-        {pending ? "处理中" : "保存维修单"}
+        {pending ? "处理中" : `保存 ${selected.length} 张维修单`}
       </button>
     </form>
   );
@@ -4461,7 +4446,7 @@ function BuyoutForm({
   pending: boolean;
 }) {
   const available = rental.items.filter(
-    (i) => i.boughtOutQuantity < i.quantity,
+    (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
   );
   type BuyoutRow = { itemId: number; quantity: number; price: number; date: string; notes: string };
   const [rows, setRows] = useState<Record<number, BuyoutRow>>({});
@@ -4485,71 +4470,44 @@ function BuyoutForm({
       }}
       className="flex flex-col gap-4"
     >
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        设备明细
-        <select
-          className="h-11 rounded-lg border bg-background px-3"
-          value={itemId}
-          onChange={(e) => {
-            setItemId(Number(e.target.value));
-            setQuantity(1);
-          }}
-        >
-          <option value={0}>全部设备（全选）</option>
-          {available.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.deviceType} · {i.deviceName} · {i.deviceCode || "无编号"}，剩余{" "}
-              {i.quantity - i.boughtOutQuantity} 台）
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="grid grid-cols-2 gap-4">
-        <Field
-          label="买断数量"
-          type="number"
-          value={quantity}
-          onChange={(v) => setQuantity(Number(v))}
-        />
-        <Field
-          label="买断单价（元）"
-          type="number"
-          value={price}
-          onChange={(v) => setPrice(Number(v))}
-        />
-        <Field label="买断日期" type="date" value={date} onChange={setDate} />
-        <div className="rounded-lg bg-muted p-3">
-          <p className="text-xs text-muted-foreground">本次买断金额</p>
-          <p className="mt-1 text-lg font-semibold">
-            {money(effectiveQuantity * price)}
-          </p>
+      <section className="flex flex-col gap-3" aria-label="选择买断设备">
+        <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+          <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
+          <button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button>
         </div>
-      </div>
+        {available.map((item) => {
+          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const row = rows[item.id];
+          return <article key={item.id} className={`rounded-xl border p-4 ${row ? "border-primary bg-primary/5" : ""}`}>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" checked={Boolean(row)} onChange={() => toggle(item)} className="mt-1 size-4 accent-primary" />
+              <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可买断 {max} 台</span></span>
+            </label>
+            {row && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Field label="买断数量" type="number" value={row.quantity} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], quantity: Number(value) } }))} />
+              <Field label="买断单价（元）" type="number" value={row.price} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], price: Number(value) } }))} />
+              <Field label="买断日期" type="date" value={row.date} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], date: value } }))} />
+              <Field label="单项备注" value={row.notes} required={false} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], notes: value } }))} />
+            </div>}
+          </article>;
+        })}
+      </section>
+      <section className="flex flex-col gap-4 rounded-xl border bg-muted/40 p-4">
+        <div><p className="text-sm font-semibold">批量默认值</p><p className="mt-1 text-xs leading-5 text-muted-foreground">先设置统一值并应用，再按设备单独覆盖。</p></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="买断单价（元）" type="number" value={price} onChange={(value) => setPrice(Number(value))} />
+          <Field label="买断日期" type="date" value={date} onChange={setDate} />
+          <Field label="统一备注" value={notes} required={false} onChange={setNotes} />
+          <button type="button" onClick={applyDefaults} disabled={!selected.length} className="h-10 self-end rounded-lg border bg-background px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">应用到已选设备</button>
+        </div>
+      </section>
+      <div className="rounded-xl bg-muted p-4"><p className="text-xs text-muted-foreground">本次买断汇总</p><p className="mt-1 text-lg font-semibold">{totalQuantity} 台 · {money(totalAmount)}</p></div>
       <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
-      {item && quantity > item.quantity - item.boughtOutQuantity && (
-        <p className="text-sm text-destructive">
-          买断数量不能超过剩余 {item.quantity - item.boughtOutQuantity} 台
-        </p>
-      )}
-      <label className="flex flex-col gap-2 text-sm font-medium">
-        备注
-        <textarea
-          className="min-h-20 rounded-lg border bg-background p-3"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </label>
       <button
-        disabled={
-          pending ||
-          (itemId !== 0 && !item) ||
-          effectiveQuantity <= 0 ||
-          price <= 0 ||
-          (itemId !== 0 && item && quantity > item.quantity - item.boughtOutQuantity)
-        }
+        disabled={pending || !selected.length || selected.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max || row.price <= 0 || !row.date; })}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
-        {pending ? "处理中" : "确认买断"}
+        {pending ? "处理中" : `确认买断 ${totalQuantity} 台`}
       </button>
     </form>
   );
