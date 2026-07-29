@@ -260,17 +260,20 @@ function Filter({name,value,label,options}:{name:string;value:string;label:strin
 function CustomerCard({ customer, owner, members }: { customer: Customer; owner?: Account; members: Member[] }) {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [name, setName] = useState(customer.name)
   const initialLevel = customer.customerLevel in CUSTOMER_LEVELS ? customer.customerLevel as CustomerLevel : 'silver'
-  const [customerLevel, setCustomerLevel] = useState<CustomerLevel>(initialLevel)
-  const [levelNote, setLevelNote] = useState(customer.levelNote ?? '')
-  const [assigneeUserId, setAssigneeUserId] = useState(customer.assigneeUserId ?? owner?.id ?? '')
+  const initialAssignee = customer.assigneeUserId ?? owner?.id ?? ''
+  const [saved, setSaved] = useState({ name: customer.name, assigneeUserId: initialAssignee, customerLevel: initialLevel, levelNote: customer.levelNote ?? '' })
+  const [name, setName] = useState(saved.name)
+  const [customerLevel, setCustomerLevel] = useState<CustomerLevel>(saved.customerLevel)
+  const [levelNote, setLevelNote] = useState(saved.levelNote)
+  const [assigneeUserId, setAssigneeUserId] = useState(saved.assigneeUserId)
   const active = customer.status === 'active'
-  const changed = name.trim() !== customer.name || assigneeUserId !== customer.assigneeUserId || customerLevel !== customer.customerLevel || levelNote.trim() !== (customer.levelNote ?? '')
+  const changed = name.trim() !== saved.name || assigneeUserId !== saved.assigneeUserId || customerLevel !== saved.customerLevel || levelNote.trim() !== saved.levelNote
   const save = (nextActive: boolean) => start(async () => {
     if (!nextActive && !window.confirm(`确认停用 ${customer.name} 吗？该客户现有登录会话将失效。`)) return
     try {
       await updateCustomer(customer.id, { name, active: nextActive, assigneeUserId, customerLevel, levelNote })
+      setSaved({ name: name.trim(), assigneeUserId, customerLevel, levelNote: levelNote.trim() })
       toast.success(nextActive === active ? '客户资料已保存' : nextActive ? '客户已启用' : '客户已停用')
       router.refresh()
     } catch (error) { toast.error(userErrorMessage(error, '客户资料保存失败，请稍后重试')) }

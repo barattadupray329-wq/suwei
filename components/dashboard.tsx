@@ -2222,7 +2222,7 @@ function RentalForm({
               <label className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectDeposit ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" disabled={Number(form.deposit) <= 0} checked={initialCollection.collectDeposit} onChange={(event) => setInitialCollection({ ...initialCollection, collectDeposit: event.target.checked })} className="mt-1 size-4 accent-primary" /><span><strong className="block">现在收取全部押金</strong><span className="mt-1 block text-sm text-muted-foreground">本次收取 {money(form.deposit)}</span></span></label>
             </div>
             {(initialCollection.collectRent || initialCollection.collectDeposit) && <div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="收款日期" type="date" value={initialCollection.paymentDate} onChange={(paymentDate) => setInitialCollection({ ...initialCollection, paymentDate })} /><label className="flex flex-col gap-2 text-sm font-medium">收款方式<select className="h-10 rounded-lg border bg-background px-3" value={initialCollection.paymentMethod} onChange={(event) => setInitialCollection({ ...initialCollection, paymentMethod: event.target.value as InitialCollectionInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div>}
-            <div className="mt-4 rounded-xl bg-muted p-4"><p className="text-sm text-muted-foreground">本次即时收款合计</p><p className="mt-1 text-xl font-bold">{money((initialCollection.collectRent ? totals.total : 0) + (initialCollection.collectDeposit ? Number(form.deposit) : 0))}</p></div>
+            <div className="mt-4 rounded-xl bg-muted p-4"><p className="text-sm text-muted-foreground">本单即时收款合计</p><p className="mt-1 text-xl font-bold">{money((initialCollection.collectRent ? totals.total : 0) + (initialCollection.collectDeposit ? Number(form.deposit) : 0))}</p></div>
           </FormSection>
           <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm"><input type="checkbox" checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">我已确认日期、租期、租赁金额和收款选择正确</strong><span className="mt-1 block leading-6 text-muted-foreground">请根据客户实际付款情况勾选，不要将“准备收款”登记为“已经收款”。</span></span></label>
         </div>
@@ -4115,6 +4115,7 @@ function itemToChange(item: Item): RentalChangeInput {
     eventDate: today(),
     reason: "",
     feeAdjustment: 0,
+    giftDays: 0,
     notes: "",
     deviceName: item.deviceName,
     deviceType: item.deviceType as RentalChangeInput["deviceType"],
@@ -4156,13 +4157,20 @@ function ChangeForm({
     first ? itemToChange(first) : ({} as RentalChangeInput),
   );
   if (!first) return <p>暂无可变更设备</p>;
+  const selectedItem = rental.items.find((item) => item.id === value.itemId) ?? first;
+  const currentEndDate = selectedItem.endDate || rental.endDate;
+  const remainingDays = value.eventDate && value.eventDate <= currentEndDate
+    ? Math.floor((Date.parse(`${currentEndDate}T00:00:00Z`) - Date.parse(`${value.eventDate}T00:00:00Z`)) / 86400000) + 1
+    : 0;
+  const calculatedAdjustment = Math.round((Number(value.monthlyRent) - Number(selectedItem.monthlyRent)) * (selectedItem.quantity - selectedItem.boughtOutQuantity - selectedItem.returnedQuantity - selectedItem.lostQuantity) * remainingDays / 30 * 100) / 100;
+  const adjustedEndDate = addDays(currentEndDate, Number(value.giftDays || 0));
   const update = (key: keyof RentalChangeInput, next: string | number) =>
     setValue((current) => ({ ...current, [key]: next }));
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(value);
+        submit({ ...value, feeAdjustment: calculatedAdjustment, totalRent: Number(value.monthlyRent) * value.quantity });
       }}
       className="flex flex-col gap-4"
     >
@@ -4256,18 +4264,19 @@ function ChangeForm({
           onChange={(next) => update("monthlyRent", Number(next))}
         />
         <Field
-          label="调整后明细总额（元）"
+          label="赠送天数"
           type="number"
-          value={value.totalRent}
-          onChange={(next) => update("totalRent", Number(next))}
-        />
-        <Field
-          label="本次应收调整（可填负数）"
-          type="number"
-          value={value.feeAdjustment}
-          onChange={(next) => update("feeAdjustment", Number(next))}
+          value={value.giftDays}
+          onChange={(next) => update("giftDays", Math.max(0, Math.floor(Number(next))))}
+          required={false}
         />
       </div>
+      <section className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3" aria-label="配置变更费用预览">
+        <Info l="调整后月租" v={money(Number(value.monthlyRent))} />
+        <Info l="本次配置补差" v={money(calculatedAdjustment)} />
+        <Info l="调整后到期日" v={adjustedEndDate} />
+        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">补差按变更日起至原到期日共 {remainingDays} 天、每月 30 天折算；赠送 {Number(value.giftDays || 0)} 天不计费，后续续租将从 {adjustedEndDate} 之后开始。</p>
+      </section>
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
         <textarea
