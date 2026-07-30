@@ -22,14 +22,15 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     db.select({ rentalId: receivableBills.rentalId, billNo: receivableBills.billNo, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
   ])
   const existing = new Set(existingBills.map((bill) => bill.billNo))
-  const existingOverduePeriods = new Set(existingBills.filter((bill) => bill.billType.includes('逾期')).map((bill) => `${bill.rentalId}:${bill.periodStart}`))
+  const existingOverduePeriods = existingBills.filter((bill) => bill.billType.includes('逾期'))
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   const itemsByRental = new Map<number, typeof items>()
   for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
 
   const bills = contracts.flatMap((contract) => overdueRentPeriods(contract.endDate, today).flatMap(({ periodStart, periodEnd }) => {
     const billNo = `OVERDUE-${contract.id}-${periodStart}`
-    if (existing.has(billNo) || existingOverduePeriods.has(`${contract.id}:${periodStart}`)) return []
+    const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.rentalId === contract.id && bill.periodStart < periodEnd && bill.periodEnd > periodStart)
+    if (existing.has(billNo) || overlapsExistingOverdue) return []
     const amountCents = (itemsByRental.get(contract.id) ?? []).reduce((sum, item) => {
       return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals)
     }, 0)
