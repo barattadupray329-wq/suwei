@@ -1831,11 +1831,25 @@ function RentalForm({
     setStep((current) => Math.min(3, current + 1));
   };
   const confirmSubmit = (orderType: "draft" | "test" | "official") => {
-    const message = validate();
-    if (message) {
-      setError(message);
-      return;
-    }
+  const customerError = form.customerName.trim().length < 2
+    ? "联系人姓名至少需要 2 个字，请返回第 1 步修改"
+    : !/^1\d{10}$/.test(form.customerPhone.trim())
+      ? "请输入正确的 11 位手机号，请返回第 1 步修改"
+      : "";
+  const itemError = form.items.map(validateRentalItemFields).find(Boolean) || "";
+  const contractError = !form.startDate
+    ? "请选择起租日期"
+    : !Number.isInteger(form.duration) || form.duration < 1
+      ? `请输入正确的租赁时间（至少 1 ${billingType === "daily" ? "天" : "个月"}）`
+      : form.startDate !== today() && !form.startDateReason
+        ? "非当天起租必须选择原因"
+        : "";
+  const message = customerError || itemError || contractError;
+  if (message) {
+  setError(message);
+  return;
+  }
+
     if (orderType === "official" && step < 3) {
       setError("");
       setForm(normalizedForm);
@@ -4232,7 +4246,7 @@ function ChangeForm({
         })}
         {value.deviceType === "其他" && (
           <Field
-            label="设备配置"
+            label="设���配置"
             value={value.deviceConfig || ""}
             onChange={(next) => update("deviceConfig", next)}
             required={false}
