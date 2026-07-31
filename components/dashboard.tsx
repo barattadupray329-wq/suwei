@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -1097,6 +1097,8 @@ export function Dashboard({
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
                   } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
+                  sessionStorage.removeItem("suwei:new-rental-draft");
+                  delete document.documentElement.dataset.unsavedRental;
                   setDialog(null);
                   router.refresh();
                 })}
@@ -1663,6 +1665,29 @@ function RentalForm({
   const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
   const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {} });
+  const draftReady = useRef(false);
+  useEffect(() => {
+    document.documentElement.dataset.unsavedRental = "true";
+    try {
+      const saved = sessionStorage.getItem("suwei:new-rental-draft");
+      if (saved) {
+        const draft = JSON.parse(saved) as { form?: RentalInput; step?: number };
+        if (draft.form) setForm(draft.form);
+        if (typeof draft.step === "number") setStep(Math.min(3, Math.max(0, draft.step)));
+        toast.info("已恢复上次未完成的租赁录入");
+      }
+    } catch {
+      sessionStorage.removeItem("suwei:new-rental-draft");
+    }
+    return () => { delete document.documentElement.dataset.unsavedRental; };
+  }, [setForm]);
+  useEffect(() => {
+    if (!draftReady.current) {
+      draftReady.current = true;
+      return;
+    }
+    sessionStorage.setItem("suwei:new-rental-draft", JSON.stringify({ form, step }));
+  }, [form, step]);
   useEffect(() => {
     let active = true;
     getRentalFormSuggestions().then((value) => { if (active) setHistorySuggestions(value); }).catch(() => {});

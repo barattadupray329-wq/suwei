@@ -13,8 +13,9 @@ function hasActiveWork() {
   const active = document.activeElement
   const editing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || active?.getAttribute('contenteditable') === 'true'
   const dialogOpen = Boolean(document.querySelector('[role="dialog"], dialog[open], [aria-modal="true"]'))
+  const unsavedRental = document.documentElement.dataset.unsavedRental === 'true'
   const submitting = Boolean(document.querySelector('form[aria-busy="true"], button[aria-busy="true"], [data-submitting="true"]'))
-  return editing || dialogOpen || submitting
+  return editing || dialogOpen || unsavedRental || submitting
 }
 
 export function SafeSync({ initialVersion }: { initialVersion: string }) {
