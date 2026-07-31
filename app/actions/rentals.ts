@@ -440,7 +440,7 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const [renewal] = await db.select().from(renewalRecords).where(and(eq(renewalRecords.id, value.renewalRecordId), eq(renewalRecords.userId, userId))).limit(1)
   if (!renewal) throw new Error('续租记录不存在或不属于当前店铺')
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId))).limit(1)
-  if (!rental) throw new Error('合同不存在或不���于当前店铺')
+  if (!rental) throw new Error('合同不存在或不属于当前店铺')
   assertOfficialRental(rental)
   const [latest] = await db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), eq(renewalAdjustments.renewalRecordId, renewal.id))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)).limit(1)
   const previousUnitPrice = Number(latest?.correctedUnitPrice ?? renewal.unitPrice ?? renewal.newMonthlyRent)

@@ -1804,12 +1804,10 @@ function RentalForm({
     endDate: calculatedEndDate,
   };
   const validate = () => {
-    if (
-      step === 0 &&
-      (!form.customerName.trim() ||
-        !/^1\d{10}$/.test(form.customerPhone.trim()))
-    )
-      return "请填写联系人和正确的 11 位手机号";
+    if (step === 0 && form.customerName.trim().length < 2)
+      return "联系人姓名至少需要 2 个字";
+    if (step === 0 && !/^1\d{10}$/.test(form.customerPhone.trim()))
+      return "请输入正确的 11 位手机号";
     if (step === 1) {
       const itemError = form.items.map(validateRentalItemFields).find(Boolean);
       if (itemError) return itemError;
@@ -4246,7 +4244,7 @@ function ChangeForm({
         })}
         {value.deviceType === "其他" && (
           <Field
-            label="设���配置"
+            label="设备配置"
             value={value.deviceConfig || ""}
             onChange={(next) => update("deviceConfig", next)}
             required={false}
