@@ -174,11 +174,16 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     else 3
   end`
   const offset = (value.page - 1) * value.pageSize
-  const [[summaryRow], rows] = await Promise.all([
+  const [[summaryRow], [financeSummary], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
       overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
     }).from(rentals).where(where),
+    db.select({
+      initialRentOutstanding: sql<string>`coalesce(sum(max(0, (select coalesce(sum(cast(b.amount as real)), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType = '租金') - cast(${rentals.paidAmount} as real))), 0)`,
+      expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
+      overdueReceivable: sql<string>`coalesce(sum(case when (${rentals.endDate} < current_date) and cast(${rentals.totalRent} as real) > cast(${rentals.paidAmount} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
+    }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'))),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
@@ -204,7 +209,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   return {
     rows: normalizedRows,
     total,
-    overdueReceivable: String(summaryRow?.overdueReceivable ?? '0'),
+    overdueReceivable: String(financeSummary?.overdueReceivable ?? summaryRow?.overdueReceivable ?? '0'),
+    initialRentOutstanding: String(financeSummary?.initialRentOutstanding ?? '0'),
+    expectedReceivable: String(financeSummary?.expectedReceivable ?? '0'),
     page: value.page,
     pageSize: value.pageSize,
     pageCount: Math.max(1, Math.ceil(total / value.pageSize)),
@@ -817,7 +824,7 @@ export type DraftConfirmOutcome = { id: number; contractNo: string | null; messa
 
 /**
  * 批量转正必须串行执行：合同号与设备编号都按当日流水号推导，
- * 并发调用会读到同一个基准值并产生重复编号。
+ * 并发调用会读取同一个基准值并产生重复编号。
  */
 export async function confirmDraftsAsOfficial(ids: number[]) {
   return toActionResult('批量转正式合同', async () => {
