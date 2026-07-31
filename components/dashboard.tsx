@@ -2449,7 +2449,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 期逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
@@ -2785,9 +2785,10 @@ function DetailFinance({
                   const effectivePaidCents = effectivePaidByBill.get(bill.id) ?? 0;
                   const recordedPaidCents = Math.round(Number(bill.paidAmount) * 100);
                   const outstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - effectivePaidCents);
-                  const state = billState(bill.amount, centsToMoney(effectivePaidCents), bill.dueDate, today);
                   const offsetCents = Math.max(0, effectivePaidCents - recordedPaidCents);
-                  return <tr key={bill.id} className={state === "逾期" ? "bg-destructive/5" : "hover:bg-muted/20"}>
+                  const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
+                  const state: ReturnType<typeof billState> | "已抵扣" = offsetCents > 0 && recordedPaidCents < Math.round(Number(bill.amount) * 100) ? "已抵扣" : cashState;
+                  return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
                     <td className="px-3 py-3 align-top"><strong>第 {index + 1} 期</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
                     <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">到账 {money(bill.paidAmount)}{offsetCents > 0 ? ` · 减免/余额抵扣 ${money(centsToMoney(offsetCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
@@ -4649,9 +4650,10 @@ function Stat({
     </div>
   );
 }
-function BillingStatus({ value }: { value: ReturnType<typeof billState> }) {
+function BillingStatus({ value }: { value: ReturnType<typeof billState> | "已抵扣" }) {
   const tones = {
     "已结清": "bg-primary/10 text-primary",
+    "已抵扣": "bg-accent text-accent-foreground",
     "待付款": "bg-chart-2/15 text-chart-2",
     "即将到期": "bg-accent text-accent-foreground",
     "逾期": "bg-destructive/10 text-destructive",
