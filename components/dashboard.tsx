@@ -2417,14 +2417,15 @@ function Detail(props: DetailProps) {
   const currentStatus = rentalDisplayStatus(rental, currentDate);
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
-  const outstandingBills = rentBills.filter((bill) => billOutstandingCents(bill) > 0);
-  const outstandingCents = rentBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
+  const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
+  const netRentCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
+  const outstandingCents = Math.max(0, netRentCents - Math.round(Number(rental.paidAmount) * 100));
+  const outstandingBills = outstandingCents > 0 ? positiveRentBills.filter((bill) => billOutstandingCents(bill) > 0) : [];
   const overdueBills = outstandingBills.filter(
     (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
   );
-  const nextBill = nextOpenBill(rentBills);
-  const settledBills = rentBills
-    .filter((bill) => billOutstandingCents(bill) === 0)
+  const nextBill = outstandingCents > 0 ? nextOpenBill(positiveRentBills) : null;
+  const settledBills = (outstandingCents === 0 ? positiveRentBills : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0))
     .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
   const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
   const remainingDevices = rental.items.reduce(
@@ -2737,11 +2738,24 @@ function DetailFinance({
   onReverse: (paymentId: number) => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
-  const rentBills = rental.bills.filter((bill) => bill.billType !== "押金" && !["赔偿", "维修费", "买断款", "其他"].includes(bill.billType));
-  const otherBills = rental.bills.filter((bill) => !rentBills.includes(bill));
-  const totalReceivable = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
-  const totalPaid = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.paidAmount) * 100), 0);
-  const totalOutstanding = rentBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
+  const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
+  const rentBills = rental.bills.filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType));
+  const adjustmentBills = rental.bills.filter((bill) => Number(bill.amount) < 0 && bill.billType !== "押金");
+  const otherBills = rental.bills.filter((bill) => !rentBills.includes(bill) && !adjustmentBills.includes(bill));
+  const grossRentCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
+  const adjustmentCents = adjustmentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
+  const totalReceivable = Math.max(0, grossRentCents + adjustmentCents);
+  const totalPaid = Math.round(Number(rental.paidAmount) * 100);
+  const totalOutstanding = Math.max(0, totalReceivable - totalPaid);
+  const accountBalance = Math.max(0, totalPaid - totalReceivable);
+  let settlementCredit = totalPaid + Math.abs(adjustmentCents);
+  const effectivePaidByBill = new Map<number, number>();
+  for (const bill of [...rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
+    const amountCents = Math.round(Number(bill.amount) * 100);
+    const settledCents = Math.min(amountCents, settlementCredit);
+    effectivePaidByBill.set(bill.id, settledCents);
+    settlementCredit -= settledCents;
+  }
   const hasOutstanding = totalOutstanding > 0;
   const receivedAt = (value: Date | string) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
   return (
@@ -2758,8 +2772,8 @@ function DetailFinance({
           </div>
         </div>
         <div className="grid grid-cols-3 border-b bg-muted/40 text-center">
-          <div className="p-3"><p className="text-xs text-muted-foreground">租金应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p></div>
-          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p></div>
+          <div className="p-3"><p className="text-xs text-muted-foreground">净租金应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{adjustmentCents < 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 减免 {money(centsToMoney(Math.abs(adjustmentCents)))}</p>}</div>
+          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}</div>
           <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
         </div>
         {rentBills.length > 0 ? (
@@ -2768,12 +2782,15 @@ function DetailFinance({
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">期数</th><th className="px-3 py-2.5">账期</th><th className="px-3 py-2.5">应收 / 已收</th><th className="px-3 py-2.5">约定还款日</th><th className="px-3 py-2.5">实际到账</th><th className="px-3 py-2.5">状态</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead>
               <tbody className="divide-y">
                 {rentBills.map((bill, index) => {
-                  const outstanding = billOutstandingCents(bill);
-                  const state = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
+                  const effectivePaidCents = effectivePaidByBill.get(bill.id) ?? 0;
+                  const recordedPaidCents = Math.round(Number(bill.paidAmount) * 100);
+                  const outstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - effectivePaidCents);
+                  const state = billState(bill.amount, centsToMoney(effectivePaidCents), bill.dueDate, today);
+                  const offsetCents = Math.max(0, effectivePaidCents - recordedPaidCents);
                   return <tr key={bill.id} className={state === "逾期" ? "bg-destructive/5" : "hover:bg-muted/20"}>
                     <td className="px-3 py-3 align-top"><strong>第 {index + 1} 期</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
-                    <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">已收 {money(bill.paidAmount)}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
+                    <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">到账 {money(bill.paidAmount)}{offsetCents > 0 ? ` · 减免/余额抵扣 ${money(centsToMoney(offsetCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
                     <td className="px-3 py-3 align-top">{bill.dueDate}</td>
                     <td className="px-3 py-3 align-top">{bill.allocations.length ? bill.allocations.map((allocation) => <div key={allocation.id} className="mb-1 last:mb-0"><p>{allocation.paymentDate} · {money(allocation.amount)}</p><p className="text-xs text-muted-foreground">录入 {receivedAt(allocation.receivedAt)} · {allocation.paymentMethod}</p></div>) : <span className="text-muted-foreground">尚未到账</span>}</td>
                     <td className="px-3 py-3 align-top"><BillingStatus value={state} /></td>
@@ -2785,6 +2802,7 @@ function DetailFinance({
           </div>
         ) : <p className="p-6 text-center text-sm text-muted-foreground">暂无租金账单</p>}
       </section>
+      {adjustmentBills.length > 0 && <section><h3 className="mb-3 font-semibold">减免与账务调整</h3><div className="flex flex-col gap-2">{adjustmentBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">{bill.dueDate} · 减少应收 {money(centsToMoney(Math.abs(Math.round(Number(bill.amount) * 100))))}</p>{bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}</div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">已调整</span></div>)}</div></section>}
       {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 约定日 {bill.dueDate}</p></div><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} /></div>)}</div></section>}
       <section>
         <h3 className="mb-3 font-semibold">全部收款流水</h3>
