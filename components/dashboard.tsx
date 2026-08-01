@@ -3811,17 +3811,6 @@ function OperationForm({
     return [row.itemId, Math.round(Number(item.monthlyRent) * unusedDays * row.quantity / 30 * 100) / 100] as const;
   }));
   const calculatedRentRefund = [...refundTrialByItem.values()].reduce((sum, value) => sum + value, 0);
-  const minimumTermMet = rental.billingType === "daily" || date >= rental.endDate;
-  useEffect(() => {
-    if (mode !== "return") return;
-    if (minimumTermMet && calculatedRentRefund > 0) {
-      setRentRefundHandling("refund");
-      setRentRefundAmount(calculatedRentRefund);
-    } else {
-      setRentRefundHandling("none");
-      setRentRefundAmount(0);
-    }
-  }, [calculatedRentRefund, minimumTermMet, mode]);
   return (
     <form
       onSubmit={(e) => {
@@ -3910,7 +3899,7 @@ function OperationForm({
         )}
         </div>
       </section>
-      {mode === "return" && <section className="rounded-xl border bg-card p-4"><div className="flex flex-col gap-1"><p className="font-semibold">退租租金处理</p><p className="text-sm text-muted-foreground">按剩余租期试算 {money(calculatedRentRefund)}。{minimumTermMet ? "已满足最低租期，默认按天退款。" : `合同最低租期为 ${rental.duration} ${rental.billingType === "daily" ? "天" : "个月"}，当前默认不退。`}</p></div><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="flex flex-col gap-2 text-sm font-medium">处理方式<select value={rentRefundHandling} onChange={(event) => { const value = event.target.value as typeof rentRefundHandling; setRentRefundHandling(value); setRentRefundAmount(value === "none" ? 0 : calculatedRentRefund); }} className="h-10 rounded-lg border bg-background px-3"><option value="none">不退租金</option><option value="credit">转为客户余额</option><option value="refund">直接退款</option></select></label><Field label="实际处理金额（元）" type="number" value={rentRefundAmount} onChange={(value) => setRentRefundAmount(Number(value))} /></div>{rentRefundHandling === "credit" && <p className="mt-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">金额将转入客户手机号 {rental.customerPhone} 的可用余额，可用于后续其他设备合同抵扣，不计作现金到账。</p>}{rentRefundHandling === "refund" && <SettlementFields label="租金退款" value={refundSettlement} onChange={setRefundSettlement} />}<label className="mt-4 flex flex-col gap-2 text-sm font-medium">协商说明{(!minimumTermMet || rentRefundAmount !== calculatedRentRefund) && <span className="text-xs text-destructive">最低租期内退款或调整试算金额时必填</span>}<textarea value={rentRefundReason} onChange={(event) => setRentRefundReason(event.target.value)} className="min-h-20 rounded-lg border bg-background p-3" placeholder="例如：客户协商、特殊售后处理" /></label></section>}
+      {mode === "return" && <section className="rounded-xl border bg-card p-4"><div className="flex flex-col gap-1"><p className="font-semibold">退租租金处理</p><p className="text-sm text-muted-foreground">退租默认不退租金，也不会自动抵扣未收账单。仅在特殊协商时手工填写金额；按剩余天数参考上限为 {money(calculatedRentRefund)}。</p></div><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="flex flex-col gap-2 text-sm font-medium">处理方式<select value={rentRefundHandling} onChange={(event) => { const value = event.target.value as typeof rentRefundHandling; setRentRefundHandling(value); setRentRefundAmount(0); }} className="h-10 rounded-lg border bg-background px-3"><option value="none">不退租金</option><option value="credit">转为客户余额</option><option value="refund">直接退款</option></select></label><Field label="实际处理金额（元）" type="number" value={rentRefundAmount} onChange={(value) => setRentRefundAmount(Number(value))} /></div>{rentRefundHandling === "credit" && <p className="mt-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">金额将转入客户手机号 {rental.customerPhone} 的可用余额，可用于后续其他设备合同抵扣，不计作现金到账。</p>}{rentRefundHandling === "refund" && <SettlementFields label="租金退款" value={refundSettlement} onChange={setRefundSettlement} />}<label className="mt-4 flex flex-col gap-2 text-sm font-medium">协商说明{rentRefundHandling !== "none" && <span className="text-xs text-destructive">手工调整退租金时必填</span>}<textarea value={rentRefundReason} onChange={(event) => setRentRefundReason(event.target.value)} className="min-h-20 rounded-lg border bg-background p-3" placeholder="例如：客户协商、特殊售后处理" /></label></section>}
       {mode === "return" && amount > 0 && <SettlementFields label="退租扣款/赔偿收款" value={collectionSettlement} onChange={setCollectionSettlement} />}
       {mode === "return" && refund > 0 && <SettlementFields label="押金退款" value={refundSettlement} onChange={setRefundSettlement} />}
       {mode === "return" && (amount > 0 || refund > 0) && <div className="rounded-xl bg-muted p-4 text-sm"><p className="font-semibold">本次结算摘要</p><p className="mt-1 text-muted-foreground">应收 {money(amount)}（{collectionSettlement.timing === "now" ? "现在收" : "以后收"}） · 应退 {money(refund)}（{refundSettlement.timing === "now" ? "现在退" : "以后退"}）</p></div>}
@@ -3923,7 +3912,7 @@ function OperationForm({
         />
       </label>
       <button
-        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0) || (mode === "return" && (rentRefundAmount < 0 || rentRefundAmount > calculatedRentRefund || (rentRefundHandling === "none" && rentRefundAmount !== 0) || (rentRefundHandling !== "none" && rentRefundAmount <= 0) || ((!minimumTermMet || rentRefundAmount !== calculatedRentRefund) && !rentRefundReason.trim())))}
+        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0) || (mode === "return" && (rentRefundAmount < 0 || rentRefundAmount > calculatedRentRefund || (rentRefundHandling === "none" && rentRefundAmount !== 0) || (rentRefundHandling !== "none" && rentRefundAmount <= 0) || (rentRefundHandling !== "none" && !rentRefundReason.trim())))}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground"
       >
         {pending ? "处理中" : mode === "return" ? "确认退租" : "确认丢失"}
