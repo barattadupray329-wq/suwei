@@ -139,7 +139,6 @@ export type RentalListQuery = z.input<typeof rentalQuerySchema>
 
 export async function getRentalPage(input: RentalListQuery = {}) {
   const userId = await getUserId()
-  await ensureOverdueRentBills(userId)
   const value = rentalQuerySchema.parse(input)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, value.lifecycleStatus)]
   if (value.orderType !== 'all') filters.push(eq(rentals.orderType, value.orderType))
@@ -174,12 +173,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     else 3
   end`
   const offset = (value.page - 1) * value.pageSize
-  const [[summaryRow], [financeSummary], rows] = await Promise.all([
+  const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
-      overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
-    }).from(rentals).where(where),
-    db.select({
       initialRentOutstanding: sql<string>`coalesce(sum(max(0, (select coalesce(sum(cast(b.amount as real)), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType = '租金') - cast(${rentals.paidAmount} as real))), 0)`,
       expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
       overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
@@ -209,9 +205,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   return {
     rows: normalizedRows,
     total,
-    overdueReceivable: String(financeSummary?.overdueReceivable ?? summaryRow?.overdueReceivable ?? '0'),
-    initialRentOutstanding: String(financeSummary?.initialRentOutstanding ?? '0'),
-    expectedReceivable: String(financeSummary?.expectedReceivable ?? '0'),
+    overdueReceivable: String(summaryRow?.overdueReceivable ?? '0'),
+    initialRentOutstanding: String(summaryRow?.initialRentOutstanding ?? '0'),
+    expectedReceivable: String(summaryRow?.expectedReceivable ?? '0'),
     page: value.page,
     pageSize: value.pageSize,
     pageCount: Math.max(1, Math.ceil(total / value.pageSize)),
