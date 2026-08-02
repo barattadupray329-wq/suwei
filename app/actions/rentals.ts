@@ -19,6 +19,7 @@ import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle
 import { assertNoRentalActivity, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
+import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
 async function getUserId() {
@@ -150,7 +151,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const businessToday = sql<string>`date('now', '+8 hours')`
   const isExpired = sql<boolean>`${rentals.endDate} < ${businessToday} and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
   const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
-  if (value.status === '逾期') filters.push(isExpired)
+  if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
   else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
   else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
@@ -185,8 +186,13 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const itemRows = rows.length
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
     : []
+  const billRows = rows.length
+    ? await db.select({ rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rows.map((row) => row.id))))
+    : []
   const itemsByRental = new Map<number, typeof itemRows>()
   for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
+  const billsByRental = new Map<number, typeof billRows>()
+  for (const bill of billRows) billsByRental.set(bill.rentalId, [...(billsByRental.get(bill.rentalId) ?? []), bill])
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
@@ -195,11 +201,16 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   }).format(new Date())
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
+    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0)
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
-    const expired = row.endDate < today && !terminalStatuses.includes(lifecycleStatus)
-    const status = expired ? '逾期' : lifecycleStatus
-    return { ...row, quantity, status }
+    const effectiveEndDate = [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1) ?? row.endDate
+    const status = rentalDisplayStatus({
+      endDate: effectiveEndDate,
+      status: lifecycleStatus === '逾期' ? '在租' : lifecycleStatus,
+      bills: bills.map((bill) => ({ dueDate: bill.dueDate, amount: bill.amount, paidAmount: bill.paidAmount })),
+    }, today)
+    return { ...row, quantity, endDate: effectiveEndDate, periodCount: bills.length, status }
   })
   const total = Number(summaryRow?.count ?? 0)
   return {
