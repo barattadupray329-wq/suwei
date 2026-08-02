@@ -7,8 +7,9 @@ import { useEffect, useState } from 'react'
 import { Banknote, BookOpenCheck, ChevronRight, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
+import { SafeSync } from '@/components/safe-sync'
 
-type ShellProps = { children: ReactNode; storeName: string; userName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[] }
+type ShellProps = { children: ReactNode; storeName: string; userName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[]; version?: string }
 type NavItem = { href: string; label: string; description: string; icon: typeof LayoutDashboard; permission?: string; superAdminOnly?: boolean; managerOnly?: boolean }
 type NavGroup = { label: string; items: NavItem[] }
 
@@ -32,7 +33,7 @@ const groups: NavGroup[] = [
   ] },
 ]
 
-export function AppShell({ children, storeName, userName, role, permissions }: ShellProps) {
+export function AppShell({ children, storeName, userName, role, permissions, version = 'dev' }: ShellProps) {
   const pathname = usePathname(); const router = useRouter(); const [mobileMenu, setMobileMenu] = useState(false); const [signingOut, setSigningOut] = useState(false)
   const can = (permission?: string) => !permission || permissions.includes(permission)
   const visibleGroups = groups.map((group) => ({ ...group, items: group.items.filter((item) => (!item.superAdminOnly || role === 'super_admin') && (!item.managerOnly || role !== 'employee') && can(item.permission)) })).filter((group) => group.items.length)
@@ -63,8 +64,8 @@ export function AppShell({ children, storeName, userName, role, permissions }: S
       <div className="flex min-w-0 items-center gap-3"><button type="button" aria-label="打开全部功能" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className="icon-button md:hidden"><Menu/></button><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5"/></span><div className="min-w-0"><p className="truncate font-bold">{storeName}</p><p className="truncate text-xs text-muted-foreground">{current?.label || '租赁业务管理中心'}</p></div></div>
       <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
     </header>
-    {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭菜单" className="absolute inset-0 bg-foreground/35" onClick={() => setMobileMenu(false)}/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,340px)] flex-col bg-card shadow-xl"><div className="flex items-center justify-between border-b p-4"><div><p className="font-bold">全部功能</p><p className="text-xs text-muted-foreground">{userName} · {role === 'employee' ? '客户经理' : role === 'super_admin' ? '平台主管' : '业务主管'}</p></div><button type="button" aria-label="关闭菜单" onClick={() => setMobileMenu(false)} className="icon-button"><X/></button></div><div className="flex-1 overflow-y-auto p-4">{navigation(true)}</div></aside></div>}
-    <div className="flex pb-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:pb-0"><aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><Link href="/guide" className="mt-6 rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link></aside><main className="min-w-0 flex-1">{children}</main></div>
+    {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭菜单" className="absolute inset-0 bg-foreground/35" onClick={() => setMobileMenu(false)}/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,340px)] flex-col bg-card shadow-xl"><div className="flex items-center justify-between border-b p-4"><div><p className="font-bold">全部功能</p><p className="text-xs text-muted-foreground">{userName} · {role === 'employee' ? '客户经理' : role === 'super_admin' ? '平台主管' : '业务主管'}</p></div><button type="button" aria-label="关闭菜单" onClick={() => setMobileMenu(false)} className="icon-button"><X/></button></div><div className="flex-1 overflow-y-auto p-4">{navigation(true)}</div><div className="border-t p-4"><SafeSync initialVersion={version}/></div></aside></div>}
+    <div className="flex pb-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:pb-0"><aside className="sticky top-16 hidden h-[calc(100svh-4rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><div className="mt-6 flex flex-col gap-3"><Link href="/guide" className="rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link><SafeSync initialVersion={version}/></div></aside><main className="min-w-0 flex-1">{children}</main></div>
     <nav aria-label="手机快捷导航" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">{visibleGroups[0]?.items.slice(0, 3).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${isActive(href) ? 'text-primary' : 'text-muted-foreground'}`}><Icon className="size-5"/>{label}</Link>)}<button type="button" onClick={() => setMobileMenu(true)} className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium text-muted-foreground"><Menu className="size-5"/>全部</button></nav>
   </div>
 }

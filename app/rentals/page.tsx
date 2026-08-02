@@ -23,16 +23,25 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
       getRentalAssignees(),
     ])
     if (!isNew && !linkedRental) redirect('/rentals')
-    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} />
+    const returnParams = new URLSearchParams()
+    for (const [key, entry] of Object.entries(params)) {
+      if (key === 'rental' || key === 'new' || typeof entry !== 'string' || !entry) continue
+      returnParams.set(key, entry)
+    }
+    const returnHref = returnParams.size ? `/rentals?${returnParams}` : '/rentals'
+    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} returnHref={returnHref} />
   }
 
   const requestedSort = value('sort')
-  const sort = (['newest', 'oldest', 'due', 'amount'].includes(requestedSort) ? requestedSort : 'newest') as 'newest' | 'oldest' | 'due' | 'amount'
+  const sort = (['newest', 'oldest', 'due', 'amount', 'outstanding'].includes(requestedSort) ? requestedSort : 'newest') as 'newest' | 'oldest' | 'due' | 'amount' | 'outstanding'
+  const requestedReceivable = value('receivable')
+  const receivable = (['outstanding', 'overdue', 'upcoming'].includes(requestedReceivable) ? requestedReceivable : 'all') as 'all' | 'outstanding' | 'overdue' | 'upcoming'
   const requestedType = value('orderType')
   const orderType = (['draft', 'test', 'official'].includes(requestedType) ? requestedType : 'all') as 'all' | 'draft' | 'test' | 'official'
   const filters = {
-    query: value('query'), status: value('status') || '全部', startDate: value('startDate'), endDate: value('endDate'), assignee: value('assignee'), orderType, lifecycleStatus: 'active' as const, sort, page: Math.max(1, Number(value('page')) || 1),
+    query: value('query'), status: value('status') || '全部', startDate: value('startDate'), endDate: value('endDate'), assignee: value('assignee'), orderType, lifecycleStatus: 'active' as const, sort, receivable, page: Math.max(1, Number(value('page')) || 1),
   }
   const [result, assignees] = await Promise.all([getRentalPage({ ...filters, pageSize: 20 }), getRentalAssignees()])
-  return <RentalRecords {...result} filters={filters} assignees={assignees} />
+  const filterKey = JSON.stringify(filters)
+  return <RentalRecords key={filterKey} {...result} filters={filters} assignees={assignees} />
 }
