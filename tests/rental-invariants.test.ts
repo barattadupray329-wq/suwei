@@ -40,4 +40,19 @@ describe('全流程业务不变量', () => {
     expect(assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '100.10', paidAmount: '20.05' }], payments: [{ amount: '20.05', feeType: '租金' }], allocations: [{ amount: '20.05' }] })).toBe(true)
     expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同应收与账单应收不一致')
   })
+
+  it('押金与租金独立核算，不计入合同租金应收和已收', () => {
+    expect(assertFinancialReconciliation({
+      contractTotal: '100.00',
+      contractPaid: '40.00',
+      bills: [
+        { amount: '100.00', paidAmount: '40.00', billType: '租金' },
+        { amount: '500.00', paidAmount: '500.00', billType: '押金' },
+      ],
+      payments: [
+        { amount: '40.00', feeType: '原合同租金' },
+        { amount: '500.00', feeType: '押金' },
+      ],
+    })).toBe(true)
+  })
 })

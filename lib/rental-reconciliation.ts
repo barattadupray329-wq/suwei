@@ -14,7 +14,9 @@ export function billsOutstandingCents(bills: ReconciliationBill[]) {
 }
 
 export function billsReceivableCents(bills: ReconciliationBill[]) {
-  return bills.reduce((sum, bill) => sum + moneyToCents(bill.amount), 0)
+  return bills
+    .filter((bill) => bill.billType !== '押金')
+    .reduce((sum, bill) => sum + moneyToCents(bill.amount), 0)
 }
 
 export function nonDepositPaymentCents(payments: ReconciliationPayment[]) {
