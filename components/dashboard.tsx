@@ -372,6 +372,7 @@ export function Dashboard({
   rentals,
   mode = "overview",
   initialNew = false,
+  returnHref = "/rentals",
 }: {
   role: "super_admin" | "admin" | "employee";
   permissions: string[];
@@ -382,6 +383,7 @@ export function Dashboard({
   rentals: Rental[];
   mode?: "overview" | "management";
   initialNew?: boolean;
+  returnHref?: string;
 }) {
   const canManageContracts =
     role === "super_admin" || permissions.includes("合同管理");
@@ -484,6 +486,7 @@ export function Dashboard({
   const run = (
     fn: () => Promise<void | { ok: boolean; message?: string }>,
     message: string,
+    successDialog: typeof dialog = null,
   ) =>
     start(async () => {
       try {
@@ -493,12 +496,16 @@ export function Dashboard({
           return;
         }
         toast.success(message);
-        setDialog(null);
+        setDialog(successDialog);
         router.refresh();
       } catch (error) {
         toast.error(userErrorMessage(error));
       }
     });
+  const runInDetail = (
+    fn: () => Promise<void | { ok: boolean; message?: string }>,
+    message: string,
+  ) => run(fn, message, "detail");
   const openDetail = (r: Rental) => {
     if (mode === "overview") {
       router.push(`/rentals?rental=${r.id}`);
@@ -509,7 +516,7 @@ export function Dashboard({
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
-      window.location.replace("/rentals");
+      router.push(returnHref);
       return;
     }
     setDialog(null);
@@ -1126,7 +1133,7 @@ canViewFinance={canViewFinance}
     else toast.error(result.message);
   })}
   onAssignee={(assigneeId) =>
-              run(
+  runInDetail(
                 () => updateRentalAssignee(selected.id, assigneeId),
                 "维护负责人已更新",
               )
@@ -1156,10 +1163,10 @@ canViewFinance={canViewFinance}
             onDeposit={() => setDialog("deposit")}
             onExchange={() => setDialog("exchange")}
             onReverse={(paymentId) =>
-              run(() => reversePayment(paymentId, "收款录入错误"), "收款已冲正")
+              runInDetail(() => reversePayment(paymentId, "收款录入错误"), "收款已冲正")
             }
             onStatus={(s) =>
-              run(() => changeStatus(selected.id, s), "状态已更新")
+              runInDetail(() => changeStatus(selected.id, s), "状态已更新")
             }
           />
         )}
@@ -1240,7 +1247,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             onNavigate={(target) => setDialog(target)}
-            submit={(value) => run(() => changeRentalContract(value), "租赁变更已登记")}
+            submit={(value) => runInDetail(() => changeRentalContract(value), "租赁变更已登记")}
           />
         )}
       </Dialog>
@@ -1319,7 +1326,7 @@ canViewFinance={canViewFinance}
             bills={selected.bills}
             target={paymentTarget}
             submit={(value) =>
-              run(() => collectPayment(selected.id, value), "收款已登记")
+              runInDetail(() => collectPayment(selected.id, value), "收款已登记")
             }
           />
         )}
@@ -1335,7 +1342,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values, settlement) =>
-              run(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
+              runInDetail(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
             }
           />
         )}
@@ -1350,7 +1357,7 @@ canViewFinance={canViewFinance}
             record={selectedRenewal}
             pending={pending}
             submit={(correctedUnitPrice, reason) =>
-              run(() => correctRenewalPrice({ renewalRecordId: selectedRenewal.id, correctedUnitPrice, reason }), "续租价格已更正")
+              runInDetail(() => correctRenewalPrice({ renewalRecordId: selectedRenewal.id, correctedUnitPrice, reason }), "续租价格已更正")
             }
           />
         )}
@@ -1374,7 +1381,7 @@ canViewFinance={canViewFinance}
             mode="return"
             pending={pending}
             submit={(values) =>
-              run(
+              runInDetail(
                 () => returnRentalItems(validateBusinessBatch(values as ReturnInput[], (value) => value.rentalItemId)),
                 "退租已登记",
               )
@@ -1393,7 +1400,7 @@ canViewFinance={canViewFinance}
             mode="loss"
             pending={pending}
             submit={(values) =>
-              run(() => reportLostItems(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId)), "丢失已登记")
+              runInDetail(() => reportLostItems(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId)), "丢失已登记")
             }
           />
         )}
@@ -1409,7 +1416,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values) =>
-              run(
+              runInDetail(
                 () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
                 "配置与应收已更新",
               )
@@ -1428,7 +1435,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values) =>
-              run(() => createRepairRecords(validateBusinessBatch(values, (value) => value.itemId)), "维修记录已保存")
+              runInDetail(() => createRepairRecords(validateBusinessBatch(values, (value) => value.itemId)), "维修记录已保存")
             }
           />
         )}
@@ -1443,7 +1450,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(type, amount, date, notes) =>
-              run(
+              runInDetail(
                 () =>
                   recordDepositAction(selected.id, type, amount, date, notes),
                 "押金流水已登记",
@@ -1462,7 +1469,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values) =>
-              run(
+              runInDetail(
                 () => exchangeRentalItems(values),
                 "换机调拨已登记",
               )
@@ -1480,7 +1487,7 @@ canViewFinance={canViewFinance}
             rental={selected}
             pending={pending}
             submit={(values, settlement) =>
-              run(
+              runInDetail(
                 () => buyoutRentalItems(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId), settlement),
                 "买断已登记",
               )

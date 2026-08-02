@@ -52,7 +52,14 @@ export function RentalRecords({ rows, total, initialRentOutstanding, expectedRec
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const navigate = (href: string) => startTransition(() => router.push(href))
-  const openDetail = (id: number) => navigate(`/rentals?rental=${id}`)
+  const openDetail = (id: number) => {
+    const params = new URLSearchParams()
+    Object.entries({ ...filters, page }).forEach(([key, value]) => {
+      if (value && value !== '全部' && value !== 'all' && value !== 'newest') params.set(key, String(value))
+    })
+    params.set('rental', String(id))
+    navigate(`/rentals?${params}`)
+  }
   const pageHref = (nextPage: number) => { const params = new URLSearchParams(); Object.entries({ ...filters, page: nextPage }).forEach(([key, value]) => { if (value && value !== '全部' && value !== 'newest') params.set(key, String(value)) }); return `/rentals?${params}` }
   const navigateLink = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return

@@ -23,7 +23,13 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
       getRentalAssignees(),
     ])
     if (!isNew && !linkedRental) redirect('/rentals')
-    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} />
+    const returnParams = new URLSearchParams()
+    for (const [key, entry] of Object.entries(params)) {
+      if (key === 'rental' || key === 'new' || typeof entry !== 'string' || !entry) continue
+      returnParams.set(key, entry)
+    }
+    const returnHref = returnParams.size ? `/rentals?${returnParams}` : '/rentals'
+    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} returnHref={returnHref} />
   }
 
   const requestedSort = value('sort')
