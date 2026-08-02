@@ -3798,26 +3798,27 @@ function OperationForm({
   );
   const [amount, setAmount] = useState(0);
   const [refund, setRefund] = useState(0);
-  const [rentRefundHandling, setRentRefundHandling] = useState<"none" | "credit" | "refund">("none");
-  const [rentRefundAmount, setRentRefundAmount] = useState(0);
-  const [rentRefundReason, setRentRefundReason] = useState("");
+  const [billingModes, setBillingModes] = useState<Record<number, "full_month" | "daily" | "waive">>({});
+  const [billingReasons, setBillingReasons] = useState<Record<number, string>>({});
   const [collectionSettlement, setCollectionSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [refundSettlement, setRefundSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
-  const refundTrialByItem = new Map(selectedRows.map((row) => {
+  const billingTrialByItem = new Map(selectedRows.map((row) => {
     const item = available.find((candidate) => candidate.id === row.itemId);
-    if (!item?.endDate || date >= item.endDate) return [row.itemId, 0] as const;
-    const unusedDays = Math.max(0, Math.ceil((Date.parse(`${item.endDate}T00:00:00+08:00`) - Date.parse(`${date}T00:00:00+08:00`)) / 86_400_000));
-    return [row.itemId, Math.round(Number(item.monthlyRent) * unusedDays * row.quantity / 30 * 100) / 100] as const;
+    let periodStart = rental.endDate;
+    while (addMonths(periodStart, 1) <= date) periodStart = addMonths(periodStart, 1);
+    const inOverduePeriod = rental.billingType === "monthly" && periodStart < date;
+    const fullAmount = inOverduePeriod && item ? Math.round(Number(item.monthlyRent) * row.quantity * 100) / 100 : 0;
+    const usedDays = inOverduePeriod ? Math.max(1, Math.ceil((Date.parse(`${date}T00:00:00+08:00`) - Date.parse(`${periodStart}T00:00:00+08:00`)) / 86_400_000) + 1) : 0;
+    const dailyAmount = Math.min(fullAmount, Math.round(fullAmount * usedDays / 30 * 100) / 100);
+    return [row.itemId, { periodStart, periodEnd: addMonths(periodStart, 1), fullAmount, dailyAmount, usedDays }] as const;
   }));
-  const calculatedRentRefund = [...refundTrialByItem.values()].reduce((sum, value) => sum + value, 0);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         submit(selectedRows.map((row, index) => {
-          const rowTrial = refundTrialByItem.get(row.itemId) ?? 0;
-          const allocatedRefund = rentRefundHandling === "none" || calculatedRentRefund <= 0 ? 0 : index === selectedRows.length - 1 ? Math.max(0, Math.round((rentRefundAmount - selectedRows.slice(0, -1).reduce((sum, selected) => sum + Math.round(rentRefundAmount * ((refundTrialByItem.get(selected.itemId) ?? 0) / calculatedRentRefund) * 100) / 100, 0)) * 100) / 100) : Math.round(rentRefundAmount * (rowTrial / calculatedRentRefund) * 100) / 100;
+          const billingMode = billingModes[row.itemId] ?? "full_month";
           const base = {
             rentalId: rental.id,
             rentalItemId: row.itemId,
@@ -3831,9 +3832,8 @@ function OperationForm({
                 condition,
                 deductionAmount: amount,
                 depositRefund: refund / selectedRows.length,
-                rentRefundAmount: allocatedRefund,
-                rentRefundHandling,
-                rentRefundReason,
+                billingMode,
+                billingReason: billingReasons[row.itemId] ?? "",
                 collectionSettlement: { timing: collectionSettlement.timing, method: collectionSettlement.method },
                 refundSettlement: { timing: refundSettlement.timing, method: refundSettlement.method },
               }
@@ -3855,7 +3855,7 @@ function OperationForm({
               <input type="checkbox" checked={selected} onChange={() => toggleItem(item)} className="mt-1 size-4 accent-primary" />
               <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可处理 {max} 台</span></span>
             </label>
-            {selected && <label className="mt-3 flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>}
+            {selected && <div className="mt-3 flex flex-col gap-3"><label className="flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>{mode === "return" && (() => { const trial = billingTrialByItem.get(item.id); const billingMode = billingModes[item.id] ?? "full_month"; return <div className="rounded-lg border bg-background p-3"><label className="flex flex-col gap-2 text-sm font-medium">本期租金处理<select value={billingMode} onChange={(event) => setBillingModes((current) => ({ ...current, [item.id]: event.target.value as "full_month" | "daily" | "waive" }))} className="h-10 rounded-lg border bg-background px-3"><option value="full_month">整月收取（默认）</option><option value="daily">按 30 天折算</option><option value="waive">本期不收</option></select></label>{trial && trial.fullAmount > 0 && <p className="mt-2 text-xs leading-5 text-muted-foreground">周期 {trial.periodStart} 至 {trial.periodEnd}（结束日不含） · 整月 {money(trial.fullAmount)} · 按天 {trial.usedDays} 天为 {money(trial.dailyAmount)}</p>}{billingMode !== "full_month" && <label className="mt-3 flex flex-col gap-2 text-sm font-medium">协商说明<span className="text-xs text-destructive">必填</span><textarea value={billingReasons[item.id] ?? ""} onChange={(event) => setBillingReasons((current) => ({ ...current, [item.id]: event.target.value }))} className="min-h-16 rounded-lg border bg-background p-3" placeholder="填写按天收取或本期不收的原因" /></label>}</div>; })()}</div>}
           </article>;
         })}
       </section>
@@ -3899,7 +3899,7 @@ function OperationForm({
         )}
         </div>
       </section>
-      {mode === "return" && <section className="rounded-xl border bg-card p-4"><div className="flex flex-col gap-1"><p className="font-semibold">退租租金处理</p><p className="text-sm text-muted-foreground">退租默认不退租金，也不会自动抵扣未收账单。仅在特殊协商时手工填写金额；按剩余天数参考上限为 {money(calculatedRentRefund)}。</p></div><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="flex flex-col gap-2 text-sm font-medium">处理方式<select value={rentRefundHandling} onChange={(event) => { const value = event.target.value as typeof rentRefundHandling; setRentRefundHandling(value); setRentRefundAmount(0); }} className="h-10 rounded-lg border bg-background px-3"><option value="none">不退租金</option><option value="credit">转为客户余额</option><option value="refund">直接退款</option></select></label><Field label="实际处理金额（元）" type="number" value={rentRefundAmount} onChange={(value) => setRentRefundAmount(Number(value))} /></div>{rentRefundHandling === "credit" && <p className="mt-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">金额将转入客户手机号 {rental.customerPhone} 的可用余额，可用于后续其他设备合同抵扣，不计作现金到账。</p>}{rentRefundHandling === "refund" && <SettlementFields label="租金退款" value={refundSettlement} onChange={setRefundSettlement} />}<label className="mt-4 flex flex-col gap-2 text-sm font-medium">协商说明{rentRefundHandling !== "none" && <span className="text-xs text-destructive">手工调整退租金时必填</span>}<textarea value={rentRefundReason} onChange={(event) => setRentRefundReason(event.target.value)} className="min-h-20 rounded-lg border bg-background p-3" placeholder="例如：客户协商、特殊售后处理" /></label></section>}
+      {mode === "return" && <section className="rounded-xl border bg-card p-4"><p className="font-semibold">退租租金规则</p><p className="mt-1 text-sm leading-6 text-muted-foreground">默认按已进入的租期整月收取，不退款、不自动减免、不抵扣。只有在每种设备中明确选择“按 30 天折算”或“本期不收”并填写协商说明后，才会产生账务调整。</p></section>}
       {mode === "return" && amount > 0 && <SettlementFields label="退租扣款/赔偿收款" value={collectionSettlement} onChange={setCollectionSettlement} />}
       {mode === "return" && refund > 0 && <SettlementFields label="押金退款" value={refundSettlement} onChange={setRefundSettlement} />}
       {mode === "return" && (amount > 0 || refund > 0) && <div className="rounded-xl bg-muted p-4 text-sm"><p className="font-semibold">本次结算摘要</p><p className="mt-1 text-muted-foreground">应收 {money(amount)}（{collectionSettlement.timing === "now" ? "现在收" : "以后收"}） · 应退 {money(refund)}（{refundSettlement.timing === "now" ? "现在退" : "以后退"}）</p></div>}
@@ -3912,7 +3912,7 @@ function OperationForm({
         />
       </label>
       <button
-        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0) || (mode === "return" && (rentRefundAmount < 0 || rentRefundAmount > calculatedRentRefund || (rentRefundHandling === "none" && rentRefundAmount !== 0) || (rentRefundHandling !== "none" && rentRefundAmount <= 0) || (rentRefundHandling !== "none" && !rentRefundReason.trim())))}
+        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0) || (mode === "return" && selectedRows.some((row) => (billingModes[row.itemId] ?? "full_month") !== "full_month" && !(billingReasons[row.itemId] ?? "").trim()))}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground"
       >
         {pending ? "处理中" : mode === "return" ? "确认退租" : "确认丢失"}
