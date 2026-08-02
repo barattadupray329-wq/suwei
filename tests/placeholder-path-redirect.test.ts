@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 
-const proxySource = readFileSync('proxy.ts', 'utf8')
+const proxySource = readFileSync('middleware.ts', 'utf8')
 
 describe('错误路由占位符兜底', () => {
   test('将误打开的 :path* 地址自动重定向到首页', () => {

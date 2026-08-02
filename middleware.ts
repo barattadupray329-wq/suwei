@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const INVALID_PLACEHOLDER_PATHS = new Set(['/:path*', '/:path'])
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   let pathname = request.nextUrl.pathname
 
   try {
