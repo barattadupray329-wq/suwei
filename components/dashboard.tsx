@@ -516,7 +516,7 @@ export function Dashboard({
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
-      router.push(returnHref);
+      window.location.assign(returnHref);
       return;
     }
     setDialog(null);

@@ -8,10 +8,10 @@ const records = readFileSync(join(root, 'components/rental-records.tsx'), 'utf8'
 
 test('带 rental 参数关闭详情时返回原列表查询上下文', () => {
   expect(dashboard).toMatch(
-    /if \(searchParams\.has\("rental"\)\) \{\s*router\.push\(returnHref\);\s*return;/,
+    /if \(searchParams\.has\("rental"\)\) \{\s*window\.location\.assign\(returnHref\);\s*return;/,
   )
   expect(records).toMatch(/params\.set\('rental', String\(id\)\)/)
-  expect(dashboard).not.toMatch(/window\.location\.replace\("\/rentals"\)/)
+  expect(dashboard).not.toMatch(/router\.push\(returnHref\)/)
 })
 
 test('详情子流程成功后回到同一合同详情', () => {
