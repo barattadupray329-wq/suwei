@@ -348,8 +348,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${numbers.contractNo}”已存在，请更换后缀保存`)
     throw error
   }
-  revalidatePath('/rentals')
-  revalidatePath('/dashboard')
+  // 创建页成功后会导航到租赁列表并读取最新数据；这里不主动刷新当前 RSC，避免同一次请求重复渲染。
   return rentalId
 }
 

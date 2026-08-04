@@ -3,6 +3,7 @@ import { getAliyunSmsErrorMessage, sendAliyunSms } from '@/lib/aliyun-sms'
 import { db } from '@/lib/db'
 import { smsDeliveryLogs } from '@/lib/db/schema'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
+import { normalizeSmsCustomerName } from '@/lib/sms-template-params'
 
 export type BusinessSmsScene =
   | 'rental-created'
@@ -63,7 +64,8 @@ export async function sendBusinessSms(input: SendInput) {
   if (!existing) await db.insert(smsDeliveryLogs).values({ userId: input.userId, rentalId: input.rentalId, scene: input.scene, templateCode: readiness.templateCode, maskedPhone: maskCustomerPhone(input.phone), idempotencyKey: input.idempotencyKey, triggerType: input.triggerType, actorUserId: input.actorUserId, operationId: input.operationId, retryOfId: input.retryOfId })
 
   try {
-    const response = await sendAliyunSms({ accessKeyId: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID!, accessKeySecret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET!, phone: input.phone, signName: process.env.ALIYUN_SMS_SIGN_NAME!, templateCode: readiness.templateCode, templateParams: input.params })
+    const templateParams = { ...input.params, ...(input.params.customer ? { customer: normalizeSmsCustomerName(input.params.customer) } : {}) }
+    const response = await sendAliyunSms({ accessKeyId: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID!, accessKeySecret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET!, phone: input.phone, signName: process.env.ALIYUN_SMS_SIGN_NAME!, templateCode: readiness.templateCode, templateParams })
     const ok = response.code === 'OK'
     await db.update(smsDeliveryLogs).set({ status: ok ? 'sent' : 'failed', providerRequestId: response.requestId, providerCode: response.code, errorMessage: ok ? null : response.message?.slice(0, 200), sentAt: ok ? new Date() : null, updatedAt: new Date() }).where(and(eq(smsDeliveryLogs.idempotencyKey, input.idempotencyKey), eq(smsDeliveryLogs.userId, input.userId)))
     return { ok, message: ok ? '发送成功' : getAliyunSmsErrorMessage(response.code, response.message), providerCode: response.code }
