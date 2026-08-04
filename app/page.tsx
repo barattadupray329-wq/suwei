@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import QRCode from 'qrcode'
 import { MarketingHome } from '@/components/marketing-home'
 import { getPublicWebsitePackages } from '@/lib/website-packages'
 
@@ -11,9 +10,6 @@ export const metadata: Metadata = {
 }
 
 export default async function HomePage() {
-  const [packages, qrCode] = await Promise.all([
-    getPublicWebsitePackages(),
-    QRCode.toDataURL('https://www.tuzhuzu.cn/customer-login', { width: 360, margin: 1, color: { dark: '#173f35', light: '#ffffff' } }),
-  ])
-  return <MarketingHome packages={packages} qrCode={qrCode} />
+  const packages = await getPublicWebsitePackages()
+  return <MarketingHome packages={packages} qrCode="/customer-login-qr.png" />
 }
