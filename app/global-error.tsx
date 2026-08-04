@@ -1,6 +1,10 @@
 'use client'
 
+import { useEffect } from 'react'
+import { isStaleBuildError, reloadForStaleBuild } from '@/lib/stale-build'
+
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => { if (isStaleBuildError(error)) reloadForStaleBuild() }, [error])
   return (
     <html lang="zh-CN">
       <body style={{ margin: 0, background: '#f5f7f6', color: '#17201d', fontFamily: 'system-ui, sans-serif' }}>

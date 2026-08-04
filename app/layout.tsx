@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { AppShell } from '@/components/app-shell'
+import { StaleBuildGuard } from '@/components/stale-build-guard'
 import { auth } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
 import { getStoreName } from '@/app/actions/business'
@@ -32,5 +33,5 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const content = shell && session?.user
     ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions} version={APP_VERSION}>{children}</AppShell>
     : children
-  return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>{content}<Toaster richColors position="top-center" /></body></html>
+  return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}><StaleBuildGuard />{content}<Toaster richColors position="top-center" /></body></html>
 }

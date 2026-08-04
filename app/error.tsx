@@ -1,9 +1,13 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { isStaleBuildError, reloadForStaleBuild } from '@/lib/stale-build'
 
 export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  // 发布新版本后旧标签页的 JS 分片已失效，这类报错直接整页刷新即可恢复，不需要打扰用户。
+  useEffect(() => { if (isStaleBuildError(error)) reloadForStaleBuild() }, [error])
   return (
     <main className="flex min-h-svh items-center justify-center bg-background p-4">
       <section className="flex w-full max-w-md flex-col items-center gap-5 rounded-2xl border bg-card p-8 text-center shadow-xl">

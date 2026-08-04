@@ -65,11 +65,18 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
         } else if ((next.state !== baseline.current.state || next.version !== baseline.current.version) && !refreshing.current) {
           if (operatorIsBusy) {
             setStatus('操作中，暂停更新')
-          } else {
+          } else if (next.version !== baseline.current.version) {
+            // 构建版本变了说明已经发布新版，旧分片随时会 404，必须整页重载换上新资源，
+            // router.refresh() 只更新数据、仍复用旧 JS，无法避免后续跳转报错。
             refreshing.current = true
             setStatus('正在同步')
             baseline.current = next
             setDisplayVersion(next.version)
+            window.location.reload()
+          } else {
+            refreshing.current = true
+            setStatus('正在同步')
+            baseline.current = next
             router.refresh()
             window.setTimeout(() => { refreshing.current = false; setStatus('已同步') }, 1500)
           }
