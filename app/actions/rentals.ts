@@ -348,7 +348,8 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${numbers.contractNo}”已存在，请更换后缀保存`)
     throw error
   }
-  revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/dashboard')
   return rentalId
 }
 

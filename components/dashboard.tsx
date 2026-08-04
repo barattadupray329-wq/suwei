@@ -1110,7 +1110,7 @@ export function Dashboard({
                   sessionStorage.removeItem("suwei:new-rental-draft");
                   delete document.documentElement.dataset.unsavedRental;
                   setDialog(null);
-                  router.refresh();
+                  router.replace("/rentals");
                 })}
         />
       </Dialog>
@@ -3379,7 +3379,7 @@ function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; p
       </div>
       <Field label={`正确${record.billingUnit === "day" ? "日" : "月"}租单价`} type="number" value={correctedUnitPrice} onChange={setCorrectedUnitPrice} />
       <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
-        更正后金额 <strong>{money(correctedAmount)}</strong>；{difference > 0 ? "将新增待收补差账单" : difference < 0 ? "将生成续租减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原续租和收款记录不会被覆盖。
+        更正后金额 <strong>{money(correctedAmount)}</strong>，{difference > 0 ? "将新增待收补差账单" : difference < 0 ? "将生成续租减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原续租和收款记录不会被覆盖。
       </div>
       <label className="flex flex-col gap-2 text-sm font-medium"><span>更正原因 <span className="text-destructive">*</span></span><textarea required minLength={2} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：录入时误将月租填写为设备总价" /></label>
       <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在更正…" : "确认差额更正"}</button></div>
