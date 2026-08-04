@@ -25,11 +25,15 @@ describe('退租时点与人工租金规则', () => {
   })
 
   it('20 台退 5 台时当期不减租，下一账期只按剩余 15 台', () => {
-    const result = recalculateBillsAfterReturn({monthlyRent:'110',returnedQuantity:5,effectiveFrom:'2026-06-28',bills:[
-      {id:1,periodStart:'2026-05-28',periodEnd:'2026-06-28',amount:'2200',paidAmount:'0',billType:'租金'},
-      {id:2,periodStart:'2026-06-28',periodEnd:'2026-07-28',amount:'2200',paidAmount:'0',billType:'租金'},
+    const result = recalculateBillsAfterReturn({monthlyRent:'110',returnedQuantity:5,returnDate:'2026-06-18',bills:[
+      {id:1,periodStart:'2026-05-28',periodEnd:'2026-06-27',amount:'2200',paidAmount:'0',billType:'租金'},
+      {id:2,periodStart:'2026-06-27',periodEnd:'2026-07-27',amount:'2200',paidAmount:'0',billType:'逾期续租租金'},
+      {id:3,periodStart:'2026-07-27',periodEnd:'2026-08-27',amount:'2200',paidAmount:'0',billType:'逾期续租租金'},
     ]})
-    expect(result).toEqual([{id:2,previousAmountCents:220000,nextAmountCents:165000,reductionCents:55000}])
+    expect(result).toEqual([
+      {id:2,previousAmountCents:220000,nextAmountCents:165000,reductionCents:55000},
+      {id:3,previousAmountCents:220000,nextAmountCents:165000,reductionCents:55000},
+    ])
   })
 })
 

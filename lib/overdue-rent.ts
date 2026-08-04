@@ -77,11 +77,11 @@ export function recalculateBillsAfterReturn(input: {
   bills: ReturnBill[]
   monthlyRent: string
   returnedQuantity: number
-  effectiveFrom: string
+  returnDate: string
 }) {
   const reductionCents = toCents(input.monthlyRent) * input.returnedQuantity
   return input.bills
-    .filter((bill) => bill.billType === '租金' && bill.periodStart >= input.effectiveFrom)
+    .filter((bill) => (bill.billType === '租金' || bill.billType === '逾期续租租金') && bill.periodStart > input.returnDate)
     .map((bill) => {
       const previousAmountCents = toCents(bill.amount)
       const nextAmountCents = Math.max(toCents(bill.paidAmount), previousAmountCents - reductionCents)
