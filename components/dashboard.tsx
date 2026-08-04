@@ -77,6 +77,7 @@ import {
   validateRentalItemFields,
 } from "@/lib/rental-form-rules";
 import { userErrorMessage } from "@/lib/errors";
+  import { handleAuthExpired } from "@/lib/session-expiry";
 import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
 import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
 
@@ -493,6 +494,7 @@ export function Dashboard({
       try {
         const result = await fn();
         if (result && "ok" in result && !result.ok) {
+          if (handleAuthExpired(result.message)) return;
           toast.error(result.message || "操作失败，请稍后重试");
           return;
         }
@@ -500,6 +502,7 @@ export function Dashboard({
         setDialog(successDialog);
         router.refresh();
       } catch (error) {
+        if (handleAuthExpired(error)) return;
         toast.error(userErrorMessage(error));
       }
     });
@@ -1095,6 +1098,7 @@ export function Dashboard({
           submit={(value, sendNow, orderType, initialCollection) => start(async () => {
                   const created = await createRental(value, orderType, initialCollection);
                   if (!created.ok) {
+                    if (handleAuthExpired(created.message)) return;
                     toast.error(created.message);
                     return;
                   }

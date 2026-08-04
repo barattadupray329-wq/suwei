@@ -8,6 +8,7 @@ import { Banknote, BookOpenCheck, ChevronRight, ClipboardCheck, ClipboardList, F
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 import { SafeSync } from '@/components/safe-sync'
+import { redirectToSignIn } from '@/lib/session-expiry'
 
 type ShellProps = { children: ReactNode; storeName: string; userName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[]; version?: string }
 type NavItem = { href: string; label: string; description: string; icon: typeof LayoutDashboard; permission?: string; superAdminOnly?: boolean; managerOnly?: boolean }
@@ -42,6 +43,34 @@ export function AppShell({ children, storeName, userName, role, permissions, ver
   const isActive = (href: string) => href === activeHref
   const publicRoute = pathname === '/' || pathname === '/customer' || pathname === '/customer-login' || pathname.startsWith('/portal/')
   const current = visibleGroups.flatMap((group) => group.items).find((item) => isActive(item.href))
+
+  useEffect(() => {
+    if (publicRoute) return
+    let checking = false
+    const checkSession = async () => {
+      if (checking || document.visibilityState === 'hidden') return
+      checking = true
+      try {
+        const result = await authClient.getSession({ fetchOptions: { cache: 'no-store' } })
+        if (!result.data?.user) redirectToSignIn()
+      } catch {
+        // 网络临时异常不能误踢用户；真正的会话失效会返回无用户。
+      } finally {
+        checking = false
+      }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkSession() }
+    const onFocus = () => { void checkSession() }
+    void checkSession()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = window.setInterval(checkSession, 30_000)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(timer)
+    }
+  }, [publicRoute])
 
   useEffect(() => {
     if (role !== 'admin' || publicRoute) return
