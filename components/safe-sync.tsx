@@ -63,16 +63,16 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
           setDisplayVersion(next.version)
           setStatus(operatorIsBusy ? '操作中，暂停更新' : '已同步')
         } else if ((next.state !== baseline.current.state || next.version !== baseline.current.version) && !refreshing.current) {
-          if (operatorIsBusy) {
-            setStatus('操作中，暂停更新')
-          } else if (next.version !== baseline.current.version) {
-            // 构建版本变了说明已经发布新版，旧分片随时会 404，必须整页重载换上新资源，
-            // router.refresh() 只更新数据、仍复用旧 JS，无法避免后续跳转报错。
+          if (next.version !== baseline.current.version) {
+            // 发布版本升级必须优先于「正在编辑」判断：旧 JS 已经失效，继续停留只会在下次跳转时报错。
+            // OpenNext 会把 APP_VERSION 内联进构建，因此这里能可靠识别版本变化。
             refreshing.current = true
             setStatus('正在同步')
             baseline.current = next
             setDisplayVersion(next.version)
             window.location.reload()
+          } else if (operatorIsBusy) {
+            setStatus('操作中，暂停更新')
           } else {
             refreshing.current = true
             setStatus('正在同步')

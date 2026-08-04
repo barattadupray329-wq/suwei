@@ -30,7 +30,12 @@ const securityHeaders = [
     : []),
 ]
 
+const appVersion = process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev'
+
 const nextConfig: NextConfig = {
+  // OpenNext 的 Worker 运行时没有构建命令里的 APP_VERSION；显式内联后，
+  // 页面与 /api/sync-state 才能识别部署版本，而不会永远显示 vdev。
+  env: { APP_VERSION: appVersion },
   poweredByHeader: false,
   reactCompiler: true,
   async headers() {
