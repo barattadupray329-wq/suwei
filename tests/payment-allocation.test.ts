@@ -34,4 +34,22 @@ describe("收款分配", () => {
     expect(billOutstandingCents(settled)).toBe(0);
     expect(allocatePayment([settled, ...bills], 10)[0].billId).toBe(1);
   });
+
+  it("优惠核销后按逐笔账单余额判定结清", () => {
+    const discountedBills = [
+      { id: 10, amount: "3300.00", paidAmount: "3300.00", dueDate: "2026-02-27" },
+      { id: 11, amount: "3300.00", paidAmount: "3300.00", dueDate: "2026-05-27" },
+    ];
+    // 现金实收 5701 元，另有 899 元优惠；优惠已分配到账单 paidAmount，真实待收为 0。
+    expect(discountedBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)).toBe(0);
+  });
+
+  it("部分核销时只汇总各账单剩余余额", () => {
+    const partiallySettled = [
+      { id: 20, amount: "1000.00", paidAmount: "1000.00", dueDate: "2026-02-27" },
+      { id: 21, amount: "800.00", paidAmount: "500.00", dueDate: "2026-03-27" },
+      { id: 22, amount: "-100.00", paidAmount: "0", dueDate: "2026-03-27" },
+    ];
+    expect(partiallySettled.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)).toBe(30000);
+  });
 });

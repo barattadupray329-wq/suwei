@@ -2430,14 +2430,15 @@ function Detail(props: DetailProps) {
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
   const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
-  const netRentCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
-  const outstandingCents = Math.max(0, netRentCents - Math.round(Number(rental.paidAmount) * 100));
-  const outstandingBills = outstandingCents > 0 ? positiveRentBills.filter((bill) => billOutstandingCents(bill) > 0) : [];
+  // 优惠与现金都会分配到具体账单的 paidAmount；待收必须逐笔看账单余额，
+  // 不能再用“账单原价合计 - 合同现金实收”，否则优惠会被重复算成欠款。
+  const outstandingBills = positiveRentBills.filter((bill) => billOutstandingCents(bill) > 0);
+  const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const overdueBills = outstandingBills.filter(
     (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
   );
-  const nextBill = outstandingCents > 0 ? nextOpenBill(positiveRentBills) : null;
-  const settledBills = (outstandingCents === 0 ? positiveRentBills : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0))
+  const nextBill = nextOpenBill(outstandingBills);
+  const settledBills = (outstandingBills.length === 0 ? positiveRentBills : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0))
     .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
   const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
   const remainingDevices = rental.items.reduce(
