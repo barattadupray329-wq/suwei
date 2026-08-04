@@ -93,6 +93,22 @@ export function periodUnitsBetween(startDate: string, endExclusive: string, unit
   return addCalendarMonths(startDate, months) < endExclusive ? months + 1 : Math.max(1, months)
 }
 
+// 已完整走过的期数（向下取整）：锚点 05-01 到 07-31 只走满 2 个月
+function elapsedUnits(anchorDate: string, date: string, unit: BillingUnit) {
+  if (date <= anchorDate) return 0
+  if (unit === 'daily') return Math.max(0, Math.floor((dateOnly(date).getTime() - dateOnly(anchorDate).getTime()) / DAY_MS))
+  let months = 0
+  while (months < 1200 && addCalendarMonths(anchorDate, months + 1) <= date) months += 1
+  return months
+}
+
+// 覆盖到该日期（不含）所需的期数（向上取整）：锚点 05-01 到 09-01 需要 4 期
+function coveredUnits(anchorDate: string, endExclusive: string, unit: BillingUnit) {
+  const elapsed = elapsedUnits(anchorDate, endExclusive, unit)
+  if (unit === 'daily') return Math.max(1, elapsed)
+  return Math.max(1, addCalendarMonths(anchorDate, elapsed) < endExclusive ? elapsed + 1 : elapsed)
+}
+
 export type BillPeriodRange = { start: number; end: number; span: number }
 
 export function billPeriodRanges<T extends { id: number; periodStart: string; periodEnd: string; dueDate?: string }>(
@@ -100,32 +116,26 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
   options: { anchorDate?: string | null; unit?: BillingUnit } = {},
 ) {
   const unit = options.unit ?? 'monthly'
-  const anchorDate = options.anchorDate ?? null
   const sorted = [...bills].sort((left, right) => left.periodStart.localeCompare(right.periodStart) || (left.dueDate ?? '').localeCompare(right.dueDate ?? '') || left.id - right.id)
+  const anchorDate = options.anchorDate ?? sorted[0]?.periodStart ?? null
   const ranges = new Map<number, BillPeriodRange>()
   let cursor = 0
   let total = 0
   for (const bill of sorted) {
-    let span = 1
-    try {
-      span = periodUnitsBetween(bill.periodStart, addCalendarDays(bill.periodEnd, 1), unit)
-    } catch {
-      span = 1
-    }
     let start = cursor + 1
-    if (anchorDate && bill.periodStart > anchorDate) {
+    let end = start
+    if (anchorDate) {
       try {
-        const offset = periodUnitsBetween(anchorDate, bill.periodStart, unit)
-        const aligned = unit === 'daily' ? addCalendarDays(anchorDate, offset) === bill.periodStart : addCalendarMonths(anchorDate, offset) === bill.periodStart
-        if (aligned) start = offset + 1
+        // 期号一律相对起租日推算，续租账单落在哪个自然月就是第几期；
+        // cursor 用于兜底历史数据里账期首尾相接（重叠一天）导致的期号回退。
+        start = Math.max(cursor + 1, elapsedUnits(anchorDate, bill.periodStart, unit) + 1)
+        end = Math.max(start, coveredUnits(anchorDate, addCalendarDays(bill.periodEnd, 1), unit))
       } catch {
         start = cursor + 1
+        end = start
       }
-    } else if (anchorDate && bill.periodStart === anchorDate) {
-      start = 1
     }
-    const end = start + span - 1
-    ranges.set(bill.id, { start, end, span })
+    ranges.set(bill.id, { start, end, span: end - start + 1 })
     cursor = Math.max(cursor, end)
     total = Math.max(total, end)
   }

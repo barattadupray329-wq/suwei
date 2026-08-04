@@ -78,6 +78,25 @@ describe('期数按自然月累计', () => {
     expect(total).toBe(10)
     expect(billPeriodLabel(ranges.get(1), 'daily')).toBe('第 1-10 天')
   })
+  it('续租账期与上一期重叠一天时仍是第 4 期', () => {
+    // 历史数据里续租起始日取的是上一期最后一天（05-01~07-31 与 07-31~08-31 重叠一天）
+    const bills = [bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-05-01' })
+    expect(ranges.get(1)).toEqual({ start: 1, end: 3, span: 3 })
+    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
+    expect(total).toBe(4)
+    expect(billPeriodLabel(ranges.get(2))).toBe('第 4 期')
+  })
+  it('续租 2 个月显示为区间', () => {
+    const bills = [bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-08-01', '2026-09-30')]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-05-01' })
+    expect(billPeriodLabel(ranges.get(2))).toBe('第 4-5 期')
+    expect(total).toBe(5)
+  })
+  it('缺少起租日时以首笔账期为锚点', () => {
+    const { ranges } = billPeriodRanges([bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')])
+    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
+  })
   it('不足整月的尾段仍算一期', () => expect(periodUnitsBetween('2026-03-01', '2026-03-20')).toBe(1))
   it('计费方式归一化', () => {
     expect(normalizeBillingUnit('日租')).toBe('daily')
