@@ -8,8 +8,12 @@
 	"compatibility_date": "2026-07-22",
 	"workers_dev": true,
 	"preview_urls": true,
+	"routes": [
+		{ "pattern": "tuzhuzu.cn", "custom_domain": true },
+		{ "pattern": "www.tuzhuzu.cn", "custom_domain": true }
+	],
 	"vars": {
-		"BETTER_AUTH_URL": "https://tuzhuzu.cn",
+		"BETTER_AUTH_URL": "https://www.tuzhuzu.cn",
 		"ALIYUN_SMS_RENTAL_CREATED_TEMPLATE_CODE": "SMS_510980016",
 		"ALIYUN_SMS_REMINDER_TEMPLATE_CODE": "SMS_510885024"
 	},
