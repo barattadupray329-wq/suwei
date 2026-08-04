@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertNoRentalActivity, assertSameDayOfficialRental, chinaDate } from '../lib/rental-trash-policy'
+import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental, chinaDate } from '../lib/rental-trash-policy'
 
 describe('当天录错正式订单删除规则', () => {
   it('按中国时区判断同一天', () => {
@@ -27,5 +27,23 @@ describe('当天录错正式订单删除规则', () => {
 
   it('任一后续业务记录存在时拒绝', () => {
     expect(() => assertNoRentalActivity([0, 0, 1, 0])).toThrow('该订单已有收款或后续业务记录')
+  })
+
+  it('仅有创建时租金和押金收款可撤销', () => {
+    const payments = [
+      { id: 1, feeType: '原合同租金', notes: '创建正式合同时即时收取租金', renewalRecordId: null, buyoutRecordId: null, returnRecordId: null, lossRecordId: null },
+      { id: 2, feeType: '押金', notes: '创建正式合同时即时收取押金', renewalRecordId: null, buyoutRecordId: null, returnRecordId: null, lossRecordId: null },
+    ]
+    expect(() => assertOnlyInitialRentalPayments(payments, [1, 2], [2], 0)).not.toThrow()
+  })
+
+  it('额外收款或优惠存在时拒绝撤销', () => {
+    const extra = { id: 3, feeType: '原合同租金', notes: '后续补收', renewalRecordId: null, buyoutRecordId: null, returnRecordId: null, lossRecordId: null }
+    expect(() => assertOnlyInitialRentalPayments([extra], [3], [], 0)).toThrow('非创建阶段收款')
+    expect(() => assertOnlyInitialRentalPayments([], [], [], 1)).toThrow('已有收款优惠')
+  })
+
+  it('不属于初始付款的资金流水会阻止撤销', () => {
+    expect(() => assertOnlyInitialRentalPayments([], [], [99], 0)).toThrow('额外账务流水')
   })
 })

@@ -1254,7 +1254,7 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "delete-confirm"}
-        title="确认移入回收站"
+        title={selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1264,17 +1264,23 @@ canViewFinance={canViewFinance}
                 event.preventDefault();
                 run(
                   () => deleteTestRental({ id: selected.id, reason: deleteReason, adminPassword: selected.orderType === "official" ? adminPassword : undefined }),
-                  "订单已移入回收站",
+                  selected.orderType === "official" ? "重复合同及初始收款已撤销" : "订单已移入回收站",
                 );
               }}
             >
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-                <p className="font-semibold text-destructive">订单将进入回收站</p>
+                <p className="font-semibold text-destructive">{selected.orderType === "official" ? "重复合同及初始账务将一并撤销" : "订单将进入回收站"}</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {selected.orderType === "official"
-                    ? "仅允许删除今天创建且没有收款、续租、退租、买断、丢失、维修或变更记录的录错正式订单。服务端将验证当前管理员密码，删除后仍可从回收站恢复。"
+                    ? "仅限撤销今天重复创建、且没有续租、退租、买断、丢失、维修、变更或额外收款的正式合同。合同会保留在回收站，操作记录会永久保留。"
                     : "草稿与测试订单只会移入回收站并支持恢复；测试订单仅限创建后 24 小时内处理。"}
                 </p>
+                {selected.orderType === "official" && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-background p-3"><span className="text-muted-foreground">撤销租金收款</span><p className="mt-1 font-semibold">{money(selected.paidAmount)}</p></div>
+                    <div className="rounded-lg bg-background p-3"><span className="text-muted-foreground">撤销押金收款</span><p className="mt-1 font-semibold">{money(selected.deposit)}</p></div>
+                  </div>
+                )}
               </div>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 删除原因
@@ -1310,7 +1316,7 @@ canViewFinance={canViewFinance}
                   disabled={pending || deleteReason.trim().length < 4 || (selected.orderType === "official" && !adminPassword)}
                   className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
                 >
-                  {pending ? "正在验证并处理…" : selected.orderType === "official" ? "验证密码并移入回收站" : "确认移入回收站"}
+                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重复合同" : "确认移入回收站"}
                 </button>
               </div>
             </form>
@@ -1865,7 +1871,7 @@ function RentalForm({
       return;
     }
     if (orderType === "official" && !reviewConfirmed) {
-      setError("请确认时间日期、租赁金额和收款选项均已核对无误");
+      setError("请确认时间日期、租赁金额及收款选项均已核对无误");
       return;
     }
     setError("");
