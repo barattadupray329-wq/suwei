@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { billingPeriod, periodNumberAt } from '../lib/billing-periods'
+import { billingPeriod, billingPeriodAt, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {
@@ -10,6 +10,11 @@ describe('billing periods', () => {
   it('keeps month-end anchors on valid month-end dates', () => {
     expect(billingPeriod('2026-01-31', 1).displayEnd).toBe('2026-02-27')
     expect(billingPeriod('2026-01-31', 2).start).toBe('2026-02-28')
+  })
+
+  it('locates the return date period without requiring an existing bill', () => {
+    expect(billingPeriodAt('2026-03-28', '2026-06-18')).toEqual({ periodNo: 3, start: '2026-05-28', endExclusive: '2026-06-28', displayEnd: '2026-06-27' })
+    expect(billingPeriodAt('2026-03-28', '2026-06-28').periodNo).toBe(4)
   })
 
   it('only accepts exact period boundaries', () => {

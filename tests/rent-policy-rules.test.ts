@@ -24,9 +24,12 @@ describe('退租时点与人工租金规则', () => {
     expect(returnRentDecision({...base,mode:'late_waive'}).chargeCents).toBe(0)
   })
 
-  it('部分退租后未来账单只扣退租台数对应金额', () => {
-    const result = recalculateBillsAfterReturn({monthlyRent:'300',returnedQuantity:2,returnDate:'2026-08-10',bills:[{id:1,periodStart:'2026-08-01',periodEnd:'2026-09-01',amount:'1500',paidAmount:'0',billType:'租金'}]})
-    expect(result[0].nextAmountCents).toBe(90000)
+  it('20 台退 5 台时当期不减租，下一账期只按剩余 15 台', () => {
+    const result = recalculateBillsAfterReturn({monthlyRent:'110',returnedQuantity:5,effectiveFrom:'2026-06-28',bills:[
+      {id:1,periodStart:'2026-05-28',periodEnd:'2026-06-28',amount:'2200',paidAmount:'0',billType:'租金'},
+      {id:2,periodStart:'2026-06-28',periodEnd:'2026-07-28',amount:'2200',paidAmount:'0',billType:'租金'},
+    ]})
+    expect(result).toEqual([{id:2,previousAmountCents:220000,nextAmountCents:165000,reductionCents:55000}])
   })
 })
 

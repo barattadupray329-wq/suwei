@@ -29,7 +29,7 @@ describe('退租租金结算', () => {
       { id: 6, periodStart: '2026-08-01', periodEnd: '2026-09-02', amount: '420', paidAmount: '0', billType: '租金' },
     ]
 
-    expect(recalculateBillsAfterReturn({ bills, monthlyRent: '140', returnedQuantity: 2, returnDate: '2026-07-02' })).toEqual([
+    expect(recalculateBillsAfterReturn({ bills, monthlyRent: '140', returnedQuantity: 2, effectiveFrom: '2026-07-01' })).toEqual([
       { id: 5, previousAmountCents: 42000, nextAmountCents: 14000, reductionCents: 28000 },
       { id: 6, previousAmountCents: 42000, nextAmountCents: 14000, reductionCents: 28000 },
     ])
@@ -37,6 +37,6 @@ describe('退租租金结算', () => {
 
   test('重算账单不会把应收调低到已收金额以下', () => {
     const bills = [{ id: 5, periodStart: '2026-07-01', periodEnd: '2026-08-02', amount: '420', paidAmount: '200', billType: '租金' }]
-    expect(recalculateBillsAfterReturn({ bills, monthlyRent: '140', returnedQuantity: 2, returnDate: '2026-07-02' })[0]).toMatchObject({ nextAmountCents: 20000, reductionCents: 22000 })
+    expect(recalculateBillsAfterReturn({ bills, monthlyRent: '140', returnedQuantity: 2, effectiveFrom: '2026-07-01' })[0]).toMatchObject({ nextAmountCents: 20000, reductionCents: 22000 })
   })
 })

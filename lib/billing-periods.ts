@@ -32,12 +32,18 @@ export function billingPeriod(anchorDate: string, periodNo: number): BillingPeri
   return { periodNo, start, endExclusive, displayEnd: addCalendarDays(endExclusive, -1) }
 }
 
-export function periodNumberAt(anchorDate: string, boundaryDate: string) {
+export function billingPeriodAt(anchorDate: string, date: string): BillingPeriod {
+  if (date < anchorDate) throw new Error(`${date} 不能早于账期起始日 ${anchorDate}`)
   for (let periodNo = 1; periodNo <= 1200; periodNo += 1) {
     const period = billingPeriod(anchorDate, periodNo)
-    if (period.start === boundaryDate) return periodNo
-    if (period.start > boundaryDate) break
+    if (period.start <= date && date < period.endExclusive) return period
   }
+  throw new Error(`无法定位 ${date} 所属的月租账期`)
+}
+
+export function periodNumberAt(anchorDate: string, boundaryDate: string) {
+  const period = billingPeriodAt(anchorDate, boundaryDate)
+  if (period.start === boundaryDate) return period.periodNo
   throw new Error(`${boundaryDate} 不是以 ${anchorDate} 为基准的账期起始日`)
 }
 
