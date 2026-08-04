@@ -76,6 +76,68 @@ export function billCoverageLabel(periodStart: string, periodEnd: string) {
   return `${periodStart} 至 ${addCalendarDays(periodEnd, 1)}（不含）`
 }
 
+export type BillingUnit = 'daily' | 'monthly'
+
+export function normalizeBillingUnit(value?: string | null): BillingUnit {
+  return value === 'daily' || value === '日租' || value === '日' ? 'daily' : 'monthly'
+}
+
+// 一期 = 一个自然月（日租则一期 = 一天），与账单条数无关：
+// 起租开 3 个月的账单占第 1-3 期，之后续租 1 个月就是第 4 期。
+export function periodUnitsBetween(startDate: string, endExclusive: string, unit: BillingUnit = 'monthly') {
+  assertDateOrder(startDate, endExclusive)
+  if (unit === 'daily') return Math.max(1, Math.floor((dateOnly(endExclusive).getTime() - dateOnly(startDate).getTime()) / DAY_MS))
+  let months = 0
+  while (months < 1200 && addCalendarMonths(startDate, months + 1) <= endExclusive) months += 1
+  // 不足整月的尾段按一期计，避免出现「第 0 期」
+  return addCalendarMonths(startDate, months) < endExclusive ? months + 1 : Math.max(1, months)
+}
+
+export type BillPeriodRange = { start: number; end: number; span: number }
+
+export function billPeriodRanges<T extends { id: number; periodStart: string; periodEnd: string; dueDate?: string }>(
+  bills: T[],
+  options: { anchorDate?: string | null; unit?: BillingUnit } = {},
+) {
+  const unit = options.unit ?? 'monthly'
+  const anchorDate = options.anchorDate ?? null
+  const sorted = [...bills].sort((left, right) => left.periodStart.localeCompare(right.periodStart) || (left.dueDate ?? '').localeCompare(right.dueDate ?? '') || left.id - right.id)
+  const ranges = new Map<number, BillPeriodRange>()
+  let cursor = 0
+  let total = 0
+  for (const bill of sorted) {
+    let span = 1
+    try {
+      span = periodUnitsBetween(bill.periodStart, addCalendarDays(bill.periodEnd, 1), unit)
+    } catch {
+      span = 1
+    }
+    let start = cursor + 1
+    if (anchorDate && bill.periodStart > anchorDate) {
+      try {
+        const offset = periodUnitsBetween(anchorDate, bill.periodStart, unit)
+        const aligned = unit === 'daily' ? addCalendarDays(anchorDate, offset) === bill.periodStart : addCalendarMonths(anchorDate, offset) === bill.periodStart
+        if (aligned) start = offset + 1
+      } catch {
+        start = cursor + 1
+      }
+    } else if (anchorDate && bill.periodStart === anchorDate) {
+      start = 1
+    }
+    const end = start + span - 1
+    ranges.set(bill.id, { start, end, span })
+    cursor = Math.max(cursor, end)
+    total = Math.max(total, end)
+  }
+  return { ranges, total, unit }
+}
+
+export function billPeriodLabel(range: BillPeriodRange | undefined, unit: BillingUnit = 'monthly') {
+  if (!range) return unit === 'daily' ? '第 1 天' : '第 1 期'
+  const suffix = unit === 'daily' ? '天' : '期'
+  return range.span > 1 ? `第 ${range.start}-${range.end} ${suffix}` : `第 ${range.start} ${suffix}`
+}
+
 export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[]) {
   return bills
     .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))

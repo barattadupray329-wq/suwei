@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -48,6 +48,41 @@ describe('预收与续租账单', () => {
     expect(billState('100', '0', '2026-06-01', '2026-06-10')).toBe('逾期')
     expect(billState('100', '0', '2026-06-15', '2026-06-10')).toBe('即将到期')
     expect(billState('100', '0', '2026-07-01', '2026-06-10')).toBe('待付款')
+  })
+})
+
+describe('期数按自然月累计', () => {
+  const bill = (id: number, periodStart: string, periodEnd: string) => ({ id, periodStart, periodEnd, dueDate: periodStart })
+  it('一期等于一个自然月', () => {
+    expect(periodUnitsBetween('2026-03-01', '2026-04-01')).toBe(1)
+    expect(periodUnitsBetween('2026-03-01', '2026-06-01')).toBe(3)
+  })
+  it('起租 3 期 + 续租 1 期得到第 4 期而不是第 2 期', () => {
+    const bills = [bill(1, '2026-03-01', '2026-05-31'), bill(2, '2026-06-01', '2026-06-30')]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-03-01' })
+    expect(ranges.get(1)).toEqual({ start: 1, end: 3, span: 3 })
+    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
+    expect(total).toBe(4)
+    expect(billPeriodLabel(ranges.get(1))).toBe('第 1-3 期')
+    expect(billPeriodLabel(ranges.get(2))).toBe('第 4 期')
+  })
+  it('逐月出账时期号与账单条数一致', () => {
+    const bills = [bill(1, '2026-03-01', '2026-03-31'), bill(2, '2026-04-01', '2026-04-30'), bill(3, '2026-05-01', '2026-05-31')]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-03-01' })
+    expect([...ranges.values()].map((range) => range.start)).toEqual([1, 2, 3])
+    expect(total).toBe(3)
+  })
+  it('日租按天计期', () => {
+    const { ranges, total } = billPeriodRanges([bill(1, '2026-03-01', '2026-03-10')], { anchorDate: '2026-03-01', unit: 'daily' })
+    expect(ranges.get(1)).toEqual({ start: 1, end: 10, span: 10 })
+    expect(total).toBe(10)
+    expect(billPeriodLabel(ranges.get(1), 'daily')).toBe('第 1-10 天')
+  })
+  it('不足整月的尾段仍算一期', () => expect(periodUnitsBetween('2026-03-01', '2026-03-20')).toBe(1))
+  it('计费方式归一化', () => {
+    expect(normalizeBillingUnit('日租')).toBe('daily')
+    expect(normalizeBillingUnit('monthly')).toBe('monthly')
+    expect(normalizeBillingUnit(null)).toBe('monthly')
   })
 })
 

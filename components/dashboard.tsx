@@ -68,7 +68,7 @@ import {
 import { getDeviceConfigRows } from "@/lib/device-config";
 import { RentalOperationWizard } from "@/components/rental-operation-wizard";
 import type { RentalOperationType } from "@/lib/rental-operation-hub";
-import { addCalendarDays, billCoverageLabel, billState, nextOpenBill } from "@/lib/rental-calculations";
+import { addCalendarDays, billCoverageLabel, billPeriodLabel, billPeriodRanges, billState, nextOpenBill, normalizeBillingUnit } from "@/lib/rental-calculations";
   import { rentalEndDate } from "@/lib/rental-calculations";
   import { calculateReturnRent } from "@/lib/return-settlement";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
@@ -2773,6 +2773,9 @@ function DetailFinance({
     settlementCredit -= settledCents;
   }
   const hasOutstanding = totalOutstanding > 0;
+  const billingUnit = normalizeBillingUnit(rental.billingType);
+  const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
+  const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
   const receivedAt = (value: Date | string) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
   return (
     <div className="flex flex-col gap-5">
@@ -2805,7 +2808,7 @@ function DetailFinance({
                   const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
                   const state: ReturnType<typeof billState> | "已抵扣" = offsetCents > 0 && recordedPaidCents < Math.round(Number(bill.amount) * 100) ? "已抵扣" : cashState;
                   return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
-                    <td className="px-3 py-3 align-top"><strong>第 {index + 1} 期</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期</p></td>
+                    <td className="px-3 py-3 align-top"><strong>{billPeriodLabel(periodRanges.get(bill.id), billingUnit)}</strong><p className="mt-1 text-xs text-muted-foreground">共 {totalPeriods} {periodUnitLabel} · 第 {index + 1} 笔账单</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
                     <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">到账 {money(bill.paidAmount)}{offsetCents > 0 ? ` · 减免/余额抵扣 ${money(centsToMoney(offsetCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
                     <td className="px-3 py-3 align-top">{bill.dueDate}</td>
@@ -3626,7 +3629,7 @@ function PaymentForm({ submit, pending, bills, target }: { submit: (value: Payme
   const billMap = new Map(bills.map((bill) => [bill.id, bill]));
   return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
     {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
-    {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 期账单</p></div>}
+    {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 笔账单</p></div>}
     <div className="grid gap-4 sm:grid-cols-2">
       <Field label="实际收款（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
       <Field label="优惠金额（元）" type="number" value={value.discountAmount} onChange={(discountAmount) => setValue({ ...value, discountAmount: Math.max(0, Number(discountAmount)) })} />
