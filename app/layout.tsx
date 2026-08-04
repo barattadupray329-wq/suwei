@@ -6,7 +6,6 @@ import { AppShell } from '@/components/app-shell'
 import { StaleBuildGuard } from '@/components/stale-build-guard'
 import { auth } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
-import { getStoreName } from '@/app/actions/business'
 import './globals.css'
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
@@ -23,8 +22,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (session?.user) {
     try {
       const access = await getAccessContext()
-      const storeName = access.role === 'super_admin' ? '速维租赁管理' : await getStoreName()
-      shell = { storeName, role: access.role, permissions: access.permissions }
+      shell = { storeName: access.shopName, role: access.role, permissions: access.permissions }
     } catch {
       // 失效、停用或孤立账号仍允许渲染登录页，由登录页显示中文恢复提示。
       shell = null

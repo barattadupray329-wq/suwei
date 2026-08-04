@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 type SyncState = { version: string; state: string; overdueReceivable: number; outstandingReceivable: number }
 type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线'
 
-const POLL_INTERVAL = 15_000
+const POLL_INTERVAL = 60_000
 const QUIET_PERIOD = 3_000
 
 function hasActiveWork() {
