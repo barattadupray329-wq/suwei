@@ -21,6 +21,25 @@ describe('租赁财务展示核算', () => {
     expect(summary.billSettlement.get(2)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
   })
 
+  it('按付款分配将两笔优惠分别归属第4期和第5期', () => {
+    const summary = rentFinanceSummary({
+      totalRent: '5850',
+      paidAmount: '5850',
+      rentBills: [
+        { id: 4, amount: '550', paidAmount: '550', dueDate: '2026-06-27', allocations: [{ paymentRecordId: 40, amount: '450' }] },
+        { id: 5, amount: '550', paidAmount: '550', dueDate: '2026-07-27', allocations: [{ paymentRecordId: 50, amount: '450' }] },
+      ],
+      ledger: [
+        { entryType: '收款优惠', amount: '100', paymentRecordId: 40 },
+        { entryType: '收款优惠', amount: '100', paymentRecordId: 50 },
+      ],
+    })
+
+    expect(summary.discountCents).toBe(20_000)
+    expect(summary.billSettlement.get(4)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
+    expect(summary.billSettlement.get(5)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
+  })
+
   it('优惠冲正后恢复待收', () => {
     const summary = rentFinanceSummary({
       totalRent: '1650',

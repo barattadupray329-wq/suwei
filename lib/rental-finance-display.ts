@@ -5,11 +5,13 @@ export type FinanceBill = {
   amount: string | number
   paidAmount: string | number
   dueDate: string
+  allocations?: Array<{ paymentRecordId: number; amount: string | number }>
 }
 
 export type FinanceLedgerEntry = {
   entryType: string
   amount: string | number
+  paymentRecordId?: number | null
 }
 
 const discountTypes = new Set(['收款优惠', '租金优惠', '优惠核销'])
@@ -33,15 +35,33 @@ export function rentFinanceSummary(input: {
   const outstandingCents = Math.max(0, netReceivableCents - cashReceivedCents)
   const accountBalanceCents = Math.max(0, cashReceivedCents - netReceivableCents)
 
-  let cashCredit = cashReceivedCents
-  let discountCredit = discountCents
+  const discountByPayment = new Map<number, number>()
+  for (const entry of input.ledger) {
+    const direction = discountTypes.has(entry.entryType) ? 1 : discountReversalTypes.has(entry.entryType) ? -1 : 0
+    if (!direction) continue
+    const amountCents = direction * Math.abs(toCents(entry.amount))
+    if (entry.paymentRecordId) discountByPayment.set(entry.paymentRecordId, (discountByPayment.get(entry.paymentRecordId) ?? 0) + amountCents)
+  }
+
+  const assignedDiscountByBill = new Map<number, number>()
+  for (const bill of input.rentBills) {
+    const paymentIds = new Set((bill.allocations ?? []).map((allocation) => allocation.paymentRecordId))
+    const assignedCents = [...paymentIds].reduce((sum, paymentId) => sum + Math.max(0, discountByPayment.get(paymentId) ?? 0), 0)
+    if (assignedCents > 0) assignedDiscountByBill.set(bill.id, assignedCents)
+  }
+  const assignedDiscountCents = [...assignedDiscountByBill.values()].reduce((sum, amount) => sum + amount, 0)
+  let fallbackDiscountCredit = Math.max(0, discountCents - assignedDiscountCents)
+  let fallbackCashCredit = cashReceivedCents
   const billSettlement = new Map<number, { cashCents: number; discountCents: number; outstandingCents: number }>()
   for (const bill of [...input.rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
     const amountCents = Math.max(0, toCents(bill.amount))
-    const cashCents = Math.min(amountCents, cashCredit)
-    cashCredit -= cashCents
-    const discountForBillCents = Math.min(amountCents - cashCents, discountCredit)
-    discountCredit -= discountForBillCents
+    const allocatedCashCents = Math.max(0, (bill.allocations ?? []).reduce((sum, allocation) => sum + toCents(allocation.amount), 0))
+    const cashCents = bill.allocations?.length ? Math.min(amountCents, allocatedCashCents) : Math.min(amountCents, fallbackCashCredit)
+    fallbackCashCredit = Math.max(0, fallbackCashCredit - cashCents)
+    const assignedDiscount = Math.min(amountCents - cashCents, assignedDiscountByBill.get(bill.id) ?? 0)
+    const fallbackDiscount = assignedDiscount === 0 ? Math.min(amountCents - cashCents, fallbackDiscountCredit) : 0
+    fallbackDiscountCredit -= fallbackDiscount
+    const discountForBillCents = assignedDiscount + fallbackDiscount
     billSettlement.set(bill.id, {
       cashCents,
       discountCents: discountForBillCents,
