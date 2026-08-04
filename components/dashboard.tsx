@@ -3032,7 +3032,7 @@ function LegacyDetail({
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
-        <Info l="订单类型" v={rental.orderType === "draft" ? "���稿订单（待转正式）" : rental.orderType === "test" ? "测试订单" : "正式合同"} />
+        <Info l="订单类型" v={rental.orderType === "draft" ? "草稿订单（待转正式）" : rental.orderType === "test" ? "测试订单" : "正式合同"} />
         <Info l="联系人" v={rental.customerName} />
         <Info l="联系电话" v={rental.customerPhone} />
         <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
