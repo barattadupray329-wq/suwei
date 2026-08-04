@@ -2,8 +2,56 @@ import { moneyToCents } from './payment-allocation'
 import { availableQuantity, type RentalItemQuantities } from './rental-lifecycle'
 
 export type ReconciliationBill = { id?: number; amount: string | number; paidAmount: string | number; billType?: string }
-export type ReconciliationPayment = { amount: string | number; feeType?: string }
-export type ReconciliationAllocation = { amount: string | number }
+export type ReconciliationPayment = { id?: number; amount: string | number; feeType?: string }
+export type ReconciliationAllocation = { paymentRecordId?: number; amount: string | number }
+export type ReconciliationDiscount = { paymentRecordId: number; amount: string | number; reversedAt?: Date | string | null }
+
+export type RentalFinancialSnapshot = {
+  rentReceivableCents: number
+  cashReceivedCents: number
+  effectiveDiscountCents: number
+  allocatedSettlementCents: number
+  outstandingCents: number
+  depositReceivableCents: number
+  depositReceivedCents: number
+  unallocatedCashCents: number
+  reconciliationDifferenceCents: number
+}
+
+export function rentalFinancialSnapshot(input: {
+  bills: ReconciliationBill[]
+  payments: ReconciliationPayment[]
+  allocations?: ReconciliationAllocation[]
+  discounts?: ReconciliationDiscount[]
+}): RentalFinancialSnapshot {
+  const allocations = input.allocations ?? []
+  const discounts = input.discounts ?? []
+  const rentBills = input.bills.filter((bill) => bill.billType !== '押金')
+  const depositBills = input.bills.filter((bill) => bill.billType === '押金')
+  const rentPayments = input.payments.filter((payment) => payment.feeType !== '押金')
+  const depositPayments = input.payments.filter((payment) => payment.feeType === '押金')
+  const rentPaymentIds = new Set(rentPayments.flatMap((payment) => payment.id === undefined ? [] : [payment.id]))
+  const effectiveDiscountCents = discounts
+    .filter((discount) => !discount.reversedAt && rentPaymentIds.has(discount.paymentRecordId))
+    .reduce((sum, discount) => sum + Math.max(0, moneyToCents(discount.amount)), 0)
+  const allocatedSettlementCents = allocations
+    .filter((allocation) => allocation.paymentRecordId === undefined || rentPaymentIds.has(allocation.paymentRecordId))
+    .reduce((sum, allocation) => sum + Math.max(0, moneyToCents(allocation.amount)), 0)
+  const cashReceivedCents = nonDepositPaymentCents(input.payments)
+  const rentReceivableCents = billsReceivableCents(input.bills)
+  const expectedSettlementCents = cashReceivedCents + effectiveDiscountCents
+  return {
+    rentReceivableCents,
+    cashReceivedCents,
+    effectiveDiscountCents,
+    allocatedSettlementCents,
+    outstandingCents: billsOutstandingCents(rentBills),
+    depositReceivableCents: depositBills.reduce((sum, bill) => sum + moneyToCents(bill.amount), 0),
+    depositReceivedCents: depositPayments.reduce((sum, payment) => sum + moneyToCents(payment.amount), 0),
+    unallocatedCashCents: Math.max(0, expectedSettlementCents - allocatedSettlementCents),
+    reconciliationDifferenceCents: allocatedSettlementCents - expectedSettlementCents,
+  }
+}
 
 export function contractAvailableQuantity(items: RentalItemQuantities[]) {
   return items.reduce((sum, item) => sum + availableQuantity(item), 0)
@@ -39,13 +87,13 @@ export function assertFinancialReconciliation(input: {
   bills: ReconciliationBill[]
   payments: ReconciliationPayment[]
   allocations?: ReconciliationAllocation[]
+  discounts?: ReconciliationDiscount[]
 }) {
   const contractTotalCents = moneyToCents(input.contractTotal)
   const contractPaidCents = moneyToCents(input.contractPaid)
-  const billTotalCents = billsReceivableCents(input.bills)
-  const paymentTotalCents = nonDepositPaymentCents(input.payments)
-  if (contractTotalCents !== billTotalCents) throw new Error(`合同应收与账单应收不一致：${contractTotalCents} != ${billTotalCents}`)
-  if (contractPaidCents !== paymentTotalCents) throw new Error(`合同已收与有效收款不一致：${contractPaidCents} != ${paymentTotalCents}`)
-  if (input.allocations && allocationTotalCents(input.allocations) !== paymentTotalCents) throw new Error('付款分配与有效收款不一致')
+  const snapshot = rentalFinancialSnapshot(input)
+  if (contractTotalCents !== snapshot.rentReceivableCents) throw new Error(`合同应收与账单应收不一致：${contractTotalCents} != ${snapshot.rentReceivableCents}`)
+  if (contractPaidCents !== snapshot.cashReceivedCents) throw new Error(`合同已收与有效收款不一致：${contractPaidCents} != ${snapshot.cashReceivedCents}`)
+  if (input.allocations && snapshot.reconciliationDifferenceCents !== 0) throw new Error('账单核销必须等于真实现金与有效优惠之和')
   return true
 }

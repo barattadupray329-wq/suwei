@@ -19,7 +19,7 @@ import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
-import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
+import { paymentStatusFromCents, rentalFinancialSnapshot } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
@@ -87,7 +87,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, allocations, ledger] = await Promise.all([
+  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, allocations, ledger, discounts] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
@@ -97,6 +97,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids))).orderBy(receivableBills.dueDate),
     db.select({ id: paymentAllocations.id, rentalId: paymentAllocations.rentalId, billId: paymentAllocations.billId, amount: paymentAllocations.amount, paymentRecordId: paymentRecords.id, paymentDate: paymentRecords.paymentDate, paymentMethod: paymentRecords.paymentMethod, operatorName: paymentRecords.operatorName, notes: paymentRecords.notes, receivedAt: paymentRecords.createdAt }).from(paymentAllocations).innerJoin(paymentRecords, and(eq(paymentRecords.id, paymentAllocations.paymentRecordId), eq(paymentRecords.userId, userId))).where(and(eq(paymentAllocations.userId, userId), inArray(paymentAllocations.rentalId, ids))).orderBy(asc(paymentRecords.paymentDate), asc(paymentRecords.createdAt)),
     db.select().from(accountLedger).where(and(eq(accountLedger.userId, userId), inArray(accountLedger.rentalId, ids))).orderBy(desc(accountLedger.entryDate), desc(accountLedger.createdAt)),
+    db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.userId, userId), inArray(paymentDiscounts.rentalId, ids))).orderBy(desc(paymentDiscounts.createdAt)),
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
     const grouped = new Map<number, T[]>()
@@ -116,10 +117,16 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
   const billMap = groupByRental(billsWithAllocations)
   const ledgerMap = groupByRental(ledger)
+  const discountMap = groupByRental(discounts)
+  const allocationMap = groupByRental(allocations)
   return rows.map((row) => {
     const rentalItemRows = itemMap.get(row.id) ?? []
     const quantity = rentalItemRows.reduce((sum, item) => sum + availableQuantity(item), 0)
-    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: billMap.get(row.id) ?? [], ledger: ledgerMap.get(row.id) ?? [] }
+    const rentalBills = billMap.get(row.id) ?? []
+    const rentalPayments = paymentMap.get(row.id) ?? []
+    const rentalDiscounts = discountMap.get(row.id) ?? []
+    const financeSnapshot = rentalFinancialSnapshot({ bills: rentalBills, payments: rentalPayments, allocations: allocationMap.get(row.id) ?? [], discounts: rentalDiscounts })
+    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: ledgerMap.get(row.id) ?? [], financeSnapshot }
   })
 }
 
