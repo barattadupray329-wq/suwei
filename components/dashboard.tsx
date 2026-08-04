@@ -1252,13 +1252,12 @@ setDialog("change-guide");
         wide
         onClose={() => setDialog("detail")}
       >
-        {selected && (
- <RentalChangeGuide
- rental={selected}
- initialScenario={changeScenario}
+  {selected && changeScenario && (
+  <RentalChangeGuide
+  rental={selected}
+  initialScenario={changeScenario}
  pending={pending}
-            onNavigate={(target) => setDialog(target)}
-            submit={(value) => runInDetail(() => changeRentalContract(value), "租赁变更已登记")}
+  submit={(value) => runInDetail(() => changeRentalContract(value), "租赁变更已登记")}
           />
         )}
       </Dialog>
@@ -2333,14 +2332,13 @@ function RentalForm({
 
 type ChangeScenario = "客户资料变更" | "租期调整";
 
-function RentalChangeGuide({ rental, initialScenario, pending, onNavigate, submit }: {
+function RentalChangeGuide({ rental, initialScenario, pending, submit }: {
 rental: Rental;
-initialScenario: ChangeScenario | null;
+initialScenario: ChangeScenario;
 pending: boolean;
-  onNavigate: (target: "return" | "exchange" | "change" | "renew" | "delete-confirm") => void;
   submit: (value: ContractChangeInput) => void;
 }) {
-  const [scenario, setScenario] = useState<ChangeScenario | null>(initialScenario);
+  const scenario = initialScenario;
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState("");
   const [feeAdjustment, setFeeAdjustment] = useState("0");
@@ -2350,27 +2348,12 @@ pending: boolean;
   const [customerPhone, setCustomerPhone] = useState(rental.customerPhone);
   const [startDate, setStartDate] = useState(rental.startDate);
   const [endDate, setEndDate] = useState(rental.endDate);
-  const routes = [
-    { title: "客户少要或全部不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
-    { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
-    { title: "只调整设备配置或租金", detail: "保留配置调整前后快照，并人工确认费用差额。", action: () => onNavigate("change") },
-    { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
-  ];
-  if (!scenario) return <div className="flex flex-col gap-5">
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史账目，不要直接覆盖或删除正式业务记录。</p></div>
-    <div className="grid gap-3 sm:grid-cols-2">
-      {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
-      <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
-      <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
-    </div>
-    <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
-  </div>;
   const submitChange = (event: FormEvent) => {
     event.preventDefault();
     submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, startDate: scenario === "租期调整" ? startDate : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
   };
   return <form onSubmit={submitChange} className="flex flex-col gap-5">
-    <div className="flex items-start justify-between gap-3 rounded-xl bg-muted p-4"><div><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div><button type="button" onClick={() => setScenario(null)} className="shrink-0 text-sm font-medium text-primary">更换情境</button></div>
+    <div className="rounded-xl bg-muted p-4"><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div>
     <div className="grid gap-4 sm:grid-cols-2">
       {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <><Field label="新起租日期" type="date" value={startDate} onChange={setStartDate} /><Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} /></>}
       <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
@@ -2592,9 +2575,8 @@ function Detail(props: DetailProps) {
             canManageContracts={canManageContracts}
             onSendNotice={onSendNotice}
             onAssignee={onAssignee}
-            onHistory={onHistory}
-            onDeposit={onDeposit}
-            onDelete={onDelete}
+  onHistory={onHistory}
+  onDelete={onDelete}
             onStatus={onStatus}
           />
         )}
@@ -2883,7 +2865,6 @@ function DetailManage({
   onSendNotice,
   onAssignee,
   onHistory,
-  onDeposit,
   onDelete,
   onStatus,
 }: {
@@ -2894,7 +2875,6 @@ function DetailManage({
   onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
   onHistory: () => void;
-  onDeposit: () => void;
   onDelete: () => void;
   onStatus: (s: string) => void;
 }) {
@@ -2912,10 +2892,6 @@ function DetailManage({
         <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
           <BellRing className="size-4 text-primary" />
           发送初始租赁通知
-        </button>
-        <button type="button" onClick={onDeposit} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
-          <WalletCards className="size-4 text-primary" />
-          押金处理
         </button>
       </section>
       {!["在租", "买断"].includes(rental.status) && (
@@ -3281,84 +3257,14 @@ function LegacyDetail({
           </div>
         </div>
       )}
-  <div className="flex flex-wrap gap-2">
-  <button type="button" onClick={() => onRentalChange()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"><ClipboardPenLine className="size-4" />办理租赁变更</button>
-  <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
-  <button
-  onClick={onHistory}
-          className="rounded-lg border px-4 py-2 text-sm font-medium"
-        >
-          客户历史
-        </button>
-        <button
-          onClick={onReturn}
-          className="rounded-lg border px-4 py-2 text-sm font-medium"
-        >
-          办理退租
-        </button>
-        <button
-          onClick={onLoss}
-          className="rounded-lg border px-4 py-2 text-sm font-medium text-destructive"
-        >
-          登记丢失
-        </button>
-        <Link
-          href={`/contracts/${rental.id}`}
-          className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium"
-        >
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
+        <button onClick={onHistory} className="rounded-lg border px-4 py-2 text-sm font-medium">客户历史</button>
+        <Link href={`/contracts/${rental.id}`} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium">
           <FileText className="size-4" />
           查看合同
         </Link>
-        <button
-          onClick={onDeposit}
-          className="rounded-lg border px-3 py-2 text-sm font-medium"
-        >
-          押金处理
-        </button>
-        <button
-          onClick={onExchange}
-          className="rounded-lg border px-3 py-2 text-sm font-medium"
-        >
-          设备换机
-        </button>
-        <button
-          onClick={onChange}
-          className="rounded-lg border px-3 py-2 text-sm font-medium"
-        >
-          配置/租金变更
-        </button>
-        <button
-          onClick={onRepair}
-          className="rounded-lg border px-3 py-2 text-sm font-medium"
-        >
-          登记维修
-        </button>
-        <button
-          onClick={() => onPayment(null)}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          登记收款
-        </button>
-        <button
-          onClick={onRenew}
-          className="rounded-lg border px-4 py-2 text-sm font-medium"
-        >
-          办理续租
-        </button>
-        {rental.items.some((i) => i.boughtOutQuantity < i.quantity) && (
-          <button
-            onClick={onBuyout}
-            className="rounded-lg border px-4 py-2 text-sm font-medium"
-          >
-            办理部分买断
-          </button>
-        )}
-        <button
-          onClick={() => onStatus("丢失")}
-          className="rounded-lg border px-4 py-2 text-sm font-medium"
-        >
-          标记丢失
-        </button>
+        <button onClick={() => onPayment(null)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">登记收款</button>
         {!["在租", "买断"].includes(rental.status) && (
           <button
             onClick={() => onStatus("在租")}
@@ -4086,6 +3992,7 @@ function DepositForm({
         value={value.amount}
         onChange={(amount) => setValue({ ...value, amount: Number(amount) })}
       />
+      {value.amount > balance && <p className="text-sm font-medium text-destructive">退押金额不能超过当前可用押金 {money(balance)}</p>}
       <Field
         label="处理日期"
         type="date"
@@ -4098,10 +4005,10 @@ function DepositForm({
         onChange={(notes) => setValue({ ...value, notes })}
       />
       <button
-        disabled={pending}
+        disabled={pending || balance <= 0 || value.amount <= 0 || value.amount > balance || !value.date}
         className="h-10 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-50"
       >
-        确认处理
+        {pending ? "处理中" : "确认退押金"}
       </button>
     </form>
   );
