@@ -29,6 +29,18 @@ export const renewalAdjustments = sqliteTable('renewal_adjustments', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), renewalRecordId: integer('renewalRecordId').notNull(), previousUnitPrice: text('previousUnitPrice').notNull(), correctedUnitPrice: text('correctedUnitPrice').notNull(), previousAmount: text('previousAmount').notNull(), correctedAmount: text('correctedAmount').notNull(), differenceAmount: text('differenceAmount').notNull(), reason: text('reason').notNull(), operatorUserId: text('operatorUserId').notNull(), operatorName: text('operatorName').notNull(), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [index('renewal_adjustments_user_renewal_idx').on(table.userId, table.renewalRecordId), index('renewal_adjustments_user_rental_idx').on(table.userId, table.rentalId)])
 
+export const rentalPricePeriods = sqliteTable('rental_price_periods', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(), rentalId: integer('rental_id').notNull(), rentalItemId: integer('rental_item_id').notNull(),
+  startPeriod: integer('start_period').notNull(), endPeriod: integer('end_period').notNull(), effectiveStart: text('effective_start').notNull(), effectiveEndExclusive: text('effective_end_exclusive').notNull(),
+  quantity: integer('quantity').notNull(), unitPrice: text('unit_price').notNull(), source: text('source').notNull().default('renewal'), notes: text('notes'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [
+  unique('rental_price_periods_item_range_uidx').on(table.userId, table.rentalItemId, table.startPeriod, table.endPeriod),
+  index('rental_price_periods_user_rental_idx').on(table.userId, table.rentalId),
+  index('rental_price_periods_user_item_period_idx').on(table.userId, table.rentalItemId, table.startPeriod, table.endPeriod),
+])
+
 export const paymentRecords = sqliteTable('payment_records', {
   id: integer('id').primaryKey({ autoIncrement: true }), userId: text('userId').notNull(), rentalId: integer('rentalId').notNull(), renewalRecordId: integer('renewalRecordId'), buyoutRecordId: integer('buyoutRecordId'), returnRecordId: integer('returnRecordId'), lossRecordId: integer('lossRecordId'), operatorName: text('operatorName'), amount: text('amount').notNull(), paymentDate: text('paymentDate').notNull(), paymentMethod: text('paymentMethod').notNull(), feeType: text('feeType').notNull(), notes: text('notes'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })

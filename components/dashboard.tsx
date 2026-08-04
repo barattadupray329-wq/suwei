@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { addCalendarDays, billingPeriod, periodNumberAt } from "@/lib/billing-periods";
 import {
   buyoutRentalItem,
   changeStatus,
@@ -757,7 +758,7 @@ export function Dashboard({
               <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {overdueCount}</button>
               <button type="button" onClick={() => setStatus("已到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">已到期 {expiredCount}</button>
               <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
-              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
+              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修�� {repairPending}</button>
               <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
             </section>
           )}
@@ -3418,19 +3419,26 @@ function RenewalForm({
   );
   const [rows, setRows] = useState<Record<number, RenewalInput>>({});
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const inferredStartPeriod = (item: Item) => {
+    try { return periodNumberAt(item.startDate || rental.startDate, item.endDate || rental.endDate); }
+    catch { return Math.max(1, rental.duration + 1); }
+  };
   const toggle = (item: Item) =>
     setRows((current) => {
       const next = { ...current };
       if (next[item.id]) delete next[item.id];
       else {
-        const end = item.endDate || rental.endDate;
+        const startPeriod = inferredStartPeriod(item);
+        const boundary = billingPeriod(item.startDate || rental.startDate, startPeriod).start;
         next[item.id] = {
           rentalItemId: item.id,
           quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
+          startPeriod,
           billingUnit: "month",
           duration: 1,
           unitPrice: Number(item.monthlyRent),
-          newEndDate: addMonths(end, 1),
+          newEndDate: addMonths(boundary, 1),
+          pricePeriods: [{ periods: 1, unitPrice: Number(item.monthlyRent) }],
           notes: "",
         };
       }
@@ -3448,12 +3456,13 @@ function RenewalForm({
   const selected = Object.values(rows);
   const allSelected = available.length > 0 && selected.length === available.length;
   const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => {
-    const end = item.endDate || rental.endDate;
-    return [item.id, { rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, billingUnit: "month" as const, duration: 1, unitPrice: Number(item.monthlyRent), newEndDate: addMonths(end, 1), notes: "" }];
+    const startPeriod = inferredStartPeriod(item);
+    const boundary = billingPeriod(item.startDate || rental.startDate, startPeriod).start;
+    return [item.id, { rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, startPeriod, billingUnit: "month" as const, duration: 1, unitPrice: Number(item.monthlyRent), newEndDate: addMonths(boundary, 1), pricePeriods: [{ periods: 1, unitPrice: Number(item.monthlyRent) }], notes: "" }];
   })));
   const totalQty = selected.reduce((sum, row) => sum + row.quantity, 0);
   const renewalTotal = selected.reduce(
-    (sum, row) => sum + row.quantity * row.unitPrice * row.duration,
+    (sum, row) => sum + row.quantity * (row.pricePeriods?.reduce((periodSum, period) => periodSum + period.periods * period.unitPrice, 0) ?? row.unitPrice * row.duration),
     0,
   );
   return (
@@ -3465,7 +3474,7 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        续租默认按月收、默认 1 个月。到期当天支付下一期租金；客户要求多续几个月时，再修改续租月数并一次收取对应月数。部分数量续租时系统会自动拆分。
+        账期按起租日对日计算：例如 5 日起租，每期显示为本月 5 日至次月 4 日（含），下一期从次月 5 日当天生效。可用多个价格区间明确设置“第 4 期 90 元、第 5–6 期 80 元”，系统不会再把 8 月 1 日错误顺延到 8 月 2 日。
       </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
     <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQty} 台</span>
@@ -3475,6 +3484,11 @@ function RenewalForm({
   {available.map((item) => {
           const row = rows[item.id];
           const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const anchorDate = item.startDate || rental.startDate;
+          const storedBoundary = item.endDate || rental.endDate;
+          let firstPeriodNo: number | null = null;
+          try { firstPeriodNo = periodNumberAt(anchorDate, storedBoundary); } catch { firstPeriodNo = null; }
+          const currentBoundary = row?.startPeriod ? billingPeriod(anchorDate, row.startPeriod).start : storedBoundary;
           return (
             <article
               key={item.id}
@@ -3497,12 +3511,22 @@ function RenewalForm({
                 </span>
               </label>
               {row && (
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                   <Field
                     label="续租数量"
                     type="number"
                     value={row.quantity}
                     onChange={(v) => update(item.id, "quantity", Number(v))}
+                  />
+                  <Field
+                    label="从第几期生效"
+                    type="number"
+                    value={row.startPeriod ?? firstPeriodNo ?? 1}
+                    onChange={(v) => {
+                      const startPeriod = Math.max(1, Math.floor(Number(v)));
+                      const boundary = billingPeriod(anchorDate, startPeriod).start;
+                      setRows((current) => ({ ...current, [item.id]: { ...current[item.id], startPeriod, newEndDate: addMonths(boundary, current[item.id].duration) } }));
+                    }}
                   />
                   <label className="flex flex-col gap-2 text-sm font-medium">
                     计费方式
@@ -3525,7 +3549,7 @@ function RenewalForm({
                                   ) / 100,
                             newEndDate:
                               unit === "month"
-                                ? addMonths(item.endDate || rental.endDate, 1)
+                                ? addMonths(currentBoundary, 1)
                                 : addDays(item.endDate || rental.endDate, 1),
                           },
                         }));
@@ -3546,6 +3570,7 @@ function RenewalForm({
                         [item.id]: {
                           ...current[item.id],
                           duration,
+                          pricePeriods: row.billingUnit === "month" && (current[item.id].pricePeriods?.length ?? 0) <= 1 ? [{ periods: duration, unitPrice: current[item.id].pricePeriods?.[0]?.unitPrice ?? current[item.id].unitPrice }] : current[item.id].pricePeriods,
                           newEndDate:
                             row.billingUnit === "month"
                               ? addMonths(
@@ -3564,17 +3589,61 @@ function RenewalForm({
                     label={`每${row.billingUnit === "month" ? "月" : "天"}单价（元）`}
                     type="number"
                     value={row.unitPrice}
-                    onChange={(v) => update(item.id, "unitPrice", Number(v))}
+                    onChange={(v) => {
+                      const unitPrice = Number(v);
+                      setRows((current) => ({ ...current, [item.id]: { ...current[item.id], unitPrice, pricePeriods: current[item.id].pricePeriods?.length === 1 ? [{ ...current[item.id].pricePeriods![0], unitPrice }] : current[item.id].pricePeriods } }));
+                    }}
                   />
                   <div className="rounded-lg border bg-muted/50 px-3 py-2">
                     <p className="text-sm font-medium">本次付款与覆盖</p>
-                    <p className="mt-1 font-semibold">{money(row.quantity * row.unitPrice * row.duration)}</p>
+                    <p className="mt-1 font-semibold">{money(row.quantity * (row.pricePeriods?.reduce((sum, period) => sum + period.periods * period.unitPrice, 0) ?? row.unitPrice * row.duration))}</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      付款日 {addDays(item.endDate || rental.endDate, 1)}<br />
-                      覆盖 {addDays(item.endDate || rental.endDate, 1)} 至 {addDays(row.newEndDate, 1)}（不含）
+                      新账期从 {currentBoundary} 当天生效<br />
+                      覆盖 {currentBoundary} 至 {addCalendarDays(row.newEndDate, -1)}（含）
                     </p>
                   </div>
                 </div>
+                {row.billingUnit === "month" && (
+                  <section className="mt-4 rounded-xl border bg-background p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-semibold">分期价格计划</h4>
+                        <p className="text-sm text-muted-foreground">每段可设置不同期数和月单价，日期由期号自动计算。</p>
+                      </div>
+                      <button type="button" className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted" onClick={() => {
+                        setRows((current) => {
+                          const currentRow = current[item.id];
+                          const pricePeriods = [...(currentRow.pricePeriods ?? [{ periods: currentRow.duration, unitPrice: currentRow.unitPrice }]), { periods: 1, unitPrice: currentRow.pricePeriods?.at(-1)?.unitPrice ?? currentRow.unitPrice }];
+                          const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0);
+                          return { ...current, [item.id]: { ...currentRow, duration, newEndDate: addMonths(currentBoundary, duration), pricePeriods } };
+                        });
+                      }}>添加价格区间</button>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3">
+                      {(row.pricePeriods ?? [{ periods: row.duration, unitPrice: row.unitPrice }]).map((segment, segmentIndex, segments) => {
+                        const priorPeriods = segments.slice(0, segmentIndex).reduce((sum, period) => sum + period.periods, 0);
+                        const segmentStartPeriod = (row.startPeriod ?? firstPeriodNo ?? 1) + priorPeriods;
+                        const segmentEndPeriod = segmentStartPeriod + segment.periods - 1;
+                        const start = billingPeriod(anchorDate, segmentStartPeriod).start;
+                        const end = billingPeriod(anchorDate, segmentEndPeriod).displayEnd;
+                        return <div key={`${segmentIndex}-${segmentStartPeriod}`} className="grid gap-3 rounded-lg bg-muted/50 p-3 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
+                          <div className="text-sm"><p className="font-medium">第 {segmentStartPeriod}{segmentEndPeriod > segmentStartPeriod ? `–${segmentEndPeriod}` : ""} 期</p><p className="text-muted-foreground">{start} 至 {end}（含）</p></div>
+                          <Field label="覆盖期数" type="number" value={segment.periods} onChange={(v) => {
+                            const periods = Math.max(1, Math.floor(Number(v)));
+                            setRows((current) => { const pricePeriods = [...(current[item.id].pricePeriods ?? [])]; pricePeriods[segmentIndex] = { ...pricePeriods[segmentIndex], periods }; const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0); return { ...current, [item.id]: { ...current[item.id], duration, newEndDate: addMonths(currentBoundary, duration), pricePeriods } }; });
+                          }} />
+                          <Field label="月单价（元/台）" type="number" value={segment.unitPrice} onChange={(v) => {
+                            const unitPrice = Number(v);
+                            setRows((current) => { const pricePeriods = [...(current[item.id].pricePeriods ?? [])]; pricePeriods[segmentIndex] = { ...pricePeriods[segmentIndex], unitPrice }; return { ...current, [item.id]: { ...current[item.id], unitPrice: pricePeriods[0]?.unitPrice ?? unitPrice, pricePeriods } }; });
+                          }} />
+                          <button type="button" disabled={segments.length === 1} className="h-10 rounded-lg border px-3 text-sm disabled:opacity-40" onClick={() => {
+                            setRows((current) => { const pricePeriods = (current[item.id].pricePeriods ?? []).filter((_, index) => index !== segmentIndex); const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0); return { ...current, [item.id]: { ...current[item.id], duration, newEndDate: addMonths(currentBoundary, duration), unitPrice: pricePeriods[0]?.unitPrice ?? current[item.id].unitPrice, pricePeriods } }; });
+                          }}>删除</button>
+                        </div>;
+                      })}
+                    </div>
+                  </section>
+                )}
               )}
               {row && row.quantity > max && (
                 <p className="mt-2 text-sm text-destructive">
