@@ -38,7 +38,7 @@ describe('全流程业务不变量', () => {
 
   it('对账拒绝合同、账单和收款不一致', () => {
     expect(assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '100.10', paidAmount: '20.05' }], payments: [{ amount: '20.05', feeType: '租金' }], allocations: [{ amount: '20.05' }] })).toBe(true)
-    expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同应收与账单应收不一致')
+    expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同净应收与账单毛应收扣除有效优惠后不一致')
   })
 
   it('统一财务快照严格区分现金、优惠、核销和押金', () => {
@@ -56,6 +56,7 @@ describe('全流程业务不变量', () => {
     })
     expect(snapshot).toEqual({
       rentReceivableCents: 55_000,
+      netReceivableCents: 45_000,
       cashReceivedCents: 45_000,
       effectiveDiscountCents: 10_000,
       allocatedSettlementCents: 55_000,
@@ -69,7 +70,7 @@ describe('全流程业务不变量', () => {
 
   it('发现优惠被重复计入现金或核销不完整时拒绝对账', () => {
     const input = {
-      contractTotal: '550.00',
+      contractTotal: '450.00',
       contractPaid: '450.00',
       bills: [{ amount: '550.00', paidAmount: '550.00', billType: '租金' }],
       payments: [{ id: 10, amount: '450.00', feeType: '原合同租金' }],
@@ -78,6 +79,21 @@ describe('全流程业务不变量', () => {
     }
     expect(assertFinancialReconciliation(input)).toBe(true)
     expect(() => assertFinancialReconciliation({ ...input, allocations: [{ paymentRecordId: 10, amount: '450.00' }] })).toThrow('账单核销必须等于真实现金与有效优惠之和')
+  })
+
+  it('冲正后原核销不再计入当前有效结算', () => {
+    const snapshot = rentalFinancialSnapshot({
+      bills: [{ amount: '500.00', paidAmount: '0.00', billType: '租金' }],
+      payments: [
+        { id: 10, amount: '500.00', feeType: '租金' },
+        { id: 11, amount: '-500.00', feeType: '租金' },
+      ],
+      allocations: [{ paymentRecordId: 10, amount: '500.00' }],
+      reversedPaymentIds: [10],
+    })
+    expect(snapshot.cashReceivedCents).toBe(0)
+    expect(snapshot.allocatedSettlementCents).toBe(0)
+    expect(snapshot.reconciliationDifferenceCents).toBe(0)
   })
 
   it('未分配旧收款显式进入未分配金额', () => {

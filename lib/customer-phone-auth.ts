@@ -6,7 +6,7 @@ import { db } from '@/lib/db'
 import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
 
 const COOKIE = 'customer_phone_session'
-const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
+const ACTIVE_STATUSES = ['在租', '即将到期', '逾期', '部分退租', '部分买断', '部分丢失']
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 function otpSecret() {
   const secret = process.env.BETTER_AUTH_SECRET
@@ -34,7 +34,7 @@ export class CustomerOtpError extends Error {
 export const maskCustomerPhone = (phone: string) => phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
 
 async function ensureEligibleCustomerProfiles(phone: string) {
-  const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES)))
+  const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), inArray(rentals.status, ACTIVE_STATUSES)))
   if (!contracts.length) return []
   const existing = await db.select().from(customerPortals).where(eq(customerPortals.phone, phone))
   if (existing.length) return existing.filter((portal) => portal.status === 'active')
@@ -230,7 +230,7 @@ export async function getCustomerActiveRentals() {
     db.select({ name: shops.name }).from(shops).where(eq(shops.id, shopId)).limit(1),
     customer.assigneeUserId ? db.select({ name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, customer.assigneeUserId)).limit(1) : Promise.resolve([]),
   ])
-  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
+  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
   const ids = contracts.map((contract) => contract.id)
   const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate, monthlyRent: rentalItems.monthlyRent, totalRent: rentalItems.totalRent }).from(rentalItems).where(and(eq(rentalItems.userId, shopId), inArray(rentalItems.rentalId, ids))) : []
   return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts, items }

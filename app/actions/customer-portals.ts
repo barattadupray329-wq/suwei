@@ -7,13 +7,13 @@ import { db } from '@/lib/db'
 import { customerPhoneSessions, customerPortals, rentals } from '@/lib/db/schema'
 import { getAccessContext } from '@/lib/access'
 
-const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
+const ACTIVE_STATUSES = ['在租', '即将到期', '逾期', '部分退租', '部分买断', '部分丢失']
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 const legacySecret = () => digest(randomBytes(32).toString('hex'))
 
 async function ensureCustomerAccessProfiles(ownerId: string) {
-  const customers = await db.select({ phone: rentals.customerPhone, customerName: sql<string>`max(${rentals.customerName})` }).from(rentals).where(and(eq(rentals.userId, ownerId), inArray(rentals.status, ACTIVE_STATUSES))).groupBy(rentals.customerPhone)
+  const customers = await db.select({ phone: rentals.customerPhone, customerName: sql<string>`max(${rentals.customerName})` }).from(rentals).where(and(eq(rentals.userId, ownerId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), inArray(rentals.status, ACTIVE_STATUSES))).groupBy(rentals.customerPhone)
   const existing = await db.select({ phone: customerPortals.phone }).from(customerPortals).where(eq(customerPortals.userId, ownerId))
   const known = new Set(existing.map((row) => normalizePhone(row.phone)))
   for (const customer of customers) {
@@ -42,11 +42,11 @@ export async function getCustomerPortalCustomers() {
   })
 }
 
-export async function setCustomerPortalStatus(phone: string, status: 'active' | 'paused') {
+export async function setCustomerPortalStatus(phone: string, status: 'active' | 'disabled') {
   const { userId: ownerId } = await getAccessContext('系统设置')
   const normalizedPhone = normalizePhone(phone)
   await db.update(customerPortals).set({ status, sessionVersion: sql`${customerPortals.sessionVersion} + 1`, updatedAt: new Date() }).where(and(eq(customerPortals.userId, ownerId), eq(customerPortals.phone, normalizedPhone)))
-  if (status === 'paused') await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, ownerId), eq(customerPhoneSessions.phone, normalizedPhone)))
+  if (status === 'disabled') await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, ownerId), eq(customerPhoneSessions.phone, normalizedPhone)))
   revalidatePath('/customer-portals')
 }
 

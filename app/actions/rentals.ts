@@ -125,8 +125,10 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     const rentalBills = billMap.get(row.id) ?? []
     const rentalPayments = paymentMap.get(row.id) ?? []
     const rentalDiscounts = discountMap.get(row.id) ?? []
-    const financeSnapshot = rentalFinancialSnapshot({ bills: rentalBills, payments: rentalPayments, allocations: allocationMap.get(row.id) ?? [], discounts: rentalDiscounts })
-    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: ledgerMap.get(row.id) ?? [], financeSnapshot }
+    const rentalLedger = ledgerMap.get(row.id) ?? []
+    const reversedPaymentIds = rentalLedger.flatMap((entry) => entry.entryType === '收款冲正' && entry.paymentRecordId ? [entry.paymentRecordId] : [])
+    const financeSnapshot = rentalFinancialSnapshot({ bills: rentalBills, payments: rentalPayments, allocations: allocationMap.get(row.id) ?? [], discounts: rentalDiscounts, reversedPaymentIds })
+    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: rentalLedger, financeSnapshot }
   })
 }
 
