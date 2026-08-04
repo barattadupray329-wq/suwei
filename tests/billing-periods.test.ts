@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { billingPeriod, periodNumberAt } from '@/lib/billing-periods'
+import { billingPeriod, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {

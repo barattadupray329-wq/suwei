@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { addCalendarDays, billingPeriod, periodNumberAt } from "@/lib/billing-periods";
+import { billingPeriod, periodNumberAt } from "@/lib/billing-periods";
 import {
   buyoutRentalItem,
   changeStatus,
@@ -758,7 +758,7 @@ export function Dashboard({
               <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {overdueCount}</button>
               <button type="button" onClick={() => setStatus("已到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">已到期 {expiredCount}</button>
               <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
-              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修�� {repairPending}</button>
+              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
               <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
             </section>
           )}
@@ -3511,6 +3511,7 @@ function RenewalForm({
                 </span>
               </label>
               {row && (
+                <>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                   <Field
                     label="续租数量"
@@ -3573,14 +3574,8 @@ function RenewalForm({
                           pricePeriods: row.billingUnit === "month" && (current[item.id].pricePeriods?.length ?? 0) <= 1 ? [{ periods: duration, unitPrice: current[item.id].pricePeriods?.[0]?.unitPrice ?? current[item.id].unitPrice }] : current[item.id].pricePeriods,
                           newEndDate:
                             row.billingUnit === "month"
-                              ? addMonths(
-                                  item.endDate || rental.endDate,
-                                  duration,
-                                )
-                              : addDays(
-                                  item.endDate || rental.endDate,
-                                  duration,
-                                ),
+                              ? addMonths(currentBoundary, duration)
+                              : addDays(currentBoundary, duration),
                         },
                       }));
                     }}
@@ -3644,6 +3639,7 @@ function RenewalForm({
                     </div>
                   </section>
                 )}
+                </>
               )}
               {row && row.quantity > max && (
                 <p className="mt-2 text-sm text-destructive">
