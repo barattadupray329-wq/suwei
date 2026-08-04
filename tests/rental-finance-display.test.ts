@@ -26,8 +26,8 @@ describe('租赁财务展示核算', () => {
       totalRent: '5850',
       paidAmount: '5850',
       rentBills: [
-        { id: 4, amount: '550', paidAmount: '550', dueDate: '2026-06-27', allocations: [{ paymentRecordId: 40, amount: '450' }] },
-        { id: 5, amount: '550', paidAmount: '550', dueDate: '2026-07-27', allocations: [{ paymentRecordId: 50, amount: '450' }] },
+        { id: 4, amount: '550', paidAmount: '550', dueDate: '2026-06-27', allocations: [{ paymentRecordId: 40, amount: '550' }] },
+        { id: 5, amount: '550', paidAmount: '550', dueDate: '2026-07-27', allocations: [{ paymentRecordId: 50, amount: '550' }] },
       ],
       ledger: [
         { entryType: '收款优惠', amount: '100', paymentRecordId: 40 },
@@ -38,6 +38,21 @@ describe('租赁财务展示核算', () => {
     expect(summary.discountCents).toBe(20_000)
     expect(summary.billSettlement.get(4)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
     expect(summary.billSettlement.get(5)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
+  })
+
+  it('一笔付款跨账单时只扣减一次优惠', () => {
+    const summary = rentFinanceSummary({
+      totalRent: '1000',
+      paidAmount: '900',
+      rentBills: [
+        { id: 6, amount: '550', paidAmount: '550', dueDate: '2026-06-27', allocations: [{ paymentRecordId: 60, amount: '550' }] },
+        { id: 7, amount: '450', paidAmount: '450', dueDate: '2026-07-27', allocations: [{ paymentRecordId: 60, amount: '450' }] },
+      ],
+      ledger: [{ entryType: '收款优惠', amount: '100', paymentRecordId: 60 }],
+    })
+
+    expect(summary.billSettlement.get(6)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
+    expect(summary.billSettlement.get(7)).toEqual({ cashCents: 45_000, discountCents: 0, outstandingCents: 0 })
   })
 
   it('优惠冲正后恢复待收', () => {
