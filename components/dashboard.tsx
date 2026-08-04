@@ -424,6 +424,7 @@ export function Dashboard({
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
+const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -737,7 +738,7 @@ export function Dashboard({
                 <p className="text-2xl font-bold">
                   {money(summary.receivable)}
                 </p>
-                <p className="text-sm text-muted-foreground">应收待跟进</p>
+                <p className="text-sm text-muted-foreground">应收款跟进</p>
               </button>
               <button
                 type="button"
@@ -1150,7 +1151,10 @@ canViewFinance={canViewFinance}
   setDialog("delete-confirm");
 }}
             onConfirmDraft={() => setDialog("confirm-draft")}
-            onRentalChange={() => setDialog("change-guide")}
+            onRentalChange={(scenario) => {
+setChangeScenario(scenario ?? null);
+setDialog("change-guide");
+}}
             onPayment={(target) => {
               setPaymentTarget(target);
               setDialog("payment");
@@ -1249,9 +1253,10 @@ canViewFinance={canViewFinance}
         onClose={() => setDialog("detail")}
       >
         {selected && (
-          <RentalChangeGuide
-            rental={selected}
-            pending={pending}
+ <RentalChangeGuide
+ rental={selected}
+ initialScenario={changeScenario}
+ pending={pending}
             onNavigate={(target) => setDialog(target)}
             submit={(value) => runInDetail(() => changeRentalContract(value), "租赁变更已登记")}
           />
@@ -1454,7 +1459,7 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "deposit"}
-        title="押金退还或抵扣"
+        title="退押金"
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -2328,13 +2333,14 @@ function RentalForm({
 
 type ChangeScenario = "客户资料变更" | "租期调整";
 
-function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
-  rental: Rental;
-  pending: boolean;
+function RentalChangeGuide({ rental, initialScenario, pending, onNavigate, submit }: {
+rental: Rental;
+initialScenario: ChangeScenario | null;
+pending: boolean;
   onNavigate: (target: "return" | "exchange" | "change" | "renew" | "delete-confirm") => void;
   submit: (value: ContractChangeInput) => void;
 }) {
-  const [scenario, setScenario] = useState<ChangeScenario | null>(null);
+  const [scenario, setScenario] = useState<ChangeScenario | null>(initialScenario);
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState("");
   const [feeAdjustment, setFeeAdjustment] = useState("0");
@@ -2388,7 +2394,7 @@ type DetailProps = {
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
   onConfirmDraft: () => void;
-  onRentalChange: () => void;
+  onRentalChange: (scenario?: ChangeScenario) => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
@@ -2466,6 +2472,7 @@ function Detail(props: DetailProps) {
     rental.renewalRecords.length +
     rental.buyoutRecords.length;
   const canBuyout = rental.items.some((i) => i.boughtOutQuantity < i.quantity);
+  const refundableDeposit = Math.max(0, rental.ledger.reduce((sum, entry) => sum + (entry.entryType === "押金收取" ? Number(entry.amount) : entry.entryType.startsWith("押金") ? -Math.abs(Number(entry.amount)) : 0), 0));
   const isDraft = rental.orderType === "draft";
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
@@ -2617,6 +2624,7 @@ function Detail(props: DetailProps) {
           customerName={rental.customerName}
           customerPhone={rental.customerPhone}
           endDate={rental.endDate}
+          refundableDeposit={refundableDeposit}
           items={rental.items.map((item) => ({
             id: item.id,
             name: `${item.deviceType} · ${item.deviceName}`,
@@ -2637,7 +2645,9 @@ function Detail(props: DetailProps) {
             else if (type === "exchange") onExchange();
             else if (type === "repair") onRepair();
             else if (type === "pricing_change") onChange();
-            else onRentalChange();
+            else if (type === "deposit_refund") onDeposit();
+            else if (type === "term_change") onRentalChange("租期调整");
+            else if (type === "customer_change") onRentalChange("客户资料变更");
           }}
         />
       )}
@@ -2974,7 +2984,7 @@ function LegacyDetail({
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
   onConfirmDraft: () => void;
-  onRentalChange: () => void;
+  onRentalChange: (scenario?: ChangeScenario) => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
@@ -3272,7 +3282,7 @@ function LegacyDetail({
         </div>
       )}
   <div className="flex flex-wrap gap-2">
-  <button type="button" onClick={onRentalChange} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"><ClipboardPenLine className="size-4" />办理租赁变更</button>
+  <button type="button" onClick={() => onRentalChange()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"><ClipboardPenLine className="size-4" />办理租赁变更</button>
   <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
   <button
   onClick={onHistory}

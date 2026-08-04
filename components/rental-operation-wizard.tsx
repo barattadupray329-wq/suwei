@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { ArrowRight, ChevronRight, CircleAlert, X } from 'lucide-react'
+import { ChevronRight, CircleAlert, X } from 'lucide-react'
 import { OPERATION_DEFINITIONS, type RentalOperationType } from '@/lib/rental-operation-hub'
 
 type WizardItem = {
@@ -20,14 +19,13 @@ type Props = {
   customerName: string
   customerPhone: string
   endDate: string
+  refundableDeposit: number
   items: WizardItem[]
   onClose: () => void
   onStart: (type: RentalOperationType) => void
 }
 
-export function RentalOperationWizard({ contractNo, customerName, customerPhone, endDate, items, onClose, onStart }: Props) {
-  const [type, setType] = useState<RentalOperationType | null>(null)
-  const definition = OPERATION_DEFINITIONS.find((item) => item.type === type)
+export function RentalOperationWizard({ contractNo, customerName, customerPhone, endDate, refundableDeposit, items, onClose, onStart }: Props) {
   const availableItems = items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).length
 
   return (
@@ -51,30 +49,32 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
                 <div><dt className="text-muted-foreground">客户电话</dt><dd className="mt-1 font-semibold">{customerPhone}</dd></div>
               </dl>
             </section>
-            {(['设备流转', '合同调整', '售后服务'] as const).map((group) => (
+            {(['设备处理', '合同与计费', '结算处理'] as const).map((group) => (
               <section key={group}>
                 <h3 className="mb-2 text-sm font-semibold text-muted-foreground">{group}</h3>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {OPERATION_DEFINITIONS.filter((item) => item.group === group).map((item) => (
-                    <button key={item.type} type="button" onClick={() => setType(item.type)} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${type === item.type ? 'border-primary bg-primary/5' : 'hover:border-primary/50 hover:bg-muted/50'}`}>
-                      <span><strong className={item.risk === 'destructive' ? 'text-destructive' : ''}>{item.label}</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">{item.description}</span></span>
-                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                    </button>
-                  ))}
+                  {OPERATION_DEFINITIONS.filter((item) => item.group === group).map((item) => {
+                    const disabled = (item.requiresDevice && availableItems === 0) || (item.type === 'deposit_refund' && refundableDeposit <= 0)
+                    const disabledReason = item.type === 'deposit_refund' ? '当前无可退押金' : '当前无可办理设备'
+                    return (
+                      <button key={item.type} type="button" disabled={disabled} onClick={() => onStart(item.type)} className="flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-45">
+                        <span><strong className={item.risk === 'destructive' ? 'text-destructive' : ''}>{item.label}</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">{disabled ? disabledReason : item.description}</span></span>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
             ))}
-            {definition && (
-              <section className="rounded-xl bg-accent p-4 text-sm leading-6 text-accent-foreground">
-                <div className="flex gap-2"><CircleAlert className="mt-1 size-4 shrink-0" /><p><strong>下一步：</strong>进入“{definition.label}”专用表单后，可一次选择多项设备，并设置批量默认值或逐项覆盖。提交时整批校验并原子写入，不会出现部分成功。</p></div>
-              </section>
-            )}
+            <section className="rounded-xl bg-accent p-4 text-sm leading-6 text-accent-foreground">
+              <div className="flex gap-2"><CircleAlert className="mt-1 size-4 shrink-0" /><p>点击业务后直接进入对应表单。原合同、历史账目和业务记录都会保留；提交前仍会再次核对设备、金额和日期。</p></div>
+            </section>
           </div>
         </main>
 
         <footer className="flex items-center justify-between gap-3 border-t p-4 sm:px-5">
-          <button type="button" onClick={onClose} className="h-10 rounded-lg border px-4 text-sm font-medium">取消</button>
-          <button type="button" disabled={!type} onClick={() => type && onStart(type)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-40">进入业务表单<ArrowRight className="size-4" /></button>
+          <p className="text-xs text-muted-foreground">可退押金：¥{refundableDeposit.toFixed(2)}</p>
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border px-4 text-sm font-medium">关闭</button>
         </footer>
       </div>
     </div>
