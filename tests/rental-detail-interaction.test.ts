@@ -14,9 +14,12 @@ test('带 rental 参数关闭详情时返回原列表查询上下文', () => {
   expect(dashboard).not.toMatch(/router\.push\(returnHref\)/)
 })
 
-test('详情子流程成功后回到同一合同详情', () => {
+test('详情子流程成功后回到同一合同详情并同步刷新数据', () => {
   expect(dashboard).toMatch(/runInDetail\(\(\) => collectPayment\(selected\.id, value\), "收款已登记"\)/)
   expect(dashboard).toMatch(/setDialog\(successDialog\);\s*router\.refresh\(\)/)
+  expect(dashboard).toMatch(/const selectedId = selected\?\.id \?\? null/)
+  expect(dashboard).toMatch(/const refreshedRental = rentals\.find\(\(item\) => item\.id === selectedId\)/)
+  expect(dashboard).toMatch(/setSelected\(\(current\) => current\?\.id === selectedId && current !== refreshedRental \? refreshedRental : current\)/)
 })
 
 test('租赁管理桌面合同列表双击打开详情', () => {
