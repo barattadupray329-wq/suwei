@@ -899,7 +899,7 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
               <div className="flex flex-col gap-3 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
-                    <p className="font-semibold">客户催��汇总</p>
+                    <p className="font-semibold">客户催款汇总</p>
                     <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
@@ -2168,7 +2168,7 @@ function RentalForm({
                 </select>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
-                {`租赁时间（${billingType === "daily" ? "天" : "个月"}）`}
+                {`租赁期间（${billingType === "daily" ? "天" : "个月"}）`}
                 <input
                   className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
                   type="number"
@@ -2470,7 +2470,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} 笔���期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
@@ -4236,7 +4236,7 @@ function ChangeForm({
         <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每项可单独修改配置和月租</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
         <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "未编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
       </section>
-      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请��择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。</p>}
+      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请选择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="新租金生效日期"
