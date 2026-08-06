@@ -161,14 +161,16 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const businessToday = sql<string>`date('now', '+8 hours')`
   const isExpired = sql<boolean>`${rentals.endDate} < ${businessToday} and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
   const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
-  if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
+  const overdueBillAmount = sql<number>`coalesce((select sum(max(0, cast(b.amount as real) - cast(b.paidAmount as real))) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType != '押金' and cast(b.amount as real) > 0 and b.dueDate < ${businessToday}), 0)`
+  const hasOverdueBills = sql<boolean>`${overdueBillAmount} > 0`
+  if (value.status === '逾期') filters.push(hasOverdueBills)
   else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
   else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
   if (value.receivable === 'outstanding') filters.push(hasOutstanding)
-  else if (value.receivable === 'overdue') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
-  else if (value.receivable === 'upcoming') filters.push(sql`not (${isExpired}) and (${hasOutstanding})`)
+  else if (value.receivable === 'overdue') filters.push(hasOverdueBills)
+  else if (value.receivable === 'upcoming') filters.push(sql`(${hasOutstanding}) and not (${hasOverdueBills})`)
   if (value.startDate) filters.push(gte(rentals.startDate, value.startDate))
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
@@ -178,7 +180,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
-    when (${isExpired}) and (${hasOutstanding}) then 0
+    when (${hasOverdueBills}) then 0
     when ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) then 1
     when (${hasOutstanding}) then 2
     else 3
@@ -189,9 +191,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       count: sql<number>`count(*)`,
       initialRentOutstanding: sql<string>`coalesce(sum(max(0, (select coalesce(sum(cast(b.amount as real)), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType = '租金') - cast(${rentals.paidAmount} as real))), 0)`,
       expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
-      overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
+      overdueReceivable: sql<string>`coalesce(sum(${overdueBillAmount}), 0)`,
     }).from(rentals).where(where),
-    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, overdueAmount: overdueBillAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
