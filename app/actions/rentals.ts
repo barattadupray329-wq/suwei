@@ -16,7 +16,7 @@ import { toActionResult } from '@/lib/action-result'
 import { safeError } from '@/lib/errors'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
-import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
+import { availableQuantity, rentalDeviceSummary, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { paymentStatusFromCents, rentalFinancialSnapshot } from '@/lib/rental-reconciliation'
@@ -193,7 +193,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
       overdueReceivable: sql<string>`coalesce(sum(${overdueBillAmount}), 0)`,
     }).from(rentals).where(where),
-    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, overdueAmount: overdueBillAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, overdueAmount: overdueBillAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
@@ -214,7 +214,11 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
     const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0)
-    const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
+    const summaryItems = items.length > 0
+      ? items
+      : [{ deviceType: row.deviceType, quantity: row.quantity, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0 }]
+    const deviceSummary = rentalDeviceSummary(summaryItems)
+    const quantity = deviceSummary.reduce((sum, item) => sum + item.quantity, 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
     const effectiveEndDate = [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1) ?? row.endDate
     const status = rentalDisplayStatus({
@@ -228,6 +232,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     return {
       ...row,
       quantity,
+      deviceSummary,
       endDate: effectiveEndDate,
       periodCount: periodSummary.total,
       paidPeriodCount: periodSummary.paid,
