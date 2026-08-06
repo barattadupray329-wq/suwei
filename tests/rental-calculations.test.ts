@@ -93,6 +93,20 @@ describe('期数按自然月累计', () => {
     expect(billPeriodLabel(ranges.get(2))).toBe('第 4-5 期')
     expect(total).toBe(5)
   })
+  it('同一账期按设备拆单时共享期号且乱序输入不影响后续期数', () => {
+    const bills = [
+      bill(4, '2026-07-08', '2026-08-07'),
+      bill(3, '2026-04-08', '2026-07-07'),
+      bill(1, '2026-01-08', '2026-04-07'),
+      bill(2, '2026-04-08', '2026-07-07'),
+    ]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-01-08' })
+    expect(ranges.get(1)).toEqual({ start: 1, end: 3, span: 3 })
+    expect(ranges.get(2)).toEqual({ start: 4, end: 6, span: 3 })
+    expect(ranges.get(3)).toEqual({ start: 4, end: 6, span: 3 })
+    expect(ranges.get(4)).toEqual({ start: 7, end: 7, span: 1 })
+    expect(total).toBe(7)
+  })
   it('缺少起租日时以首笔账期为锚点', () => {
     const { ranges } = billPeriodRanges([bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')])
     expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })

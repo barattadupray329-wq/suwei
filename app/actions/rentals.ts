@@ -352,7 +352,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       db.insert(accountLedger).values({ userId, rentalId, entryType: '押金收取', amount: depositBill.amount, entryDate: collection.paymentDate, paymentRecordId: depositPaymentId, operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
     )
     statements.push(
-      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType, collectRent, collectDeposit, paymentDate: collection?.paymentDate, paymentMethod: collection?.paymentMethod } }),
+      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁���同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType, collectRent, collectDeposit, paymentDate: collection?.paymentDate, paymentMethod: collection?.paymentMethod } }),
     )
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   } catch (error) {
@@ -580,7 +580,18 @@ export async function reversePayment(paymentId: number, reason: string) {
     const [discount] = await tx.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.paymentRecordId, paymentId), eq(paymentDiscounts.userId, userId)))
     if (discount?.reversedAt) throw new Error('该收款优惠已冲正')
     const discountCents = discount ? moneyToCents(discount.amount) : 0
-    const allocatedBills = await Promise.all(allocations.map(async (allocation) => ({ allocation, bill: (await tx.select().from(receivableBills).where(and(eq(receivableBills.id, allocation.billId), eq(receivableBills.userId, userId))).limit(1))[0] })))
+    let effectiveAllocations = allocations.map(allocation => ({ billId: allocation.billId, amount: allocation.amount }))
+    if (!effectiveAllocations.length) {
+      if (!payment.renewalRecordId) throw new Error('该历史收款缺少账单分配记录，无法唯一确认影响账单，请先联系管理员补齐账务关联')
+      const expectedBillNo = `RENEW-${payment.rentalId}-${payment.renewalRecordId}`
+      const candidates = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, payment.rentalId), eq(receivableBills.userId, userId), eq(receivableBills.billNo, expectedBillNo)))
+      if (candidates.length !== 1) throw new Error('该历史续租收款无法唯一关联到账单，已阻止冲正以避免错账')
+      const candidate = candidates[0]
+      const reversalSettlementCents = moneyToCents(payment.amount) + discountCents
+      if (reversalSettlementCents <= 0 || moneyToCents(candidate.paidAmount) < reversalSettlementCents) throw new Error('关联账单的已收金额不足，已阻止冲正以避免账单金额变为负数')
+      effectiveAllocations = [{ billId: candidate.id, amount: centsToMoney(reversalSettlementCents) }]
+    }
+    const allocatedBills = await Promise.all(effectiveAllocations.map(async (allocation) => ({ allocation, bill: (await tx.select().from(receivableBills).where(and(eq(receivableBills.id, allocation.billId), eq(receivableBills.userId, userId))).limit(1))[0] })))
     if (allocatedBills.some(({ bill }) => !bill)) throw new Error('原收款的账单分配记录不完整，禁止冲正')
     const date = new Date().toISOString().slice(0, 10)
     const reversalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000

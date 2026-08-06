@@ -69,6 +69,26 @@ describe('租赁财务展示核算', () => {
     expect(summary.outstandingCents).toBe(10_000)
   })
 
+  it('历史续租收款无分配记录时以各账单 paidAmount 为准，不把实收错配给逾期账单', () => {
+    const summary = rentFinanceSummary({
+      totalRent: '1120',
+      paidAmount: '960',
+      rentBills: [
+        { id: 1, amount: '480', paidAmount: '480', dueDate: '2026-01-08', allocations: [{ paymentRecordId: 11, amount: '480' }] },
+        { id: 2, amount: '420', paidAmount: '420', dueDate: '2026-07-27', allocations: [] },
+        { id: 3, amount: '60', paidAmount: '60', dueDate: '2026-07-27', allocations: [] },
+        { id: 4, amount: '160', paidAmount: '0', dueDate: '2026-07-08', allocations: [] },
+      ],
+      ledger: [],
+    })
+
+    expect(summary.billSettlement.get(1)).toEqual({ cashCents: 48_000, discountCents: 0, outstandingCents: 0 })
+    expect(summary.billSettlement.get(2)).toEqual({ cashCents: 42_000, discountCents: 0, outstandingCents: 0 })
+    expect(summary.billSettlement.get(3)).toEqual({ cashCents: 6_000, discountCents: 0, outstandingCents: 0 })
+    expect(summary.billSettlement.get(4)).toEqual({ cashCents: 0, discountCents: 0, outstandingCents: 16_000 })
+    expect(summary.outstandingCents).toBe(16_000)
+  })
+
   it('展示押金收取、退还和当前余额', () => {
     const summary = depositFinanceSummary({
       contractualDeposit: '1000',

@@ -422,6 +422,7 @@ export function Dashboard({
   | "change-guide"
   | "delete-confirm"
   | "confirm-draft"
+  | "reverse-payment"
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
@@ -435,6 +436,8 @@ export function Dashboard({
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
 const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<Payment | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
   const [deleteReason, setDeleteReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
@@ -1181,9 +1184,13 @@ setDialog("change-guide");
             onRepair={() => setDialog("repair")}
             onDeposit={() => setDialog("deposit")}
             onExchange={() => setDialog("exchange")}
-            onReverse={(paymentId) =>
-              runInDetail(() => reversePayment(paymentId, "收款录入错误"), "收款已冲正")
-            }
+            onReverse={(paymentId) => {
+              const payment = selected.paymentRecords.find((record) => record.id === paymentId);
+              if (!payment) return toast.error("收款记录不存在或已更新");
+              setReverseTarget(payment);
+              setReverseReason("");
+              setDialog("reverse-payment");
+            }}
             onStatus={(s) =>
               runInDetail(() => changeStatus(selected.id, s), "状态已更新")
             }
@@ -1338,6 +1345,40 @@ setDialog("change-guide");
                 </button>
               </div>
             </form>
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "reverse-payment"}
+        title="确认冲正收款"
+        onClose={() => !pending && setDialog("detail")}
+      >
+        {reverseTarget && (
+          <form
+            className="flex flex-col gap-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runInDetail(() => reversePayment(reverseTarget.id, reverseReason), "收款已冲正");
+            }}
+          >
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+              <p className="font-semibold text-destructive">冲正后将恢复对应账单的待收金额</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">系统会保留原收款和冲正流水，不会直接删除历史记录。请确认金额、日期与费用类型无误。</p>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">原收款金额</dt><dd className="mt-1 font-semibold">{money(reverseTarget.amount)}</dd></div>
+                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">付款日期</dt><dd className="mt-1 font-semibold">{reverseTarget.paymentDate}</dd></div>
+                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">费用类型</dt><dd className="mt-1 font-semibold">{reverseTarget.feeType}</dd></div>
+                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">收款方式</dt><dd className="mt-1 font-semibold">{reverseTarget.paymentMethod}</dd></div>
+              </dl>
+            </div>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              冲正原因
+              <textarea required minLength={2} maxLength={200} value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="例如：金额录入错误，需要重新登记" className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary" />
+            </label>
+            <div className="flex justify-end gap-3">
+              <button type="button" disabled={pending} onClick={() => setDialog("detail")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-50">取消</button>
+              <button type="submit" disabled={pending || reverseReason.trim().length < 2} className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50">{pending ? "正在冲正…" : "确认冲正"}</button>
+            </div>
+          </form>
         )}
       </Dialog>
       <Dialog
@@ -2168,7 +2209,7 @@ function RentalForm({
                 </select>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
-                {`租赁期���（${billingType === "daily" ? "天" : "个月"}）`}
+                {`租赁期�����（${billingType === "daily" ? "天" : "个月"}）`}
                 <input
                   className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
                   type="number"
@@ -2470,7 +2511,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} ���逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
@@ -2771,6 +2812,7 @@ function DetailFinance({
   const { grossRentCents, discountCents, netReceivableCents: totalReceivable, cashReceivedCents: totalPaid, outstandingCents: totalOutstanding, accountBalanceCents: accountBalance, billSettlement } = rentSummary;
   const depositSummary = depositFinanceSummary({ contractualDeposit: rental.deposit, ledger: rental.ledger });
   const depositLedger = rental.ledger.filter((entry) => isDepositLedgerEntry(entry.entryType)).sort((left, right) => right.entryDate.localeCompare(left.entryDate) || right.id - left.id);
+  const reversedPaymentIds = new Set(rental.ledger.filter((entry) => entry.entryType === "收款冲正" && entry.paymentRecordId).map((entry) => entry.paymentRecordId as number));
   const hasOutstanding = totalOutstanding > 0;
   const billingUnit = normalizeBillingUnit(rental.billingType);
   const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
@@ -2790,10 +2832,11 @@ function DetailFinance({
           </div>
         </div>
         <div className="grid grid-cols-3 border-b bg-muted/40 text-center">
-          <div className="p-3"><p className="text-xs text-muted-foreground">净租金应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{discountCents > 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 优惠 {money(centsToMoney(discountCents))}</p>}</div>
-          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}</div>
-          <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
+          <div className="p-3"><p className="text-xs text-muted-foreground">合同应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{discountCents > 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 优惠 {money(centsToMoney(discountCents))}</p>}</div>
+          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已到账</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}</div>
+          <div className="p-3"><p className="text-xs text-muted-foreground">还需收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
         </div>
+        <p className="border-b bg-muted/20 px-4 py-2 text-center text-xs text-muted-foreground">合同应收 − 已到账 = 还需收（{money(centsToMoney(totalReceivable))} − {money(centsToMoney(totalPaid))} = {money(centsToMoney(totalOutstanding))}）</p>
         {rentBills.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
@@ -2801,14 +2844,14 @@ function DetailFinance({
               <tbody className="divide-y">
                 {rentBills.map((bill, index) => {
                   const settlement = billSettlement.get(bill.id) ?? { cashCents: 0, discountCents: 0, outstandingCents: Math.round(Number(bill.amount) * 100) };
-                  const recordedPaidCents = Math.round(Number(bill.paidAmount) * 100);
                   const outstanding = settlement.outstandingCents;
-                  const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
+                  const settledCents = Math.max(0, Math.round(Number(bill.amount) * 100) - outstanding);
+                  const cashState = billState(bill.amount, centsToMoney(settledCents), bill.dueDate, today);
                   const state: ReturnType<typeof billState> | "已抵扣" = settlement.discountCents > 0 && outstanding === 0 ? "已抵扣" : cashState;
                   return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
                     <td className="px-3 py-3 align-top"><strong>{billPeriodLabel(periodRanges.get(bill.id), billingUnit)}</strong><p className="mt-1 text-xs text-muted-foreground">共 {totalPeriods} {periodUnitLabel} · 第 {index + 1} 笔账单</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
-                    <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">实收 {money(centsToMoney(settlement.cashCents))}{settlement.discountCents > 0 ? ` · 优惠核销 ${money(centsToMoney(settlement.discountCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
+                    <td className="px-3 py-3 align-top"><strong>本期应收 {money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">已到账 {money(centsToMoney(settlement.cashCents))} · 优惠 {money(centsToMoney(settlement.discountCents))} · 还需收 {money(centsToMoney(outstanding))}</p></td>
                     <td className="px-3 py-3 align-top">{bill.dueDate}</td>
                     <td className="px-3 py-3 align-top">{bill.allocations.length ? bill.allocations.map((allocation) => <div key={allocation.id} className="mb-1 last:mb-0"><p>{allocation.paymentDate} · {money(allocation.amount)}</p><p className="text-xs text-muted-foreground">录入 {receivedAt(allocation.receivedAt)} · {allocation.paymentMethod}</p></div>) : settlement.cashCents > 0 ? <p>{money(centsToMoney(settlement.cashCents))} · 已实收</p> : <span className="text-muted-foreground">尚未到账</span>}{settlement.discountCents > 0 && <p className="mt-1 text-xs font-medium text-primary">另有优惠核销 {money(centsToMoney(settlement.discountCents))}</p>}</td>
                     <td className="px-3 py-3 align-top"><BillingStatus value={state} /></td>
@@ -2824,7 +2867,7 @@ function DetailFinance({
       {(otherBills.length > 0 || depositLedger.length > 0) && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-3"><div className="grid grid-cols-3 rounded-xl border bg-muted/30 text-center"><div className="p-3"><p className="text-xs text-muted-foreground">累计收取押金</p><p className="mt-1 font-semibold">{money(centsToMoney(depositSummary.collectedCents))}</p></div><div className="border-x p-3"><p className="text-xs text-muted-foreground">已退 / 已抵扣</p><p className="mt-1 font-semibold">{money(centsToMoney(depositSummary.returnedOrOffsetCents))}</p></div><div className="p-3"><p className="text-xs text-muted-foreground">当前可退余额</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(depositSummary.refundableCents))}</p></div></div>{depositLedger.length > 0 && <div className="rounded-xl border"><div className="border-b px-3 py-2 text-sm font-semibold">押金流水</div><div className="divide-y">{depositLedger.map((entry) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm"><div><strong>{entry.entryType}</strong><p className="mt-1 text-muted-foreground">{entry.entryDate} · {entry.operatorName || "系统记录"}</p>{entry.notes && <p className="mt-1 text-xs text-muted-foreground">{entry.notes}</p>}</div><span className={entry.entryType === "押金收取" ? "font-semibold text-primary" : "font-semibold text-destructive"}>{entry.entryType === "押金收取" ? "+" : "−"}{money(Math.abs(Number(entry.amount)))}</span></div>)}</div></div>}{otherBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 约定日 {bill.dueDate}</p></div><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} /></div>)}</div></section>}
       <section>
         <h3 className="mb-3 font-semibold">全部收款流水</h3>
-        {rental.paymentRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{rental.paymentRecords.map((payment) => <tr key={payment.id}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{canViewFinance && Number(payment.amount) > 0 && <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>}</td></tr>)}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无收款记录</p>}
+        {rental.paymentRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{rental.paymentRecords.map((payment) => { const isReversed = reversedPaymentIds.has(payment.id); return <tr key={payment.id} className={isReversed ? "bg-muted/30 text-muted-foreground" : undefined}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{isReversed ? <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">已冲正</span> : canViewFinance && Number(payment.amount) > 0 ? <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button> : null}</td></tr>; })}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无收款记录</p>}
       </section>
     </div>
   );
