@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { depositFinanceSummary, isDepositLedgerEntry, rentFinanceSummary } from '../lib/rental-finance-display'
+import { activePaymentAllocations, depositFinanceSummary, isDepositLedgerEntry, rentFinanceSummary } from '../lib/rental-finance-display'
 
 describe('租赁财务展示核算', () => {
   it('把实收和优惠分开核销，优惠后不再显示待收', () => {
@@ -53,6 +53,30 @@ describe('租赁财务展示核算', () => {
 
     expect(summary.billSettlement.get(6)).toEqual({ cashCents: 45_000, discountCents: 10_000, outstandingCents: 0 })
     expect(summary.billSettlement.get(7)).toEqual({ cashCents: 45_000, discountCents: 0, outstandingCents: 0 })
+  })
+
+  it('部分收款冲正后只排除对应账期的分配', () => {
+    const allocations = [
+      { billId: 4, paymentRecordId: 40, amount: '150' },
+      { billId: 5, paymentRecordId: 50, amount: '150' },
+      { billId: 6, paymentRecordId: 60, amount: '150' },
+    ]
+    const active = activePaymentAllocations(allocations, [40, 50])
+    const summary = rentFinanceSummary({
+      totalRent: '450',
+      paidAmount: '150',
+      rentBills: [
+        { id: 4, amount: '150', paidAmount: '0', dueDate: '2025-09-12', allocations: active.filter((item) => item.billId === 4) },
+        { id: 5, amount: '150', paidAmount: '0', dueDate: '2025-10-12', allocations: active.filter((item) => item.billId === 5) },
+        { id: 6, amount: '150', paidAmount: '150', dueDate: '2025-11-12', allocations: active.filter((item) => item.billId === 6) },
+      ],
+      ledger: [],
+    })
+
+    expect(active.map((item) => item.paymentRecordId)).toEqual([60])
+    expect(summary.billSettlement.get(4)?.outstandingCents).toBe(15_000)
+    expect(summary.billSettlement.get(5)?.outstandingCents).toBe(15_000)
+    expect(summary.billSettlement.get(6)?.outstandingCents).toBe(0)
   })
 
   it('优惠冲正后恢复待收', () => {

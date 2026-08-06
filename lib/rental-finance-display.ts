@@ -18,6 +18,11 @@ const discountTypes = new Set(['收款优惠', '租金优惠', '优惠核销'])
 const discountReversalTypes = new Set(['优惠冲正', '收款优惠冲正'])
 const depositOutflowTypes = new Set(['押金退还', '押金抵扣欠租', '押金抵扣赔偿'])
 
+export function activePaymentAllocations<T extends { paymentRecordId: number }>(allocations: T[], reversedPaymentIds: Iterable<number>) {
+  const reversed = new Set(reversedPaymentIds)
+  return allocations.filter((allocation) => !reversed.has(allocation.paymentRecordId))
+}
+
 export function rentFinanceSummary(input: {
   totalRent: string | number
   paidAmount: string | number

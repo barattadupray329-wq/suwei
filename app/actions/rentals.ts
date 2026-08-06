@@ -20,6 +20,7 @@ import { availableQuantity, rentalDeviceSummary, rentalLifecycleStatus } from '@
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { paymentStatusFromCents, rentalFinancialSnapshot } from '@/lib/rental-reconciliation'
+import { activePaymentAllocations } from '@/lib/rental-finance-display'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
@@ -112,13 +113,15 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const renewalMap = groupByRental(renewalsWithCorrections)
   const paymentMap = groupByRental(payments)
   const eventMap = groupByRental(events)
-  const allocationsByBill = new Map<number, typeof allocations>()
-  for (const allocation of allocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  const reversedPaymentIds = ledger.flatMap((entry) => entry.entryType === '收款冲正' && entry.paymentRecordId ? [entry.paymentRecordId] : [])
+  const activeAllocations = activePaymentAllocations(allocations, reversedPaymentIds)
+  const allocationsByBill = new Map<number, typeof activeAllocations>()
+  for (const allocation of activeAllocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
   const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
   const billMap = groupByRental(billsWithAllocations)
   const ledgerMap = groupByRental(ledger)
   const discountMap = groupByRental(discounts)
-  const allocationMap = groupByRental(allocations)
+  const allocationMap = groupByRental(activeAllocations)
   return rows.map((row) => {
     const rentalItemRows = itemMap.get(row.id) ?? []
     const quantity = rentalItemRows.reduce((sum, item) => sum + availableQuantity(item), 0)
