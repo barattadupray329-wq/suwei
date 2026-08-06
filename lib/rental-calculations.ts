@@ -121,10 +121,17 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
   const ranges = new Map<number, BillPeriodRange>()
   let cursor = 0
   let total = 0
+  let previous: T | null = null
+  let previousRange: BillPeriodRange | null = null
   for (const bill of sorted) {
     let start = cursor + 1
     let end = start
-    if (anchorDate) {
+    const sharesPreviousPeriod = previous?.periodStart === bill.periodStart && previous.periodEnd === bill.periodEnd
+    if (sharesPreviousPeriod && previousRange) {
+      // 同一账期可能按设备拆成多笔账单，它们共享期号，不应被误算成后续期数。
+      start = previousRange.start
+      end = previousRange.end
+    } else if (anchorDate) {
       try {
         // 期号一律相对起租日推算，续租账单落在哪个自然月就是第几期；
         // cursor 用于兜底历史数据里账期首尾相接（重叠一天）导致的期号回退。
@@ -135,9 +142,12 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
         end = start
       }
     }
-    ranges.set(bill.id, { start, end, span: end - start + 1 })
+    const range = { start, end, span: end - start + 1 }
+    ranges.set(bill.id, range)
     cursor = Math.max(cursor, end)
     total = Math.max(total, end)
+    previous = bill
+    previousRange = range
   }
   return { ranges, total, unit }
 }

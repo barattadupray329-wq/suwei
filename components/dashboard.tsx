@@ -2168,7 +2168,7 @@ function RentalForm({
                 </select>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
-                {`租赁期间（${billingType === "daily" ? "天" : "个月"}）`}
+                {`租赁期���（${billingType === "daily" ? "天" : "个月"}）`}
                 <input
                   className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
                   type="number"
@@ -2762,7 +2762,9 @@ function DetailFinance({
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
-  const rentBills = rental.bills.filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType));
+  const rentBills = rental.bills
+    .filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType))
+    .sort((left, right) => left.periodStart.localeCompare(right.periodStart) || left.periodEnd.localeCompare(right.periodEnd) || left.dueDate.localeCompare(right.dueDate) || left.id - right.id);
   const adjustmentBills = rental.bills.filter((bill) => Number(bill.amount) < 0 && bill.billType !== "押金");
   const otherBills = rental.bills.filter((bill) => !rentBills.includes(bill) && !adjustmentBills.includes(bill));
   const rentSummary = rentFinanceSummary({ totalRent: rental.totalRent, paidAmount: rental.paidAmount, rentBills, ledger: rental.ledger });

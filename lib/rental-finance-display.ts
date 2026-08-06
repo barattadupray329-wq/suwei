@@ -57,22 +57,30 @@ export function rentFinanceSummary(input: {
   }
   const assignedDiscountCents = [...assignedDiscountByBill.values()].reduce((sum, amount) => sum + amount, 0)
   let fallbackDiscountCredit = Math.max(0, discountCents - assignedDiscountCents)
-  let fallbackCashCredit = cashReceivedCents
+  const sortedBills = [...input.rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.id - right.id)
+  const fallbackDiscountByBill = new Map<number, number>()
+
+  // 旧数据可能没有付款分配记录，但账单 paidAmount 仍是可信的结清依据。
+  // 未关联到付款的优惠从最后结清的账单向前归属，避免把合同累计实收错误挪到最早到期的欠款。
+  for (const bill of [...sortedBills].reverse()) {
+    if (fallbackDiscountCredit <= 0 || bill.allocations?.length) continue
+    const recordedSettlementCents = Math.min(Math.max(0, toCents(bill.amount)), Math.max(0, toCents(bill.paidAmount)))
+    const fallbackDiscount = Math.min(recordedSettlementCents, fallbackDiscountCredit)
+    if (fallbackDiscount > 0) fallbackDiscountByBill.set(bill.id, fallbackDiscount)
+    fallbackDiscountCredit -= fallbackDiscount
+  }
+
   const billSettlement = new Map<number, { cashCents: number; discountCents: number; outstandingCents: number }>()
-  for (const bill of [...input.rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
+  for (const bill of sortedBills) {
     const amountCents = Math.max(0, toCents(bill.amount))
     const allocatedSettlementCents = Math.max(0, (bill.allocations ?? []).reduce((sum, allocation) => sum + toCents(allocation.amount), 0))
-    const assignedDiscount = Math.min(amountCents, assignedDiscountByBill.get(bill.id) ?? 0)
-    const allocatedCashCents = Math.max(0, allocatedSettlementCents - assignedDiscount)
-    const cashCents = bill.allocations?.length ? Math.min(amountCents - assignedDiscount, allocatedCashCents) : Math.min(amountCents, fallbackCashCredit)
-    fallbackCashCredit = Math.max(0, fallbackCashCredit - cashCents)
-    const fallbackDiscount = assignedDiscount === 0 ? Math.min(amountCents - cashCents, fallbackDiscountCredit) : 0
-    fallbackDiscountCredit -= fallbackDiscount
-    const discountForBillCents = assignedDiscount + fallbackDiscount
+    const recordedSettlementCents = Math.min(amountCents, Math.max(0, toCents(bill.paidAmount)))
+    const settlementCents = bill.allocations?.length ? Math.min(amountCents, allocatedSettlementCents) : recordedSettlementCents
+    const discountForBillCents = Math.min(settlementCents, (assignedDiscountByBill.get(bill.id) ?? 0) + (fallbackDiscountByBill.get(bill.id) ?? 0))
     billSettlement.set(bill.id, {
-      cashCents,
+      cashCents: Math.max(0, settlementCents - discountForBillCents),
       discountCents: discountForBillCents,
-      outstandingCents: Math.max(0, amountCents - cashCents - discountForBillCents),
+      outstandingCents: Math.max(0, amountCents - settlementCents),
     })
   }
 
