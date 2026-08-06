@@ -2209,7 +2209,7 @@ function RentalForm({
                 </select>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
-                {`租赁期�����（${billingType === "daily" ? "天" : "个月"}）`}
+                {`租赁期间（${billingType === "daily" ? "天" : "个月"}）`}
                 <input
                   className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
                   type="number"
@@ -2403,7 +2403,7 @@ pending: boolean;
     submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, startDate: scenario === "租期调整" ? startDate : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
   };
   return <form onSubmit={submitChange} className="flex flex-col gap-5">
-    <div className="rounded-xl bg-muted p-4"><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div>
+    <div className="rounded-xl bg-muted p-4"><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前生效资料。</p></div>
     <div className="grid gap-4 sm:grid-cols-2">
       {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <><Field label="新起租日期" type="date" value={startDate} onChange={setStartDate} /><Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} /></>}
       <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
@@ -2511,7 +2511,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} ���逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
