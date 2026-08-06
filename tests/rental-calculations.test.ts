@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billPaymentPeriodSummary, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -106,6 +106,19 @@ describe('期数按自然月累计', () => {
     expect(ranges.get(3)).toEqual({ start: 4, end: 6, span: 3 })
     expect(ranges.get(4)).toEqual({ start: 7, end: 7, span: 1 })
     expect(total).toBe(7)
+  })
+  it('多期合并账单按完整付款金额折算已付和未付期数', () => {
+    const summary = billPaymentPeriodSummary([
+      { ...bill(1, '2026-02-08', '2026-08-07'), amount: '1920', paidAmount: '1280' },
+    ], { anchorDate: '2026-02-08' })
+    expect(summary).toEqual({ total: 6, paid: 4, unpaid: 2 })
+  })
+  it('同账期拆单先汇总金额再计算且部分一期计入未付', () => {
+    const summary = billPaymentPeriodSummary([
+      { ...bill(1, '2026-01-08', '2026-04-07'), amount: '420', paidAmount: '320' },
+      { ...bill(2, '2026-01-08', '2026-04-07'), amount: '60', paidAmount: '60' },
+    ], { anchorDate: '2026-01-08' })
+    expect(summary).toEqual({ total: 3, paid: 2, unpaid: 1 })
   })
   it('缺少起租日时以首笔账期为锚点', () => {
     const { ranges } = billPeriodRanges([bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')])

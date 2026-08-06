@@ -158,6 +158,38 @@ export function billPeriodLabel(range: BillPeriodRange | undefined, unit: Billin
   return range.span > 1 ? `第 ${range.start}-${range.end} ${suffix}` : `第 ${range.start} ${suffix}`
 }
 
+export function billPaymentPeriodSummary<T extends { id: number; periodStart: string; periodEnd: string; dueDate?: string; amount: string | number; paidAmount: string | number }>(
+  bills: T[],
+  options: { anchorDate?: string | null; unit?: BillingUnit } = {},
+) {
+  const { ranges } = billPeriodRanges(bills, options)
+  const groups = new Map<string, { span: number; amountCents: number; paidCents: number }>()
+
+  for (const bill of bills) {
+    const range = ranges.get(bill.id)
+    if (!range) continue
+    const key = `${range.start}-${range.end}`
+    const current = groups.get(key) ?? { span: range.span, amountCents: 0, paidCents: 0 }
+    groups.set(key, {
+      span: range.span,
+      amountCents: current.amountCents + Math.max(0, toCents(bill.amount)),
+      paidCents: current.paidCents + Math.max(0, Math.min(toCents(bill.amount), toCents(bill.paidAmount))),
+    })
+  }
+
+  let paid = 0
+  let unpaid = 0
+  for (const group of groups.values()) {
+    // 多期合并开票时按金额折算完整已付期数；不足一期的部分仍归入未付。
+    const paidInGroup = group.amountCents > 0
+      ? Math.min(group.span, Math.floor((group.paidCents * group.span) / group.amountCents))
+      : 0
+    paid += paidInGroup
+    unpaid += group.span - paidInGroup
+  }
+  return { total: paid + unpaid, paid, unpaid }
+}
+
 export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[]) {
   return bills
     .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))

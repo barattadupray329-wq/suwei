@@ -9,7 +9,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentalPricePeriods, rentals, returnRecords, user } from '@/lib/db/schema'
 import { billingPeriod, periodNumberAt } from '@/lib/billing-periods'
-import { billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { billPaymentPeriodSummary, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -220,9 +220,19 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       status: lifecycleStatus === '逾期' ? '在租' : lifecycleStatus,
       bills: bills.map((bill) => ({ dueDate: bill.dueDate, amount: bill.amount, paidAmount: bill.paidAmount })),
     }, today)
-    // 期数按自然月（日租按天）累计，而不是按账单条数：起租 3 个月 + 续租 1 个月 = 4 期
-    const periodCount = billPeriodRanges(bills, { anchorDate: row.startDate, unit: normalizeBillingUnit(row.billingType) }).total
-    return { ...row, quantity, endDate: effectiveEndDate, periodCount, billingUnit: normalizeBillingUnit(row.billingType), status }
+    // 期数按自然月（日租按天）累计；同账期拆单只计一次，整期全部结清才计入已付。
+    const billingUnit = normalizeBillingUnit(row.billingType)
+    const periodSummary = billPaymentPeriodSummary(bills, { anchorDate: row.startDate, unit: billingUnit })
+    return {
+      ...row,
+      quantity,
+      endDate: effectiveEndDate,
+      periodCount: periodSummary.total,
+      paidPeriodCount: periodSummary.paid,
+      unpaidPeriodCount: periodSummary.unpaid,
+      billingUnit,
+      status,
+    }
   })
   const total = Number(summaryRow?.count ?? 0)
   return {
@@ -352,7 +362,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       db.insert(accountLedger).values({ userId, rentalId, entryType: '押金收取', amount: depositBill.amount, entryDate: collection.paymentDate, paymentRecordId: depositPaymentId, operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
     )
     statements.push(
-      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁合同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType, collectRent, collectDeposit, paymentDate: collection?.paymentDate, paymentMethod: collection?.paymentMethod } }),
+      db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '创建', resourceType: '租赁���同', resourceId: String(rentalId), summary: `创建${orderType === 'official' ? '正式' : orderType === 'test' ? '测试' : '草稿'}合同 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity, orderType, collectRent, collectDeposit, paymentDate: collection?.paymentDate, paymentMethod: collection?.paymentMethod } }),
     )
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   } catch (error) {
