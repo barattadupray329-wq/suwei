@@ -120,6 +120,16 @@ describe('期数按自然月累计', () => {
     ], { anchorDate: '2026-01-08' })
     expect(summary).toEqual({ total: 3, paid: 2, unpaid: 1 })
   })
+  it('月租同日起止只算一个月且与设备台数无关', () => {
+    const bills = [
+      { ...bill(1, '2025-09-12', '2025-11-11'), amount: '200', paidAmount: '200' },
+      { ...bill(2, '2025-11-12', '2026-07-11'), amount: '800', paidAmount: '800' },
+      { ...bill(3, '2026-07-12', '2026-08-12'), amount: '100', paidAmount: '0' },
+    ]
+    const { ranges } = billPeriodRanges(bills, { anchorDate: '2025-09-12' })
+    expect(ranges.get(3)).toEqual({ start: 11, end: 11, span: 1 })
+    expect(billPaymentPeriodSummary(bills, { anchorDate: '2025-09-12' })).toEqual({ total: 11, paid: 10, unpaid: 1 })
+  })
   it('缺少起租日时以首笔账期为锚点', () => {
     const { ranges } = billPeriodRanges([bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')])
     expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })

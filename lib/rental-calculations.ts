@@ -136,7 +136,12 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
         // 期号一律相对起租日推算，续租账单落在哪个自然月就是第几期；
         // cursor 用于兜底历史数据里账期首尾相接（重叠一天）导致的期号回退。
         start = Math.max(cursor + 1, elapsedUnits(anchorDate, bill.periodStart, unit) + 1)
-        end = Math.max(start, coveredUnits(anchorDate, addCalendarDays(bill.periodEnd, 1), unit))
+        // 月租账单存在两种历史边界：月末日期为含当日，同日起止（如 07-12 至 08-12）则结束日为不含。
+        // 两者都只代表一个月，设备数量不参与期数计算。
+        const endExclusive = unit === 'monthly' && bill.periodStart.slice(8) === bill.periodEnd.slice(8)
+          ? bill.periodEnd
+          : addCalendarDays(bill.periodEnd, 1)
+        end = Math.max(start, coveredUnits(anchorDate, endExclusive, unit))
       } catch {
         start = cursor + 1
         end = start
