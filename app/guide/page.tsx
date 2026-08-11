@@ -1,8 +1,7 @@
 import Link from 'next/link'
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { ArrowRight, CheckCircle2, CircleAlert, ClipboardPenLine } from 'lucide-react'
-import { auth } from '@/lib/auth'
+import { getCurrentSession } from '@/lib/auth'
 
 type Block = { id: string; title: string; intro: string; cases: { when: string; how: string[]; note: string }[] }
 
@@ -101,7 +100,7 @@ const sections: Block[] = [
 ]
 
 export default async function GuidePage() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await getCurrentSession()
   if (!session?.user) redirect('/sign-in')
   return <div className="page-container">
     <header className="page-header">

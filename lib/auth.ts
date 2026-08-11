@@ -1,6 +1,8 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { username } from 'better-auth/plugins/username'
+import { headers } from 'next/headers'
+import { cache } from 'react'
 import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 
@@ -26,3 +28,7 @@ export const auth = betterAuth({
   session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
   ...(process.env.NODE_ENV === 'development' ? { advanced: { defaultCookieAttributes: { sameSite: 'none' as const, secure: true } } } : {}),
 })
+
+export const getCurrentSession = cache(async () =>
+  auth.api.getSession({ headers: await headers() }),
+)

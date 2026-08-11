@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from 'next'
 import { headers } from 'next/headers'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { Suspense } from 'react'
 import { Toaster } from 'sonner'
 import { AppShell } from '@/components/app-shell'
 import { StaleBuildGuard } from '@/components/stale-build-guard'
-import { auth } from '@/lib/auth'
+import { getCurrentSession } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
 import './globals.css'
 
@@ -14,22 +15,23 @@ export const metadata: Metadata = { metadataBase: new URL('https://www.tuzhuzu.c
 export const viewport: Viewport = { themeColor: '#f5f7f6', width: 'device-width', initialScale: 1 }
 export const dynamic = 'force-dynamic'
 const APP_VERSION = process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev'
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+
+async function AppFrame({ children }: { children: React.ReactNode }) {
   const requestHeaders = await headers()
-  const hasRequestContext = requestHeaders.has('host')
-  const session = hasRequestContext ? await auth.api.getSession({ headers: requestHeaders }) : null
-  let shell: { storeName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[] } | null = null
-  if (session?.user) {
-    try {
-      const access = await getAccessContext()
-      shell = { storeName: access.shopName, role: access.role, permissions: access.permissions }
-    } catch {
-      // 失效、停用或孤立账号仍允许渲染登录页，由登录页显示中文恢复提示。
-      shell = null
-    }
+  const session = requestHeaders.has('host') ? await getCurrentSession() : null
+  if (!session?.user) return children
+  try {
+    const access = await getAccessContext()
+    return <AppShell storeName={access.shopName} userName={session.user.name} role={access.role} permissions={access.permissions} version={APP_VERSION}>{children}</AppShell>
+  } catch {
+    return children
   }
-  const content = shell && session?.user
-    ? <AppShell storeName={shell.storeName} userName={session.user.name} role={shell.role} permissions={shell.permissions} version={APP_VERSION}>{children}</AppShell>
-    : children
-  return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}><StaleBuildGuard />{content}<Toaster richColors position="top-center" /></body></html>
+}
+
+function InitialLoading() {
+  return <main className="flex min-h-screen items-center justify-center bg-background p-6" aria-busy="true" aria-label="正在加载"><div className="flex items-center gap-3 rounded-xl border bg-card px-5 py-4 shadow-sm"><span className="size-5 animate-spin rounded-full border-2 border-muted border-t-primary" aria-hidden="true" /><span className="text-sm font-medium text-foreground">正在加载，请稍候</span></div></main>
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return <html lang="zh-CN" className="bg-background" data-scroll-behavior="smooth"><body className={`${sans.variable} ${mono.variable} font-sans antialiased`}><StaleBuildGuard /><Suspense fallback={<InitialLoading />}><AppFrame>{children}</AppFrame></Suspense><Toaster richColors position="top-center" /></body></html>
 }

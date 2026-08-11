@@ -198,12 +198,13 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, overdueAmount: overdueBillAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
-  const itemRows = rows.length
-    ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
-    : []
-  const billRows = rows.length
-    ? await db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rows.map((row) => row.id))))
-    : []
+  const rentalIds = rows.map((row) => row.id)
+  const [itemRows, billRows] = rentalIds.length
+    ? await Promise.all([
+        db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rentalIds))),
+        db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
+      ])
+    : [[], []]
   const itemsByRental = new Map<number, typeof itemRows>()
   for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
   const billsByRental = new Map<number, typeof billRows>()

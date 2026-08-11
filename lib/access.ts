@@ -1,15 +1,14 @@
-import { auth } from '@/lib/auth'
+import { getCurrentSession } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountProfiles, organizationMembers, shops } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { headers } from 'next/headers'
 import { canAccessStoreModule, defaultAccountRoute, permissionsForRole, type StorePermission } from '@/lib/tenant-policy'
 import { cache } from 'react'
 
 export type ModulePermission = StorePermission
 
 const getBaseAccessContext = cache(async () => {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await getCurrentSession()
   if (!session?.user) throw new Error('未登录')
   const [profile] = await db.select().from(accountProfiles).where(eq(accountProfiles.userId, session.user.id))
   if (!profile?.active) throw new Error('账号未授权或已停用')

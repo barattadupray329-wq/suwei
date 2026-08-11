@@ -1,13 +1,12 @@
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getDashboard, getRentalAssignees, getRentalById, getRentalPage } from '@/app/actions/rentals'
 import { Dashboard } from '@/components/dashboard'
 import { RentalRecords } from '@/components/rental-records'
 import { getAccessContext } from '@/lib/access'
-import { auth } from '@/lib/auth'
+import { getCurrentSession } from '@/lib/auth'
 
 export default async function RentalsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await getCurrentSession()
   if (!session?.user) redirect('/sign-in')
   const params = await searchParams
   const value = (key: string) => typeof params[key] === 'string' ? params[key] : ''
