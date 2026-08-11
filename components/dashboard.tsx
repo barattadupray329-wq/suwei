@@ -340,7 +340,7 @@ function validateBusinessBatch<T extends { rentalId: number }>(
   if (values.some((value) => value.rentalId !== rentalId))
     throw new Error("批量业务必须属于同一合同");
   if (new Set(values.map(itemId)).size !== values.length)
-    throw new Error("同一设��不能重复提交");
+    throw new Error("同一设备不能重复提交");
   return values;
 }
 function calculateEndDate(
@@ -1016,7 +1016,7 @@ export function Dashboard({
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <p className="text-sm font-medium text-primary">
-                {mode === "overview" ? "经营分析中心" : "合��全生命周期"}
+                {mode === "overview" ? "经营分析中心" : "合同全生命周期"}
               </p>
               <h1 className="mt-1 text-2xl font-bold text-balance">
                 {mode === "overview" ? "经营总览" : "租赁管理"}
@@ -2132,7 +2132,7 @@ submit={(value) =>
                       (value) => value.rentalItemId,
                     ),
                   ),
-                "���租已登记",
+                "退租已登记",
               )
             }
           />

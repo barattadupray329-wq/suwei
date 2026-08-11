@@ -20,6 +20,7 @@ import { availableQuantity, rentalDeviceSummary, rentalLifecycleStatus } from '@
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { paymentStatusFromCents, rentalFinancialSnapshot } from '@/lib/rental-reconciliation'
+import { settleLegacyReturnAdjustments } from '@/lib/legacy-return-adjustments'
 import { activePaymentAllocations } from '@/lib/rental-finance-display'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
@@ -125,7 +126,9 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const activeAllocations = activePaymentAllocations(allocations, reversedPaymentIds)
   const allocationsByBill = new Map<number, typeof activeAllocations>()
   for (const allocation of activeAllocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
-  const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
+  const billsWithAllocations = settleLegacyReturnAdjustments(
+    bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] })),
+  )
   const billMap = groupByRental(billsWithAllocations)
   const ledgerMap = groupByRental(ledger)
   const discountMap = groupByRental(discounts)
@@ -188,7 +191,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const where = and(...filters)
   const outstandingAmount = sql<number>`cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real)`
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
-  // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终���合同沉底。
+  // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
     when (${hasOverdueBills}) then 0
@@ -225,7 +228,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   }).format(new Date())
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
-    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0)
+    const bills = settleLegacyReturnAdjustments(billsByRental.get(row.id) ?? []).filter(
+      (bill) => bill.billType !== '押金' && Number(bill.amount) > 0,
+    )
     const summaryItems = items.length > 0
       ? items
       : [{ deviceType: row.deviceType, quantity: row.quantity, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0 }]
