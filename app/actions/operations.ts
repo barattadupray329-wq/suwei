@@ -198,13 +198,36 @@ export async function returnRentalItems(input: ReturnInput[]) {
         }
       : item;
   });
-  const billRecalculations = rows.flatMap((row) =>
-    recalculateBillsAfterReturn({
-      bills,
-      monthlyRent: row.item.monthlyRent,
-      returnedQuantity: row.value.quantity,
-      returnDate: row.value.date,
-    }),
+  const billRecalculations = Array.from(
+    rows
+      .flatMap((row) =>
+        recalculateBillsAfterReturn({
+          bills,
+          monthlyRent: row.item.monthlyRent,
+          returnedQuantity: row.value.quantity,
+          returnDate: row.value.date,
+        }),
+      )
+      .reduce((grouped, bill) => {
+        const sourceBill = bills.find((row) => row.id === bill.id);
+        if (!sourceBill) return grouped;
+        const existing = grouped.get(bill.id);
+        const totalReductionCents =
+          (existing?.reductionCents ?? 0) + bill.reductionCents;
+        const previousAmountCents = toCents(sourceBill.amount);
+        const nextAmountCents = Math.max(
+          toCents(sourceBill.paidAmount),
+          previousAmountCents - totalReductionCents,
+        );
+        grouped.set(bill.id, {
+          id: bill.id,
+          previousAmountCents,
+          nextAmountCents,
+          reductionCents: previousAmountCents - nextAmountCents,
+        });
+        return grouped;
+      }, new Map<number, { id: number; previousAmountCents: number; nextAmountCents: number; reductionCents: number }>)
+      .values(),
   );
   const futureBillReductionCents = billRecalculations.reduce(
     (sum, bill) => sum + bill.reductionCents,
@@ -378,24 +401,6 @@ export async function returnRentalItems(input: ReturnInput[]) {
             entryDate: v.date,
             operatorName: name,
             notes: `${v.refundSettlement.timing === "now" ? `已通过${v.refundSettlement.method}退款` : "约定以后退款"}${v.billingReason ? `；${v.billingReason}` : ""}`,
-          }),
-      );
-    if (row.billing.adjustmentCents > 0)
-      statements.push(
-        db
-          .insert(receivableBills)
-          .values({
-            userId,
-            rentalId,
-            billNo: `RETURN-${rentalId}-${row.id}`,
-            periodStart: v.date,
-            periodEnd: v.date,
-            dueDate: v.date,
-            billType: "提前退租减免",
-            amount: fromCents(-row.billing.adjustmentCents),
-            paidAmount: "0.00",
-            status: "已调整",
-            notes: "提前退租按实际使用天数结",
           }),
       );
     if (v.deductionAmount > 0)
