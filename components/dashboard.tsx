@@ -327,7 +327,7 @@ function validateBusinessBatch<T extends { rentalId: number }>(
   if (values.some((value) => value.rentalId !== rentalId))
     throw new Error("批量业务必须属于同一合同");
   if (new Set(values.map(itemId)).size !== values.length)
-    throw new Error("同一设��不能重复提交");
+    throw new Error("同一设备不能重复提交");
   return values;
 }
 function calculateEndDate(
@@ -719,11 +719,7 @@ export function Dashboard({
     if (selectedId === null) return;
     const refreshedRental = rentals.find((item) => item.id === selectedId);
     if (!refreshedRental) return;
-    setSelected((current) =>
-      current?.id === selectedId && current !== refreshedRental
-        ? refreshedRental
-        : current,
-    );
+    setSelected((current) => current?.id === selectedId && current !== refreshedRental ? refreshedRental : current);
   }, [rentals, selectedId]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(
@@ -842,7 +838,7 @@ export function Dashboard({
           `合同 ${rental.contractNo}｜${rental.items.map((item) => `${item.deviceName}×${item.quantity}`).join("、")}｜账期 ${bill.periodStart} 至 ${bill.periodEnd}｜付款日 ${bill.dueDate}｜待付 ${money(bill.outstanding)}`,
       ),
     );
-    const message = `${customer.name}您好，您当前有以下已到付款日的租赁账单待支付：\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}\n本次合计应付：${money(customer.dueAmount)}。尚未到付款日的账单未计入本次应付，请您核对���安排付款，谢谢。`;
+    const message = `${customer.name}您好，您当前有以下已到付款日的租赁账单待支付：\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}\n本次合计应付：${money(customer.dueAmount)}。尚未到付款日的账单未计入本次应付，请您核对并安排付款，谢谢。`;
     await navigator.clipboard.writeText(message);
     toast.success("微信催款文案已复制");
   };
@@ -1201,7 +1197,7 @@ export function Dashboard({
                 "在租",
                 rentals.filter((r) => displayStatus(r) === "在租").length,
               ],
-              ["逾���", overdueCount],
+              ["逾期", overdueCount],
               ["已到期", expiredCount],
             ].map(([label, count]) => (
               <button
@@ -2047,12 +2043,9 @@ export function Dashboard({
             pending={pending}
             bills={selected.bills}
             target={paymentTarget}
-            submit={(value) =>
-              runInDetail(
-                () => collectPayment(selected.id, value),
-                "收款已登记",
-              )
-            }
+submit={(value) =>
+                    runInDetail(() => collectPayment(selected.id, value), "收款已登记")
+                  }
           />
         )}
       </Dialog>
@@ -3449,7 +3442,7 @@ function RentalChangeGuide({
       <div className="rounded-xl bg-muted p-4">
         <p className="font-semibold">{scenario}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          原合同信息会作为历史快照保留，本次只���新当前生效资料。
+          原合同信息会作为历史快照保留，本次只更新当前生效资料。
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -4157,7 +4150,7 @@ function DetailFinance({
             )}
           </div>
           <div className="border-x p-3">
-            <p className="text-xs text-muted-foreground">���到账</p>
+            <p className="text-xs text-muted-foreground">已到账</p>
             <p className="mt-1 font-semibold text-primary">
               {money(centsToMoney(totalPaid))}
             </p>
