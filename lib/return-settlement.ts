@@ -1,4 +1,48 @@
+import { billingPeriodAt } from './billing-periods'
+import { billPeriodRanges, toCents } from './rental-calculations'
+
 export type ReturnRentMode = 'full_month' | 'daily' | 'waive'
+export type ReturnSettlementBill = {
+  id: number
+  periodStart: string
+  periodEnd: string
+  amount: string | number
+  paidAmount: string | number
+  billType: string
+}
+
+export function returnPeriodSettlement(input: { anchorDate: string; returnDate: string; bills: ReturnSettlementBill[] }) {
+  const currentPeriod = billingPeriodAt(input.anchorDate, input.returnDate)
+  const rentBills = input.bills.filter((bill) => bill.billType !== '押金' && toCents(bill.amount) > 0)
+  const { ranges } = billPeriodRanges(rentBills, { anchorDate: input.anchorDate })
+  let currentSettled = false
+  let historicalUnpaidPeriods = 0
+  let historicalOutstandingCents = 0
+
+  for (const bill of rentBills) {
+    const range = ranges.get(bill.id)
+    if (!range) continue
+    const amountCents = toCents(bill.amount)
+    const paidCents = Math.min(amountCents, toCents(bill.paidAmount))
+    const periodAmountCents = amountCents / range.span
+    const paidPeriods = periodAmountCents > 0 ? Math.min(range.span, Math.floor((paidCents + 0.5) / periodAmountCents)) : 0
+    for (let periodNo = range.start; periodNo <= range.end; periodNo += 1) {
+      const settled = periodNo - range.start < paidPeriods
+      if (periodNo === currentPeriod.periodNo && settled) currentSettled = true
+      if (periodNo < currentPeriod.periodNo && !settled) {
+        historicalUnpaidPeriods += 1
+        historicalOutstandingCents += Math.round(periodAmountCents)
+      }
+    }
+  }
+
+  return {
+    currentPeriod,
+    currentSettled,
+    historicalUnpaidPeriods,
+    historicalOutstanding: historicalOutstandingCents / 100,
+  }
+}
 
 const DAY_MS = 86_400_000
 const cents = (value: number) => Math.round(value * 100)
