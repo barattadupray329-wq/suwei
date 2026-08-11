@@ -88,9 +88,10 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, renewals, renewalCorrections, payments, events, bills, allocations, ledger, discounts] = await Promise.all([
+  const [items, buyouts, returns, renewals, renewalCorrections, payments, events, bills, allocations, ledger, discounts] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
+    db.select().from(returnRecords).where(and(eq(returnRecords.userId, userId), inArray(returnRecords.rentalId, ids))).orderBy(desc(returnRecords.returnDate), desc(returnRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
     db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), inArray(renewalAdjustments.rentalId, ids))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
@@ -106,7 +107,14 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     return grouped
   }
   const itemMap = groupByRental(items)
+  const itemById = new Map(items.map((item) => [item.id, item]))
   const buyoutMap = groupByRental(buyouts)
+  const returnMap = groupByRental(
+    returns.map((record) => ({
+      ...record,
+      item: itemById.get(record.rentalItemId) ?? null,
+    })),
+  )
   const correctionsByRenewal = new Map<number, typeof renewalCorrections>()
   for (const correction of renewalCorrections) correctionsByRenewal.set(correction.renewalRecordId, [...(correctionsByRenewal.get(correction.renewalRecordId) ?? []), correction])
   const renewalsWithCorrections = renewals.map((renewal) => ({ ...renewal, adjustments: correctionsByRenewal.get(renewal.id) ?? [] }))
@@ -131,7 +139,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     const rentalLedger = ledgerMap.get(row.id) ?? []
     const reversedPaymentIds = rentalLedger.flatMap((entry) => entry.entryType === '收款冲正' && entry.paymentRecordId ? [entry.paymentRecordId] : [])
     const financeSnapshot = rentalFinancialSnapshot({ bills: rentalBills, payments: rentalPayments, allocations: allocationMap.get(row.id) ?? [], discounts: rentalDiscounts, reversedPaymentIds })
-    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: rentalLedger, financeSnapshot }
+    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], returnRecords: returnMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: rentalLedger, financeSnapshot }
   })
 }
 
@@ -180,7 +188,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const where = and(...filters)
   const outstandingAmount = sql<number>`cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real)`
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
-  // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
+  // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终���合同沉底。
   // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
     when (${hasOverdueBills}) then 0

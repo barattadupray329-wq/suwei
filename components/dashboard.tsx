@@ -204,7 +204,19 @@ type Payment = {
   feeType: string;
   notes: string | null;
 };
-type RentalEvent = {
+  type ReturnRecord = {
+  id: number;
+  rentalItemId: number;
+  quantity: number;
+  returnDate: string;
+  condition: string;
+  deductionAmount: string;
+  depositRefund: string;
+  notes: string | null;
+  operatorName: string;
+  item: Item | null;
+  };
+  type RentalEvent = {
   id: number;
   eventType: string;
   status: string;
@@ -284,6 +296,7 @@ type Rental = {
   notes: string | null;
   items: Item[];
   buyoutRecords: Buyout[];
+  returnRecords: ReturnRecord[];
   renewalRecords: Renewal[];
   paymentRecords: Payment[];
   events: RentalEvent[];
@@ -327,7 +340,7 @@ function validateBusinessBatch<T extends { rentalId: number }>(
   if (values.some((value) => value.rentalId !== rentalId))
     throw new Error("批量业务必须属于同一合同");
   if (new Set(values.map(itemId)).size !== values.length)
-    throw new Error("同一设备不能重复提交");
+    throw new Error("同一设��不能重复提交");
   return values;
 }
 function calculateEndDate(
@@ -1003,7 +1016,7 @@ export function Dashboard({
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <p className="text-sm font-medium text-primary">
-                {mode === "overview" ? "经营分析中心" : "合同全生命周期"}
+                {mode === "overview" ? "经营分析中心" : "合��全生命周期"}
               </p>
               <h1 className="mt-1 text-2xl font-bold text-balance">
                 {mode === "overview" ? "经营总览" : "租赁管理"}
@@ -2119,7 +2132,7 @@ submit={(value) =>
                       (value) => value.rentalItemId,
                     ),
                   ),
-                "退租已登记",
+                "���租已登记",
               )
             }
           />
@@ -4512,24 +4525,46 @@ function DetailRecords({
         operator: "系统记录",
         status: "已完成",
         renewal: record,
+        feeAdjustment: 0,
+        returnRecords: [] as ReturnRecord[],
       };
     }),
-    ...rental.events.map((event) => ({
-      key: `event-${event.id}`,
-      date: event.eventDate,
-      type: event.eventType,
-      title:
-        event.eventType === "维修"
-          ? event.faultDescription || "设备维修"
-          : event.reason || "设备与合同变更",
-      detail:
-        event.eventType === "维修"
-          ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}`
-          : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`,
-      operator: event.operatorName,
-      status: event.status,
-      renewal: null,
-    })),
+    ...rental.events.map((event) => {
+      const eventReturns =
+        event.eventType === "退租"
+          ? rental.returnRecords.filter(
+              (record) =>
+                record.returnDate === event.eventDate &&
+                (!event.itemId || record.rentalItemId === event.itemId),
+            )
+          : [];
+      const returnedQuantity = eventReturns.reduce(
+        (sum, record) => sum + record.quantity,
+        0,
+      );
+      return {
+        key: `event-${event.id}`,
+        date: event.eventDate,
+        type: event.eventType,
+        title:
+          event.eventType === "维修"
+            ? event.faultDescription || "设备维修"
+            : event.eventType === "退租" && eventReturns.length
+              ? `${eventReturns.map((record) => record.item?.deviceName || "设备").join("、")} · 共退 ${returnedQuantity} 台`
+              : event.reason || "设备与合同变更",
+        detail:
+          event.eventType === "维修"
+            ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}`
+            : event.eventType === "退租" && eventReturns.length
+              ? `设备已归还 · 应收调整 ${money(event.feeAdjustment)}`
+              : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`,
+        operator: event.operatorName,
+        status: event.status,
+        renewal: null,
+        feeAdjustment: Number(event.feeAdjustment),
+        returnRecords: eventReturns,
+      };
+    }),
     ...rental.buyoutRecords.map((record) => ({
       key: `buyout-${record.id}`,
       date: record.buyoutDate,
@@ -4539,6 +4574,8 @@ function DetailRecords({
       operator: "系统记录",
       status: "已完成",
       renewal: null,
+      feeAdjustment: 0,
+      returnRecords: [] as ReturnRecord[],
     })),
   ].sort((left, right) => right.date.localeCompare(left.date));
   if (!records.length)
@@ -4575,6 +4612,83 @@ function DetailRecords({
               <p className="mt-2 leading-6 text-muted-foreground">
                 {record.detail}
               </p>
+              {record.returnRecords.length ? (
+                <details className="mt-3 rounded-lg border bg-muted/30" open>
+                  <summary className="cursor-pointer px-3 py-2 font-medium">
+                    退租明细（{record.returnRecords.length} 项）
+                  </summary>
+                  <div className="flex flex-col gap-2 border-t p-3">
+                    {record.returnRecords.map((returnRecord) => (
+                      <div
+                        key={returnRecord.id}
+                        className="rounded-lg bg-background p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <strong>
+                            {returnRecord.item?.deviceName || "设备明细"} · {returnRecord.quantity} 台
+                          </strong>
+                          <span className="text-xs text-muted-foreground">
+                            状况：{returnRecord.condition || "—"}
+                          </span>
+                        </div>
+                        <dl className="mt-2 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                          <div>
+                            <dt className="text-muted-foreground">设备编号</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {returnRecord.item?.deviceCode || "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">月租单价</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {returnRecord.item?.monthlyRent
+                                ? money(returnRecord.item.monthlyRent)
+                                : "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">租金处理</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {record.feeAdjustment < 0
+                                ? `减少应收 ${money(Math.abs(record.feeAdjustment))}`
+                                : record.feeAdjustment > 0
+                                  ? `增加应收 ${money(record.feeAdjustment)}`
+                                  : "无需收款"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">损坏/清洁扣款</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {Number(returnRecord.deductionAmount) > 0
+                                ? money(returnRecord.deductionAmount)
+                                : "无扣款"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">押金退款</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {Number(returnRecord.depositRefund) > 0
+                                ? money(returnRecord.depositRefund)
+                                : "无需退款"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">经办人</dt>
+                            <dd className="mt-0.5 font-medium">
+                              {returnRecord.operatorName || record.operator || "—"}
+                            </dd>
+                          </div>
+                        </dl>
+                        {returnRecord.notes ? (
+                          <p className="mt-2 border-t pt-2 text-xs leading-5 text-muted-foreground">
+                            备注：{returnRecord.notes}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
               <p className="mt-2 text-xs text-muted-foreground">
                 经办人：{record.operator || "—"}
               </p>
