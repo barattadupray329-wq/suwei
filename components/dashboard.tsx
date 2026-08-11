@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -23,7 +30,11 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { billingPeriod, billingPeriodAt, periodNumberAt } from "@/lib/billing-periods";
+import {
+  billingPeriod,
+  billingPeriodAt,
+  periodNumberAt,
+} from "@/lib/billing-periods";
 import {
   buyoutRentalItem,
   changeStatus,
@@ -57,7 +68,10 @@ import {
   type LossInput,
   type ReturnInput,
 } from "@/app/actions/operations";
-import { sendRentalCreatedNotice, sendRentalReminders } from "@/app/actions/sms-reminders";
+import {
+  sendRentalCreatedNotice,
+  sendRentalReminders,
+} from "@/app/actions/sms-reminders";
 import {
   changeRentalContract,
   changeRentalItems,
@@ -69,20 +83,43 @@ import {
 import { getDeviceConfigRows } from "@/lib/device-config";
 import { RentalOperationWizard } from "@/components/rental-operation-wizard";
 import type { RentalOperationType } from "@/lib/rental-operation-hub";
-import { depositFinanceSummary, isDepositLedgerEntry, rentFinanceSummary } from "@/lib/rental-finance-display";
-import { addCalendarDays, billCoverageLabel, billPeriodLabel, billPeriodRanges, billState, nextOpenBill, normalizeBillingUnit } from "@/lib/rental-calculations";
-  import { rentalEndDate } from "@/lib/rental-calculations";
-  import { calculateReturnRent, returnPeriodSettlement } from "@/lib/return-settlement";
-  import { priceChangeAdjustment, returnTiming } from "@/lib/overdue-rent";
+import {
+  depositFinanceSummary,
+  isDepositLedgerEntry,
+  rentFinanceSummary,
+} from "@/lib/rental-finance-display";
+import {
+  addCalendarDays,
+  billCoverageLabel,
+  billPeriodLabel,
+  billPeriodRanges,
+  billState,
+  nextOpenBill,
+  normalizeBillingUnit,
+} from "@/lib/rental-calculations";
+import { rentalEndDate } from "@/lib/rental-calculations";
+import {
+  calculateReturnRent,
+  returnPeriodSettlement,
+} from "@/lib/return-settlement";
+import { priceChangeAdjustment, returnTiming } from "@/lib/overdue-rent";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
   START_DATE_REASONS,
   validateRentalItemFields,
 } from "@/lib/rental-form-rules";
 import { userErrorMessage } from "@/lib/errors";
-  import { handleAuthExpired } from "@/lib/session-expiry";
-import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
-import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
+import { handleAuthExpired } from "@/lib/session-expiry";
+import {
+  isContractExpired,
+  rentalDisplayStatus,
+  rentalOverdueAmount,
+} from "@/lib/rental-display-status";
+import {
+  allocatePayment,
+  billOutstandingCents,
+  centsToMoney,
+} from "@/lib/payment-allocation";
 
 type Item = {
   id: number;
@@ -265,7 +302,7 @@ type Summary = {
   overdueReceivable: string;
   upcomingReceivable: string;
   receivableContracts: number;
-  };
+};
 const money = (n: string | number) =>
   new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -280,12 +317,17 @@ const today = () =>
     day: "2-digit",
   }).format(new Date());
 
-function validateBusinessBatch<T extends { rentalId: number }>(values: T[], itemId: (value: T) => number) {
+function validateBusinessBatch<T extends { rentalId: number }>(
+  values: T[],
+  itemId: (value: T) => number,
+) {
   if (!values.length) throw new Error("请至少选择一项设备");
   if (values.length > 100) throw new Error("单次最多办理 100 项设备");
   const rentalId = values[0].rentalId;
-  if (values.some((value) => value.rentalId !== rentalId)) throw new Error("批量业务必须属于同一合同");
-  if (new Set(values.map(itemId)).size !== values.length) throw new Error("同一设备不能重复提交");
+  if (values.some((value) => value.rentalId !== rentalId))
+    throw new Error("批量业务必须属于同一合同");
+  if (new Set(values.map(itemId)).size !== values.length)
+    throw new Error("同一设��不能重复提交");
   return values;
 }
 function calculateEndDate(
@@ -341,30 +383,276 @@ const emptyRental = (): RentalInput => {
   };
 };
 
-export function BusinessOverview({ summary, rentals, canViewFinance }: { summary: Summary; rentals: Rental[]; canViewFinance: boolean }) {
+export function BusinessOverview({
+  summary,
+  rentals,
+  canViewFinance,
+}: {
+  summary: Summary;
+  rentals: Rental[];
+  canViewFinance: boolean;
+}) {
   const deviceTypes = ["台式机", "笔记本", "一体机", "显示器"];
-  const deviceCounts = Object.fromEntries(deviceTypes.map((type) => [type, rentals.reduce((total, rental) => total + rental.items.filter((item) => item.deviceType === type).reduce((sum, item) => sum + Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity), 0), 0)]));
+  const deviceCounts = Object.fromEntries(
+    deviceTypes.map((type) => [
+      type,
+      rentals.reduce(
+        (total, rental) =>
+          total +
+          rental.items
+            .filter((item) => item.deviceType === type)
+            .reduce(
+              (sum, item) =>
+                sum +
+                Math.max(
+                  0,
+                  item.quantity -
+                    item.boughtOutQuantity -
+                    item.returnedQuantity -
+                    item.lostQuantity,
+                ),
+              0,
+            ),
+        0,
+      ),
+    ]),
+  );
   const statusCards = [
-    { label: "在租", value: summary.active, href: "/rentals?status=在租", tone: "border-primary/30 bg-primary/10 text-primary" },
-    { label: "逾期", value: summary.overdue, href: "/rentals?status=逾期", tone: "border-destructive/30 bg-destructive/10 text-destructive" },
-    { label: "买断", value: rentals.filter((rental) => ["买断", "已买断"].includes(rental.status)).length, href: "/rentals?status=已买断", tone: "border-accent bg-accent text-accent-foreground" },
-    { label: "已退租", value: rentals.filter((rental) => rental.status === "已退租").length, href: "/rentals?status=已退租", tone: "border-border bg-muted text-foreground" },
+    {
+      label: "在租",
+      value: summary.active,
+      href: "/rentals?status=在租",
+      tone: "border-primary/30 bg-primary/10 text-primary",
+    },
+    {
+      label: "逾期",
+      value: summary.overdue,
+      href: "/rentals?status=逾期",
+      tone: "border-destructive/30 bg-destructive/10 text-destructive",
+    },
+    {
+      label: "买断",
+      value: rentals.filter((rental) =>
+        ["买断", "已买断"].includes(rental.status),
+      ).length,
+      href: "/rentals?status=已买断",
+      tone: "border-accent bg-accent text-accent-foreground",
+    },
+    {
+      label: "已退租",
+      value: rentals.filter((rental) => rental.status === "已退租").length,
+      href: "/rentals?status=已退租",
+      tone: "border-border bg-muted text-foreground",
+    },
   ];
-  return <main className="bg-background p-4 md:p-6"><div className="mx-auto flex max-w-7xl flex-col gap-6">
-    <header><p className="text-sm font-medium text-primary">经营分析中心</p><h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1><p className="mt-1 text-sm text-muted-foreground">查看财务、在租设备、合同状态和经营提醒；点击卡片可进入对应明细。</p></header>
-    <section aria-label="经营指标" className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-      <Link href="/rentals" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="正式合同" value={summary.total} icon={<Monitor />} /></Link>
-      <Link href="/rentals/drafts" className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">待审核草稿</p><p className="mt-2 text-2xl font-bold">{summary.draft}</p></div><ClipboardPenLine className="size-5 text-primary" /></div></Link>
-      <Link href="/rentals?status=在租" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} /></Link>
-      <Link href="/rentals?status=逾期" className="rounded-xl border bg-card p-4 transition-colors hover:border-destructive"><Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} /></Link>
-      {canViewFinance ? <Link href="/finance" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} /></Link> : <Stat label="累计收款" value="无权限" icon={<WalletCards />} />}
-      <Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 transition-colors hover:border-destructive"><Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} /></Link>
-    </section>
-    <section className="rounded-xl border bg-card p-4"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><p className="text-sm font-medium text-primary">应收作战台</p><h2 className="mt-1 text-xl font-bold text-balance">待收款清晰拆分，催收不漏单</h2><p className="mt-1 text-sm text-muted-foreground">只统计剩余应收大于 0 的正式合同；已结清合同不会进入待收明细。</p></div><Link href="/rentals?receivable=outstanding&sort=outstanding" className="primary-button">查看 {summary.receivableContracts} 份待收合同</Link></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Link href="/rentals?receivable=overdue&sort=outstanding" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 transition-colors hover:bg-destructive/10"><p className="text-sm font-semibold text-destructive">已到期应收</p><p className="mt-2 text-2xl font-bold text-destructive">{money(summary.overdueReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">优先联系逾期客户</p></Link><Link href="/rentals?receivable=upcoming&sort=due" className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">未到期待收</p><p className="mt-2 text-2xl font-bold">{money(summary.upcomingReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">尚未到合同到期日</p></Link><Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border bg-muted p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">全部待收</p><p className="mt-2 text-2xl font-bold">{money(summary.receivable)}</p><p className="mt-1 text-xs text-primary">按欠款金额查看明细</p></Link></div></section>
-    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">在租设备</h2><p className="text-sm text-muted-foreground">按设备类型统计当前仍在客户处的可用数量</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{deviceTypes.map((type) => <Link key={type} href={`/rentals?query=${encodeURIComponent(type)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm text-muted-foreground">{type}</p><p className="mt-2 text-2xl font-bold">{deviceCounts[type]} 台</p><p className="mt-1 text-xs text-primary">查看相关合同</p></Link>)}</div></section>
-    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">租赁状态</h2><p className="text-sm text-muted-foreground">点击彩色状态查看对应合同</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{statusCards.map((item) => <Link key={item.label} href={item.href} className={`rounded-xl border p-4 transition-opacity hover:opacity-80 ${item.tone}`}><p className="text-sm font-semibold">{item.label}</p><p className="mt-2 text-2xl font-bold">{item.value}</p></Link>)}</div></section>
-    <section className="grid gap-3 md:grid-cols-3">{[{ label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期" }, { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due" }, { label: "维修处理中", value: summary.repairPending, href: "/rentals?query=维修" }].map((item) => <Link key={item.label} href={item.href} className="rounded-xl bg-muted p-4 transition-colors hover:bg-border"><p className="text-2xl font-bold">{item.value}</p><p className="mt-1 font-medium">{item.label}</p></Link>)}</section>
-  </div></main>;
+  return (
+    <main className="bg-background p-4 md:p-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <header>
+          <p className="text-sm font-medium text-primary">经营分析中心</p>
+          <h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            查看财务、在租设备、合同状态和经营提醒；点击卡片可进入对应明细。
+          </p>
+        </header>
+        <section
+          aria-label="经营指标"
+          className="grid grid-cols-2 gap-3 lg:grid-cols-6"
+        >
+          <Link
+            href="/rentals"
+            className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"
+          >
+            <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
+          </Link>
+          <Link
+            href="/rentals/drafts"
+            className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-primary">待审核草稿</p>
+                <p className="mt-2 text-2xl font-bold">{summary.draft}</p>
+              </div>
+              <ClipboardPenLine className="size-5 text-primary" />
+            </div>
+          </Link>
+          <Link
+            href="/rentals?status=在租"
+            className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"
+          >
+            <Stat
+              label="在租合同"
+              value={summary.active}
+              icon={<LayoutDashboard />}
+            />
+          </Link>
+          <Link
+            href="/rentals?status=逾期"
+            className="rounded-xl border bg-card p-4 transition-colors hover:border-destructive"
+          >
+            <Stat
+              label="逾期待处理"
+              value={summary.overdue}
+              icon={<ClockAlert />}
+            />
+          </Link>
+          {canViewFinance ? (
+            <Link
+              href="/finance"
+              className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"
+            >
+              <Stat
+                label="累计收款"
+                value={money(summary.revenue)}
+                icon={<WalletCards />}
+              />
+            </Link>
+          ) : (
+            <Stat label="累计收款" value="无权限" icon={<WalletCards />} />
+          )}
+          <Link
+            href="/rentals?receivable=outstanding&sort=outstanding"
+            className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 transition-colors hover:border-destructive"
+          >
+            <Stat
+              label="待收金额"
+              value={money(summary.receivable)}
+              icon={<CircleDollarSign />}
+            />
+          </Link>
+        </section>
+        <section className="rounded-xl border bg-card p-4">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <p className="text-sm font-medium text-primary">应收作战台</p>
+              <h2 className="mt-1 text-xl font-bold text-balance">
+                待收款清晰拆分，催收不漏单
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                只统计剩余应收大于 0 的正式合同；已结清合同不会进入待收明细。
+              </p>
+            </div>
+            <Link
+              href="/rentals?receivable=outstanding&sort=outstanding"
+              className="primary-button"
+            >
+              查看 {summary.receivableContracts} 份待收合同
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Link
+              href="/rentals?receivable=overdue&sort=outstanding"
+              className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 transition-colors hover:bg-destructive/10"
+            >
+              <p className="text-sm font-semibold text-destructive">
+                已到期应收
+              </p>
+              <p className="mt-2 text-2xl font-bold text-destructive">
+                {money(summary.overdueReceivable)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                优先联系逾期客户
+              </p>
+            </Link>
+            <Link
+              href="/rentals?receivable=upcoming&sort=due"
+              className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"
+            >
+              <p className="text-sm font-semibold">未到期待收</p>
+              <p className="mt-2 text-2xl font-bold">
+                {money(summary.upcomingReceivable)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                尚未到合同到期日
+              </p>
+            </Link>
+            <Link
+              href="/rentals?receivable=outstanding&sort=outstanding"
+              className="rounded-xl border bg-muted p-4 transition-colors hover:border-primary"
+            >
+              <p className="text-sm font-semibold">全部待收</p>
+              <p className="mt-2 text-2xl font-bold">
+                {money(summary.receivable)}
+              </p>
+              <p className="mt-1 text-xs text-primary">按欠款金额查看明细</p>
+            </Link>
+          </div>
+        </section>
+        <section className="rounded-xl border bg-card p-4">
+          <div>
+            <h2 className="font-semibold">在租设备</h2>
+            <p className="text-sm text-muted-foreground">
+              按设备类型统计当前仍在客户处的可用数量
+            </p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {deviceTypes.map((type) => (
+              <Link
+                key={type}
+                href={`/rentals?query=${encodeURIComponent(type)}`}
+                className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"
+              >
+                <p className="text-sm text-muted-foreground">{type}</p>
+                <p className="mt-2 text-2xl font-bold">
+                  {deviceCounts[type]} 台
+                </p>
+                <p className="mt-1 text-xs text-primary">查看相关合同</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+        <section className="rounded-xl border bg-card p-4">
+          <div>
+            <h2 className="font-semibold">租赁状态</h2>
+            <p className="text-sm text-muted-foreground">
+              点击彩色状态查看对应合同
+            </p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {statusCards.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`rounded-xl border p-4 transition-opacity hover:opacity-80 ${item.tone}`}
+              >
+                <p className="text-sm font-semibold">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold">{item.value}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            {
+              label: "逾期合同",
+              value: summary.overdue,
+              href: "/rentals?status=逾期",
+            },
+            {
+              label: "7 天内到期",
+              value: summary.dueSoon,
+              href: "/rentals?sort=due",
+            },
+            {
+              label: "维修处理中",
+              value: summary.repairPending,
+              href: "/rentals?query=维修",
+            },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="rounded-xl bg-muted p-4 transition-colors hover:bg-border"
+            >
+              <p className="text-2xl font-bold">{item.value}</p>
+              <p className="mt-1 font-medium">{item.label}</p>
+            </Link>
+          ))}
+        </section>
+      </div>
+    </main>
+  );
 }
 
 export function Dashboard({
@@ -418,11 +706,11 @@ export function Dashboard({
     | "change"
     | "repair"
     | "deposit"
-  | "exchange"
-  | "change-guide"
-  | "delete-confirm"
-  | "confirm-draft"
-  | "reverse-payment"
+    | "exchange"
+    | "change-guide"
+    | "delete-confirm"
+    | "confirm-draft"
+    | "reverse-payment"
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
@@ -431,11 +719,19 @@ export function Dashboard({
     if (selectedId === null) return;
     const refreshedRental = rentals.find((item) => item.id === selectedId);
     if (!refreshedRental) return;
-    setSelected((current) => current?.id === selectedId && current !== refreshedRental ? refreshedRental : current);
+    setSelected((current) =>
+      current?.id === selectedId && current !== refreshedRental
+        ? refreshedRental
+        : current,
+    );
   }, [rentals, selectedId]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
-const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
+  const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(
+    null,
+  );
+  const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(
+    null,
+  );
   const [reverseTarget, setReverseTarget] = useState<Payment | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [deleteReason, setDeleteReason] = useState("");
@@ -443,7 +739,8 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
   const overdueAmount = (r: Rental) => rentalOverdueAmount(r, todayValue);
-  const isRentalOverdue = (r: Rental) => rentalDisplayStatus(r, todayValue) === "逾期";
+  const isRentalOverdue = (r: Rental) =>
+    rentalDisplayStatus(r, todayValue) === "逾期";
   const isRentalExpired = (r: Rental) => isContractExpired(r, todayValue);
   const displayStatus = (r: Rental) => rentalDisplayStatus(r, todayValue);
   const filtered = useMemo(
@@ -466,29 +763,86 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
     [rentals, query, status, sort],
   );
   const overdueCustomers = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; phone: string; company: string | null; dueAmount: number; contracts: Array<Rental & { overdueDays: number; dueAmount: number; dueBills: Array<Bill & { outstanding: number }> }> }>();
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        name: string;
+        phone: string;
+        company: string | null;
+        dueAmount: number;
+        contracts: Array<
+          Rental & {
+            overdueDays: number;
+            dueAmount: number;
+            dueBills: Array<Bill & { outstanding: number }>;
+          }
+        >;
+      }
+    >();
     for (const rental of rentals) {
       const phone = rental.customerPhone.replace(/\D/g, "");
-      const key = phone || rental.customerCompany?.trim().toLowerCase() || rental.customerName.trim().toLowerCase();
-      const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) }));
-      const dueBills = bills.filter((bill) => bill.dueDate <= todayValue && bill.outstanding > 0);
-      const dueAmount = dueBills.reduce((sum, bill) => sum + bill.outstanding, 0);
-      const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, dueAmount: 0, contracts: [] };
+      const key =
+        phone ||
+        rental.customerCompany?.trim().toLowerCase() ||
+        rental.customerName.trim().toLowerCase();
+      const bills = rental.bills.map((bill) => ({
+        ...bill,
+        outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)),
+      }));
+      const dueBills = bills.filter(
+        (bill) => bill.dueDate <= todayValue && bill.outstanding > 0,
+      );
+      const dueAmount = dueBills.reduce(
+        (sum, bill) => sum + bill.outstanding,
+        0,
+      );
+      const current = groups.get(key) ?? {
+        key,
+        name: rental.customerName,
+        phone: rental.customerPhone,
+        company: rental.customerCompany,
+        dueAmount: 0,
+        contracts: [],
+      };
       if (rentalDisplayStatus(rental, todayValue) === "逾期" && dueAmount > 0) {
         current.dueAmount += dueAmount;
-        current.contracts.push({ ...rental, overdueDays: Math.max(0, Math.floor((Date.parse(`${todayValue}T00:00:00+08:00`) - Date.parse(`${rental.endDate}T00:00:00+08:00`)) / 86400000)), dueAmount, dueBills });
+        current.contracts.push({
+          ...rental,
+          overdueDays: Math.max(
+            0,
+            Math.floor(
+              (Date.parse(`${todayValue}T00:00:00+08:00`) -
+                Date.parse(`${rental.endDate}T00:00:00+08:00`)) /
+                86400000,
+            ),
+          ),
+          dueAmount,
+          dueBills,
+        });
       }
       groups.set(key, current);
     }
     return [...groups.values()]
-      .filter((customer) => customer.contracts.length > 0 && `${customer.company || ""}${customer.name}${customer.phone}${customer.contracts.map((rental) => rental.contractNo).join("")}`.toLowerCase().includes(query.toLowerCase()))
+      .filter(
+        (customer) =>
+          customer.contracts.length > 0 &&
+          `${customer.company || ""}${customer.name}${customer.phone}${customer.contracts.map((rental) => rental.contractNo).join("")}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      )
       .sort((a, b) => b.dueAmount - a.dueAmount);
   }, [rentals, query, todayValue]);
-  const copyCollectionMessage = async (customer: (typeof overdueCustomers)[number]) => {
-    const lines = customer.contracts.flatMap((rental) => rental.dueBills.map((bill) =>
-      `合同 ${rental.contractNo}｜${rental.items.map((item) => `${item.deviceName}×${item.quantity}`).join("、")}｜账期 ${bill.periodStart} 至 ${bill.periodEnd}｜付款日 ${bill.dueDate}｜待付 ${money(bill.outstanding)}`,
-    ));
-    const message = `${customer.name}您好，您当前有以下已到付款日的租赁账单待支付：\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}\n本次合计应付：${money(customer.dueAmount)}。尚未到付款日的账单未计入本次应付，请您核对并安排付款，谢谢。`;
+  const copyCollectionMessage = async (
+    customer: (typeof overdueCustomers)[number],
+  ) => {
+    const lines = customer.contracts.flatMap((rental) =>
+      rental.dueBills.map(
+        (bill) =>
+          `合同 ${rental.contractNo}｜${rental.items.map((item) => `${item.deviceName}×${item.quantity}`).join("、")}｜账期 ${bill.periodStart} 至 ${bill.periodEnd}｜付款日 ${bill.dueDate}｜待付 ${money(bill.outstanding)}`,
+      ),
+    );
+    const message = `${customer.name}您好，您当前有以下已到付款日的租赁账单待支付：\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}\n本次合计应付：${money(customer.dueAmount)}。尚未到付款日的账单未计入本次应付，请您核对���安排付款，谢谢。`;
     await navigator.clipboard.writeText(message);
     toast.success("微信催款文案已复制");
   };
@@ -640,43 +994,64 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
   };
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
-  const overdueCount = rentals.filter((r) => displayStatus(r) === "逾期").length;
-  const expiredCount = rentals.filter((r) => displayStatus(r) === "已到期").length;
+  const overdueCount = rentals.filter(
+    (r) => displayStatus(r) === "逾期",
+  ).length;
+  const expiredCount = rentals.filter(
+    (r) => displayStatus(r) === "已到期",
+  ).length;
   return (
     <div className="bg-background">
       <div className="p-4 md:p-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <p className="text-sm font-medium text-primary">{mode === "overview" ? "经营分析中心" : "合同全生命周期"}</p>
-              <h1 className="mt-1 text-2xl font-bold text-balance">{mode === "overview" ? "经营总览" : "租赁管理"}</h1>
+              <p className="text-sm font-medium text-primary">
+                {mode === "overview" ? "经营分析中心" : "合同全生命周期"}
+              </p>
+              <h1 className="mt-1 text-2xl font-bold text-balance">
+                {mode === "overview" ? "经营总览" : "租赁管理"}
+              </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {mode === "overview" ? "集中查看财务、统计、催收和经营提醒；合同办理统一前往租赁管理" : "统一办理租机登记、修改、续租、退租、买断和售后事项"}
+                {mode === "overview"
+                  ? "集中查看财务、统计、催收和经营提醒；合同办理统一前往租赁管理"
+                  : "统一办理租机登记、修改、续租、退租、买断和售后事项"}
               </p>
             </div>
-            {mode === "management" && <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={!checked.length || pending}
-                onClick={sendReminders}
-                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary px-4 font-semibold text-primary disabled:border-border disabled:text-muted-foreground"
-              >
-                <BellRing className="size-4" />
-                发送短信提醒{checked.length ? `（${checked.length}）` : ""}
-              </button>
-              <button
-                onClick={() => {
-                  setForm({ ...emptyRental(), assigneeUserId: currentActorId });
-                  setDialog("new");
-                }}
-                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
-              >
-                <Plus className="size-4" />
-                登记新租赁
-              </button>
-            </div>}
+            {mode === "management" && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!checked.length || pending}
+                  onClick={sendReminders}
+                  className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary px-4 font-semibold text-primary disabled:border-border disabled:text-muted-foreground"
+                >
+                  <BellRing className="size-4" />
+                  发送短信提醒{checked.length ? `（${checked.length}）` : ""}
+                </button>
+                <button
+                  onClick={() => {
+                    setForm({
+                      ...emptyRental(),
+                      assigneeUserId: currentActorId,
+                    });
+                    setDialog("new");
+                  }}
+                  className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
+                >
+                  <Plus className="size-4" />
+                  登记新租赁
+                </button>
+              </div>
+            )}
           </div>
-          <div className={mode === "management" ? "hidden" : "grid grid-cols-2 gap-3 lg:grid-cols-6"}>
+          <div
+            className={
+              mode === "management"
+                ? "hidden"
+                : "grid grid-cols-2 gap-3 lg:grid-cols-6"
+            }
+          >
             <Stat label="正式合同" value={summary.total} icon={<Monitor />} />
             <Link
               href="/rentals/drafts"
@@ -690,7 +1065,9 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
                 </div>
                 <ClipboardPenLine className="size-5 text-primary" />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">点击审核并转为正式合同</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                点击审核并转为正式合同
+              </p>
             </Link>
             <Stat
               label="在租合同"
@@ -715,7 +1092,11 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
               />
             </div>
           </div>
-          <section className={mode === "management" ? "hidden" : "rounded-xl border bg-card p-4"}>
+          <section
+            className={
+              mode === "management" ? "hidden" : "rounded-xl border bg-card p-4"
+            }
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">经营待办</h2>
@@ -766,13 +1147,48 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
             </div>
           </section>
           {mode === "management" && (
-            <section aria-label="租赁任务摘要" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
+            <section
+              aria-label="租赁任务摘要"
+              className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3"
+            >
               <span className="mr-1 text-sm font-semibold">当前任务</span>
-              <button type="button" onClick={() => setStatus("逾期")} className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">逾期 {overdueCount}</button>
-              <button type="button" onClick={() => setStatus("已到期")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">已到期 {expiredCount}</button>
-              <button type="button" onClick={() => router.push("/rentals?sort=due")} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground">7 天到期 {dueSoon}</button>
-              <button type="button" onClick={() => { setStatus("全部"); setQuery("维修"); }} className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">维修中 {repairPending}</button>
-              <span className="ml-auto text-sm text-muted-foreground">待收 <strong className="text-foreground">{money(summary.receivable)}</strong></span>
+              <button
+                type="button"
+                onClick={() => setStatus("逾期")}
+                className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive"
+              >
+                逾期 {overdueCount}
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatus("已到期")}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground"
+              >
+                已到期 {expiredCount}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/rentals?sort=due")}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground"
+              >
+                7 天到期 {dueSoon}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatus("全部");
+                  setQuery("维修");
+                }}
+                className="rounded-lg bg-muted px-3 py-2 text-sm font-medium"
+              >
+                维修中 {repairPending}
+              </button>
+              <span className="ml-auto text-sm text-muted-foreground">
+                待收{" "}
+                <strong className="text-foreground">
+                  {money(summary.receivable)}
+                </strong>
+              </span>
             </section>
           )}
           <div
@@ -781,8 +1197,11 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
           >
             {[
               ["全部", summary.total],
-              ["在租", rentals.filter((r) => displayStatus(r) === "在租").length],
-              ["逾期", overdueCount],
+              [
+                "在租",
+                rentals.filter((r) => displayStatus(r) === "在租").length,
+              ],
+              ["逾���", overdueCount],
               ["已到期", expiredCount],
             ].map(([label, count]) => (
               <button
@@ -803,13 +1222,22 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="font-semibold">{mode === "management" ? "租赁任务列表" : "最近租赁合同"}</h2>
+                <h2 className="font-semibold">
+                  {mode === "management" ? "租赁任务列表" : "最近租赁合同"}
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  {mode === "management" ? "按风险和下一节点处理；点击合同进入唯一业务工作台" : "仅作经营摘要，具体业务请进入租赁管理"}
+                  {mode === "management"
+                    ? "按风险和下一节点处理；点击合同进入唯一业务工作台"
+                    : "仅作经营摘要，具体业务请进入租赁管理"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Link href="/rentals" className="flex h-10 items-center rounded-lg border px-3 text-sm font-semibold text-primary hover:bg-muted">查看全部</Link>
+                <Link
+                  href="/rentals"
+                  className="flex h-10 items-center rounded-lg border px-3 text-sm font-semibold text-primary hover:bg-muted"
+                >
+                  查看全部
+                </Link>
                 <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 sm:w-64">
                   <Search className="size-4 text-muted-foreground" />
                   <input
@@ -827,10 +1255,10 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
                 >
                   {[
                     "全部",
-  "在租",
-  "逾期",
-  "已到期",
-  "部分买断",
+                    "在租",
+                    "逾期",
+                    "已到期",
+                    "部分买断",
                     "部分退租",
                     "部分丢失",
                     "丢失",
@@ -903,167 +1331,274 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
                     <p className="font-semibold">客户催款汇总</p>
-                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。
+                    </p>
                   </div>
                   <div className="flex gap-6 text-right">
-                    <div><p className="text-xs text-muted-foreground">当前待催客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
-                    <div><p className="text-xs text-muted-foreground">截至今日应付</p><p className="text-xl font-bold text-destructive">{money(overdueCustomers.reduce((sum, customer) => sum + customer.dueAmount, 0))}</p></div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        当前待催客户
+                      </p>
+                      <p className="text-xl font-bold">
+                        {overdueCustomers.length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        截至今日应付
+                      </p>
+                      <p className="text-xl font-bold text-destructive">
+                        {money(
+                          overdueCustomers.reduce(
+                            (sum, customer) => sum + customer.dueAmount,
+                            0,
+                          ),
+                        )}
+                      </p>
+                    </div>
                   </div>
                 </div>
                 {overdueCustomers.map((customer) => (
-                  <article key={customer.key} className="overflow-hidden rounded-xl border">
+                  <article
+                    key={customer.key}
+                    className="overflow-hidden rounded-xl border"
+                  >
                     <div className="flex flex-col justify-between gap-3 bg-card p-4 sm:flex-row sm:items-center">
-                      <div><p className="font-semibold">{customer.company || customer.name}</p><p className="mt-1 text-sm text-muted-foreground">{customer.company ? `${customer.name} · ` : ""}{customer.phone} · {customer.contracts.length} 份待催合同</p></div>
-                      <div className="flex flex-wrap items-center gap-3 sm:justify-end"><div className="sm:text-right"><p className="text-xs text-muted-foreground">截至今日应付</p><p className="font-bold text-destructive">{money(customer.dueAmount)}</p></div><button type="button" onClick={() => copyCollectionMessage(customer)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"><Copy className="size-4" />复制微信催款</button></div>
+                      <div>
+                        <p className="font-semibold">
+                          {customer.company || customer.name}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {customer.company ? `${customer.name} · ` : ""}
+                          {customer.phone} · {customer.contracts.length}{" "}
+                          份待催合同
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                        <div className="sm:text-right">
+                          <p className="text-xs text-muted-foreground">
+                            截至今日应付
+                          </p>
+                          <p className="font-bold text-destructive">
+                            {money(customer.dueAmount)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyCollectionMessage(customer)}
+                          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
+                        >
+                          <Copy className="size-4" />
+                          复制微信催款
+                        </button>
+                      </div>
                     </div>
                     <div className="divide-y border-t">
-                      {customer.contracts.sort((a, b) => b.overdueDays - a.overdueDays).map((rental) => (
-                        <button key={rental.id} type="button" onClick={() => openDetail(rental)} className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center">
-                          <div><p className="text-sm font-medium">{rental.contractNo}</p><p className="text-xs text-muted-foreground">{rental.quantity} 台 · {rental.items.map((item) => item.deviceName).join("、")}</p></div>
-                          <div className="text-sm"><p>{rental.dueBills.length} 笔已到付款日</p><p className="text-xs text-muted-foreground">{rental.dueBills.map((bill) => `${bill.dueDate} · ${bill.billType} ${money(bill.outstanding)}`).join("；")}</p></div>
-                          <div className="sm:text-right"><p className="text-xs text-muted-foreground">本合同当前应付</p><p className="font-semibold text-destructive">{money(rental.dueAmount)}</p></div>
-                        </button>
-                      ))}
+                      {customer.contracts
+                        .sort((a, b) => b.overdueDays - a.overdueDays)
+                        .map((rental) => (
+                          <button
+                            key={rental.id}
+                            type="button"
+                            onClick={() => openDetail(rental)}
+                            className="grid w-full gap-2 p-4 text-left hover:bg-muted/50 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center"
+                          >
+                            <div>
+                              <p className="text-sm font-medium">
+                                {rental.contractNo}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {rental.quantity} 台 ·{" "}
+                                {rental.items
+                                  .map((item) => item.deviceName)
+                                  .join("、")}
+                              </p>
+                            </div>
+                            <div className="text-sm">
+                              <p>{rental.dueBills.length} 笔已到付款日</p>
+                              <p className="text-xs text-muted-foreground">
+                                {rental.dueBills
+                                  .map(
+                                    (bill) =>
+                                      `${bill.dueDate} · ${bill.billType} ${money(bill.outstanding)}`,
+                                  )
+                                  .join("；")}
+                              </p>
+                            </div>
+                            <div className="sm:text-right">
+                              <p className="text-xs text-muted-foreground">
+                                本合同当前应付
+                              </p>
+                              <p className="font-semibold text-destructive">
+                                {money(rental.dueAmount)}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
                     </div>
                   </article>
                 ))}
-                {!overdueCustomers.length && <p className="p-10 text-center text-sm text-muted-foreground">暂无逾期客户</p>}
+                {!overdueCustomers.length && (
+                  <p className="p-10 text-center text-sm text-muted-foreground">
+                    暂无逾期客户
+                  </p>
+                )}
               </div>
             )}
-            {status !== "逾期" && <div className="divide-y md:hidden">
-              {visible.map((r) => (
-                <button
-                  type="button"
-                  key={r.id}
-                  onClick={() => openDetail(r)}
-                  className={`flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">
-                        {r.customerCompany || r.customerName}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {r.contractNo} · {r.customerPhone}
-                      </p>
+            {status !== "逾期" && (
+              <div className="divide-y md:hidden">
+                {visible.map((r) => (
+                  <button
+                    type="button"
+                    key={r.id}
+                    onClick={() => openDetail(r)}
+                    className={`flex w-full flex-col gap-3 p-4 text-left hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">
+                          {r.customerCompany || r.customerName}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {r.contractNo} · {r.customerPhone}
+                        </p>
+                      </div>
+                      <Status value={displayStatus(r)} />
                     </div>
-                    <Status value={displayStatus(r)} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground">设备</p>
-                      <p className="mt-1 line-clamp-2">
-                        {r.items.length} 项 · 共 {r.quantity} 台
-                      </p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">设备</p>
+                        <p className="mt-1 line-clamp-2">
+                          {r.items.length} 项 · 共 {r.quantity} 台
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          合同金额
+                        </p>
+                        <p className="mt-1 font-semibold">
+                          {money(r.totalRent)}
+                        </p>
+                        {isRentalOverdue(r) && (
+                          <p className="mt-1 font-semibold text-destructive">
+                            逾期需付 {money(overdueAmount(r))}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">合同金额</p>
-                      <p className="mt-1 font-semibold">{money(r.totalRent)}</p>
-                      {isRentalOverdue(r) && <p className="mt-1 font-semibold text-destructive">逾期需付 {money(overdueAmount(r))}</p>}
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    租期：{r.startDate} 至 {r.endDate}
-                  </p>
-                </button>
-              ))}
-            </div>}
-            {status !== "逾期" && <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[900px] text-left text-sm">
-                <thead className="bg-muted text-muted-foreground">
-                  <tr>
-                    <th className="w-12 p-3">
-                      <input
-                        type="checkbox"
-                        aria-label="选择当前页全部合同"
-                        checked={
-                          visible.length > 0 &&
-                          visible.every((r) => checked.includes(r.id))
-                        }
-                        onChange={(e) =>
-                          setChecked(
-                            e.target.checked
-                              ? Array.from(
-                                  new Set([
-                                    ...checked,
-                                    ...visible.map((r) => r.id),
-                                  ]),
-                                )
-                              : checked.filter(
-                                  (id) => !visible.some((r) => r.id === id),
-                                ),
-                          )
-                        }
-                      />
-                    </th>
-                    <th className="p-3">合同编号</th>
-                    <th className="p-3">客户</th>
-                    <th className="p-3">设备明细</th>
-                    <th className="p-3">数量</th>
-                    <th className="p-3">租期</th>
-                    <th className="p-3">租金总额</th>
-                    <th className="p-3">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((r) => (
-                    <tr
-                      key={r.id}
-                      onDoubleClick={() => openDetail(r)}
-                      title="双击查看租赁详情"
-                      className={`cursor-pointer border-t hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
-                    >
-                      <td
-                        className="p-3"
-                        onClick={(event) => event.stopPropagation()}
-                      >
+                    <p className="text-xs text-muted-foreground">
+                      租期：{r.startDate} 至 {r.endDate}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {status !== "逾期" && (
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead className="bg-muted text-muted-foreground">
+                    <tr>
+                      <th className="w-12 p-3">
                         <input
                           type="checkbox"
-                          aria-label={`选择合同 ${r.contractNo}`}
-                          checked={checked.includes(r.id)}
+                          aria-label="选择当前页全部合同"
+                          checked={
+                            visible.length > 0 &&
+                            visible.every((r) => checked.includes(r.id))
+                          }
                           onChange={(e) =>
                             setChecked(
                               e.target.checked
-                                ? [...checked, r.id]
-                                : checked.filter((id) => id !== r.id),
+                                ? Array.from(
+                                    new Set([
+                                      ...checked,
+                                      ...visible.map((r) => r.id),
+                                    ]),
+                                  )
+                                : checked.filter(
+                                    (id) => !visible.some((r) => r.id === id),
+                                  ),
                             )
                           }
                         />
-                      </td>
-                      <td className="p-3 font-medium">{r.contractNo}</td>
-                      <td className="p-3">
-                        <p className="font-medium">
-                          {r.customerCompany || r.customerName}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {r.customerCompany ? `${r.customerName} · ` : ""}
-                          {r.customerPhone}
-                        </p>
-                      </td>
-                      <td className="p-3">
-                        {r.items.length} 项 ·{" "}
-                        {r.items
-                          .map((i) => `${i.deviceType} ${i.deviceName}`)
-                          .join("、")}
-                      </td>
-                      <td className="p-3">{r.quantity}</td>
-                      <td className="p-3">
-                        {r.startDate} 至 {r.endDate}
-                      </td>
-                      <td className="p-3"><p>{money(r.totalRent)}</p>{isRentalOverdue(r) && <p className="mt-1 font-semibold text-destructive">逾期需付 {money(overdueAmount(r))}</p>}</td>
-                      <td className="p-3">
-                        <Status value={displayStatus(r)} />
-                      </td>
+                      </th>
+                      <th className="p-3">合同编号</th>
+                      <th className="p-3">客户</th>
+                      <th className="p-3">设备明细</th>
+                      <th className="p-3">数量</th>
+                      <th className="p-3">租期</th>
+                      <th className="p-3">租金总额</th>
+                      <th className="p-3">状态</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!filtered.length && (
-                <p className="p-10 text-center text-sm text-muted-foreground">
-                  暂无符合条件的租赁记录
-                </p>
-              )}
-            </div>}
+                  </thead>
+                  <tbody>
+                    {visible.map((r) => (
+                      <tr
+                        key={r.id}
+                        onDoubleClick={() => openDetail(r)}
+                        title="双击查看租赁详情"
+                        className={`cursor-pointer border-t hover:bg-muted/50 ${isRentalOverdue(r) ? "bg-destructive/5" : isRentalExpired(r) ? "bg-accent/40" : ""}`}
+                      >
+                        <td
+                          className="p-3"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`选择合同 ${r.contractNo}`}
+                            checked={checked.includes(r.id)}
+                            onChange={(e) =>
+                              setChecked(
+                                e.target.checked
+                                  ? [...checked, r.id]
+                                  : checked.filter((id) => id !== r.id),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="p-3 font-medium">{r.contractNo}</td>
+                        <td className="p-3">
+                          <p className="font-medium">
+                            {r.customerCompany || r.customerName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {r.customerCompany ? `${r.customerName} · ` : ""}
+                            {r.customerPhone}
+                          </p>
+                        </td>
+                        <td className="p-3">
+                          {r.items.length} 项 ·{" "}
+                          {r.items
+                            .map((i) => `${i.deviceType} ${i.deviceName}`)
+                            .join("、")}
+                        </td>
+                        <td className="p-3">{r.quantity}</td>
+                        <td className="p-3">
+                          {r.startDate} 至 {r.endDate}
+                        </td>
+                        <td className="p-3">
+                          <p>{money(r.totalRent)}</p>
+                          {isRentalOverdue(r) && (
+                            <p className="mt-1 font-semibold text-destructive">
+                              逾期需付 {money(overdueAmount(r))}
+                            </p>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <Status value={displayStatus(r)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!filtered.length && (
+                  <p className="p-10 text-center text-sm text-muted-foreground">
+                    暂无符合条件的租赁记录
+                  </p>
+                )}
+              </div>
+            )}
             {status !== "逾期" && filtered.length > pageSize && (
               <div className="flex items-center justify-between border-t px-4 py-3">
                 <p className="text-xs text-muted-foreground">
@@ -1109,27 +1644,46 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
           currentActorName={currentActorName}
           assignees={assignees}
           allowTest={role !== "employee"}
-          submit={(value, sendNow, orderType, initialCollection) => start(async () => {
-                  const created = await createRental(value, orderType, initialCollection);
-                  if (!created.ok) {
-                    if (handleAuthExpired(created.message)) return;
-                    toast.error(created.message);
-                    return;
-                  }
-                  if (orderType === "official" && sendNow && created.data) {
-                    try {
-                      const notice = await sendRentalCreatedNotice(created.data);
-                      if (notice.ok) toast.success("正式合同已创建，初始租赁通知已发送");
-                      else toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
-                    } catch (error) {
-                      toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
-                    }
-                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
-                  sessionStorage.removeItem("suwei:new-rental-draft");
-                  delete document.documentElement.dataset.unsavedRental;
-                  setDialog(null);
-                  router.replace("/rentals");
-                })}
+          submit={(value, sendNow, orderType, initialCollection) =>
+            start(async () => {
+              const created = await createRental(
+                value,
+                orderType,
+                initialCollection,
+              );
+              if (!created.ok) {
+                if (handleAuthExpired(created.message)) return;
+                toast.error(created.message);
+                return;
+              }
+              if (orderType === "official" && sendNow && created.data) {
+                try {
+                  const notice = await sendRentalCreatedNotice(created.data);
+                  if (notice.ok)
+                    toast.success("正式合同已创建，初始租赁通知已发送");
+                  else
+                    toast.error(
+                      `正式合同已创建，但短信未发送：${notice.message}`,
+                    );
+                } catch (error) {
+                  toast.error(
+                    `正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`,
+                  );
+                }
+              } else
+                toast.success(
+                  orderType === "draft"
+                    ? "草稿已保存，不计入经营与财务数据"
+                    : orderType === "test"
+                      ? "测试合同已创建，不计入经营与财务数据"
+                      : "正式租赁合同已创建",
+                );
+              sessionStorage.removeItem("suwei:new-rental-draft");
+              delete document.documentElement.dataset.unsavedRental;
+              setDialog(null);
+              router.replace("/rentals");
+            })
+          }
         />
       </Dialog>
       <Dialog
@@ -1145,28 +1699,30 @@ const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(null
             role={role}
             assignees={assignees}
             canManageContracts={canManageContracts}
-canViewFinance={canViewFinance}
-  onSendNotice={() => start(async () => {
-    const result = await sendRentalCreatedNotice(selected.id);
-    if (result.ok) toast.success("初始租赁通知已发送");
-    else toast.error(result.message);
-  })}
-  onAssignee={(assigneeId) =>
-  runInDetail(
+            canViewFinance={canViewFinance}
+            onSendNotice={() =>
+              start(async () => {
+                const result = await sendRentalCreatedNotice(selected.id);
+                if (result.ok) toast.success("初始租赁通知已发送");
+                else toast.error(result.message);
+              })
+            }
+            onAssignee={(assigneeId) =>
+              runInDetail(
                 () => updateRentalAssignee(selected.id, assigneeId),
                 "维护负责人已更新",
               )
             }
             onDelete={() => {
-  setDeleteReason("");
-  setAdminPassword("");
-  setDialog("delete-confirm");
-}}
+              setDeleteReason("");
+              setAdminPassword("");
+              setDialog("delete-confirm");
+            }}
             onConfirmDraft={() => setDialog("confirm-draft")}
             onRentalChange={(scenario) => {
-setChangeScenario(scenario ?? null);
-setDialog("change-guide");
-}}
+              setChangeScenario(scenario ?? null);
+              setDialog("change-guide");
+            }}
             onPayment={(target) => {
               setPaymentTarget(target);
               setDialog("payment");
@@ -1185,7 +1741,9 @@ setDialog("change-guide");
             onDeposit={() => setDialog("deposit")}
             onExchange={() => setDialog("exchange")}
             onReverse={(paymentId) => {
-              const payment = selected.paymentRecords.find((record) => record.id === paymentId);
+              const payment = selected.paymentRecords.find(
+                (record) => record.id === paymentId,
+              );
               if (!payment) return toast.error("收款记录不存在或已更新");
               setReverseTarget(payment);
               setReverseReason("");
@@ -1218,9 +1776,15 @@ setDialog("change-guide");
 
             <dl className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm">
               <Info l="草稿编号" v={selected.contractNo} />
-              <Info l="客户" v={selected.customerCompany || selected.customerName} />
+              <Info
+                l="客户"
+                v={selected.customerCompany || selected.customerName}
+              />
               <Info l="租赁金额" v={money(Number(selected.totalRent))} />
-              <Info l="设备数量" v={`${selected.items.reduce((total, item) => total + item.quantity, 0)} 台`} />
+              <Info
+                l="设备数量"
+                v={`${selected.items.reduce((total, item) => total + item.quantity, 0)} 台`}
+              />
             </dl>
 
             <div className="flex flex-col gap-3">
@@ -1268,83 +1832,127 @@ setDialog("change-guide");
         wide
         onClose={() => setDialog("detail")}
       >
-  {selected && changeScenario && (
-  <RentalChangeGuide
-  rental={selected}
-  initialScenario={changeScenario}
- pending={pending}
-  submit={(value) => runInDetail(() => changeRentalContract(value), "租赁变更已登记")}
+        {selected && changeScenario && (
+          <RentalChangeGuide
+            rental={selected}
+            initialScenario={changeScenario}
+            pending={pending}
+            submit={(value) =>
+              runInDetail(() => changeRentalContract(value), "租赁变更已登记")
+            }
           />
         )}
       </Dialog>
       <Dialog
         open={dialog === "delete-confirm"}
-        title={selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"}
+        title={
+          selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"
+        }
         onClose={() => setDialog("detail")}
       >
         {selected && (
-            <form
-              className="flex flex-col gap-5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                run(
-                  () => deleteTestRental({ id: selected.id, reason: deleteReason, adminPassword: selected.orderType === "official" ? adminPassword : undefined }),
-                  selected.orderType === "official" ? "重复合同及初始收款已撤销" : "订单已移入回收站",
-                );
-              }}
-            >
-              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-                <p className="font-semibold text-destructive">{selected.orderType === "official" ? "重复合同及初始账务将一并撤销" : "订单将进入回收站"}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {selected.orderType === "official"
-                    ? "仅限撤销今天重复创建、且没有续租、退租、买断、丢失、维修、变更或额外收款的正式合同。合同会保留在回收站，操作记录会永久保留。"
-                    : "草稿与测试订单只会移入回收站并支持恢复；测试订单仅限创建后 24 小时内处理。"}
-                </p>
-                {selected.orderType === "official" && (
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <div className="rounded-lg bg-background p-3"><span className="text-muted-foreground">撤销租金收款</span><p className="mt-1 font-semibold">{money(selected.paidAmount)}</p></div>
-                    <div className="rounded-lg bg-background p-3"><span className="text-muted-foreground">撤销押金收款</span><p className="mt-1 font-semibold">{money(selected.deposit)}</p></div>
-                  </div>
-                )}
-              </div>
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                删除原因
-                <textarea
-                  required
-                  minLength={4}
-                  maxLength={200}
-                  value={deleteReason}
-                  onChange={(event) => setDeleteReason(event.target.value)}
-                  placeholder="例如：当天录入了错误的设备和租期"
-                  className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
-                />
-              </label>
+          <form
+            className="flex flex-col gap-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              run(
+                () =>
+                  deleteTestRental({
+                    id: selected.id,
+                    reason: deleteReason,
+                    adminPassword:
+                      selected.orderType === "official"
+                        ? adminPassword
+                        : undefined,
+                  }),
+                selected.orderType === "official"
+                  ? "重复合同及初始收款已撤销"
+                  : "订单已移入回收站",
+              );
+            }}
+          >
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+              <p className="font-semibold text-destructive">
+                {selected.orderType === "official"
+                  ? "重复合同及初始账务将一并撤销"
+                  : "订单将进入回收站"}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {selected.orderType === "official"
+                  ? "仅限撤销今天重复创建、且没有续租、退租、买断、丢失、维修、变更或额外收款的正式合同。合同会保留在回收站，操作记录会永久保留。"
+                  : "草稿与测试订单只会移入回收站并支持恢复；测试订单仅限创建后 24 小时内处理。"}
+              </p>
               {selected.orderType === "official" && (
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  当前管理员登录密码
-                  <input
-                    required
-                    type="password"
-                    autoComplete="current-password"
-                    value={adminPassword}
-                    onChange={(event) => setAdminPassword(event.target.value)}
-                    placeholder="请输入您当前账号的登录密码"
-                    className="h-10 rounded-lg border bg-background px-3 font-normal outline-none focus:border-primary"
-                  />
-                  <span className="font-normal text-muted-foreground">密码仅用于本次身份验证，不会保存或写入业务记录。</span>
-                </label>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-lg bg-background p-3">
+                    <span className="text-muted-foreground">撤销租金收款</span>
+                    <p className="mt-1 font-semibold">
+                      {money(selected.paidAmount)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-background p-3">
+                    <span className="text-muted-foreground">撤销押金收款</span>
+                    <p className="mt-1 font-semibold">
+                      {money(selected.deposit)}
+                    </p>
+                  </div>
+                </div>
               )}
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={() => setDialog("detail")} className="h-10 rounded-lg border px-4 text-sm font-medium">取消</button>
-                <button
-                  type="submit"
-                  disabled={pending || deleteReason.trim().length < 4 || (selected.orderType === "official" && !adminPassword)}
-                  className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
-                >
-                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重复合同" : "确认移入回收站"}
-                </button>
-              </div>
-            </form>
+            </div>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              删除原因
+              <textarea
+                required
+                minLength={4}
+                maxLength={200}
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="例如：当天录入了错误的设备和租期"
+                className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
+              />
+            </label>
+            {selected.orderType === "official" && (
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                当前管理员登录密码
+                <input
+                  required
+                  type="password"
+                  autoComplete="current-password"
+                  value={adminPassword}
+                  onChange={(event) => setAdminPassword(event.target.value)}
+                  placeholder="请输入您当前账号的登录密码"
+                  className="h-10 rounded-lg border bg-background px-3 font-normal outline-none focus:border-primary"
+                />
+                <span className="font-normal text-muted-foreground">
+                  密码仅用于本次身份验证，不会保存或写入业务记录。
+                </span>
+              </label>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDialog("detail")}
+                className="h-10 rounded-lg border px-4 text-sm font-medium"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  pending ||
+                  deleteReason.trim().length < 4 ||
+                  (selected.orderType === "official" && !adminPassword)
+                }
+                className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
+              >
+                {pending
+                  ? "正在验证并撤销…"
+                  : selected.orderType === "official"
+                    ? "验证密码并撤销重复合同"
+                    : "确认移入回收站"}
+              </button>
+            </div>
+          </form>
         )}
       </Dialog>
       <Dialog
@@ -1357,26 +1965,74 @@ setDialog("change-guide");
             className="flex flex-col gap-5"
             onSubmit={(event) => {
               event.preventDefault();
-              runInDetail(() => reversePayment(reverseTarget.id, reverseReason), "收款已冲正");
+              runInDetail(
+                () => reversePayment(reverseTarget.id, reverseReason),
+                "收款已冲正",
+              );
             }}
           >
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-              <p className="font-semibold text-destructive">冲正后将恢复对应账单的待收金额</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">系统会保留原收款和冲正流水，不会直接删除历史记录。请确认金额、日期与费用类型无误。</p>
+              <p className="font-semibold text-destructive">
+                冲正后将恢复对应账单的待收金额
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                系统会保留原收款和冲正流水，不会直接删除历史记录。请确认金额、日期与费用类型无误。
+              </p>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">原收款金额</dt><dd className="mt-1 font-semibold">{money(reverseTarget.amount)}</dd></div>
-                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">付款日期</dt><dd className="mt-1 font-semibold">{reverseTarget.paymentDate}</dd></div>
-                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">费用类型</dt><dd className="mt-1 font-semibold">{reverseTarget.feeType}</dd></div>
-                <div className="rounded-lg bg-background p-3"><dt className="text-muted-foreground">收款方式</dt><dd className="mt-1 font-semibold">{reverseTarget.paymentMethod}</dd></div>
+                <div className="rounded-lg bg-background p-3">
+                  <dt className="text-muted-foreground">原收款金额</dt>
+                  <dd className="mt-1 font-semibold">
+                    {money(reverseTarget.amount)}
+                  </dd>
+                </div>
+                <div className="rounded-lg bg-background p-3">
+                  <dt className="text-muted-foreground">付款日期</dt>
+                  <dd className="mt-1 font-semibold">
+                    {reverseTarget.paymentDate}
+                  </dd>
+                </div>
+                <div className="rounded-lg bg-background p-3">
+                  <dt className="text-muted-foreground">费用类型</dt>
+                  <dd className="mt-1 font-semibold">
+                    {reverseTarget.feeType}
+                  </dd>
+                </div>
+                <div className="rounded-lg bg-background p-3">
+                  <dt className="text-muted-foreground">收款方式</dt>
+                  <dd className="mt-1 font-semibold">
+                    {reverseTarget.paymentMethod}
+                  </dd>
+                </div>
               </dl>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
               冲正原因
-              <textarea required minLength={2} maxLength={200} value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="例如：金额录入错误，需要重新登记" className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary" />
+              <textarea
+                required
+                minLength={2}
+                maxLength={200}
+                value={reverseReason}
+                onChange={(event) => setReverseReason(event.target.value)}
+                placeholder="例如：金额录入错误，需要重新登记"
+                className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
+              />
             </label>
             <div className="flex justify-end gap-3">
-              <button type="button" disabled={pending} onClick={() => setDialog("detail")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-50">取消</button>
-              <button type="submit" disabled={pending || reverseReason.trim().length < 2} className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50">{pending ? "正在冲正…" : "确认冲正"}</button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setDialog("detail")}
+                className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={pending || reverseReason.trim().length < 2}
+                className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
+              >
+                {pending ? "正在冲正…" : "确认冲正"}
+              </button>
             </div>
           </form>
         )}
@@ -1392,7 +2048,10 @@ setDialog("change-guide");
             bills={selected.bills}
             target={paymentTarget}
             submit={(value) =>
-              runInDetail(() => collectPayment(selected.id, value), "收款已登记")
+              runInDetail(
+                () => collectPayment(selected.id, value),
+                "收款已登记",
+              )
             }
           />
         )}
@@ -1408,7 +2067,10 @@ setDialog("change-guide");
             rental={selected}
             pending={pending}
             submit={(values, settlement) =>
-              runInDetail(() => renewRentalItems(selected.id, values, settlement), "续租已办理")
+              runInDetail(
+                () => renewRentalItems(selected.id, values, settlement),
+                "续租已办理",
+              )
             }
           />
         )}
@@ -1423,7 +2085,15 @@ setDialog("change-guide");
             record={selectedRenewal}
             pending={pending}
             submit={(correctedUnitPrice, reason) =>
-              runInDetail(() => correctRenewalPrice({ renewalRecordId: selectedRenewal.id, correctedUnitPrice, reason }), "续租价格已更正")
+              runInDetail(
+                () =>
+                  correctRenewalPrice({
+                    renewalRecordId: selectedRenewal.id,
+                    correctedUnitPrice,
+                    reason,
+                  }),
+                "续租价格已更正",
+              )
             }
           />
         )}
@@ -1448,7 +2118,13 @@ setDialog("change-guide");
             pending={pending}
             submit={(values) =>
               runInDetail(
-                () => returnRentalItems(validateBusinessBatch(values as ReturnInput[], (value) => value.rentalItemId)),
+                () =>
+                  returnRentalItems(
+                    validateBusinessBatch(
+                      values as ReturnInput[],
+                      (value) => value.rentalItemId,
+                    ),
+                  ),
                 "退租已登记",
               )
             }
@@ -1466,7 +2142,16 @@ setDialog("change-guide");
             mode="loss"
             pending={pending}
             submit={(values) =>
-              runInDetail(() => reportLostItems(validateBusinessBatch(values as LossInput[], (value) => value.rentalItemId)), "丢失已登记")
+              runInDetail(
+                () =>
+                  reportLostItems(
+                    validateBusinessBatch(
+                      values as LossInput[],
+                      (value) => value.rentalItemId,
+                    ),
+                  ),
+                "丢失已登记",
+              )
             }
           />
         )}
@@ -1483,7 +2168,10 @@ setDialog("change-guide");
             pending={pending}
             submit={(values) =>
               runInDetail(
-                () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
+                () =>
+                  changeRentalItems(
+                    validateBusinessBatch(values, (value) => value.itemId),
+                  ),
                 "配置与应收已更新",
               )
             }
@@ -1501,7 +2189,13 @@ setDialog("change-guide");
             rental={selected}
             pending={pending}
             submit={(values) =>
-              runInDetail(() => createRepairRecords(validateBusinessBatch(values, (value) => value.itemId)), "维修记录已保存")
+              runInDetail(
+                () =>
+                  createRepairRecords(
+                    validateBusinessBatch(values, (value) => value.itemId),
+                  ),
+                "维修记录已保存",
+              )
             }
           />
         )}
@@ -1535,10 +2229,7 @@ setDialog("change-guide");
             rental={selected}
             pending={pending}
             submit={(values) =>
-              runInDetail(
-                () => exchangeRentalItems(values),
-                "换机调拨已登记",
-              )
+              runInDetail(() => exchangeRentalItems(values), "换机调拨已登记")
             }
           />
         )}
@@ -1554,7 +2245,17 @@ setDialog("change-guide");
             pending={pending}
             submit={(values, settlement) =>
               runInDetail(
-                () => buyoutRentalItems(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId), settlement),
+                () =>
+                  buyoutRentalItems(
+                    validateBusinessBatch(
+                      values.map((value) => ({
+                        ...value,
+                        rentalId: selected.id,
+                      })),
+                      (value) => value.itemId,
+                    ),
+                    settlement,
+                  ),
                 "买断已登记",
               )
             }
@@ -1717,70 +2418,115 @@ function RentalForm({
   currentActorName,
   assignees,
   allowTest,
-  }: {
+}: {
   form: RentalInput;
   setForm: React.Dispatch<React.SetStateAction<RentalInput>>;
-  submit: (form: RentalInput, sendNow: boolean, orderType: "draft" | "test" | "official", initialCollection?: InitialCollectionInput) => void;
+  submit: (
+    form: RentalInput,
+    sendNow: boolean,
+    orderType: "draft" | "test" | "official",
+    initialCollection?: InitialCollectionInput,
+  ) => void;
   pending: boolean;
   currentActorName: string;
   assignees: RentalAssignee[];
   allowTest: boolean;
-  }) {
+}) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [sendNoticeNow, setSendNoticeNow] = useState(true);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
-  const [initialCollection, setInitialCollection] = useState<InitialCollectionInput>({
-    collectRent: false,
-    collectDeposit: false,
-    paymentDate: today(),
-    paymentMethod: "微信",
-  });
+  const [initialCollection, setInitialCollection] =
+    useState<InitialCollectionInput>({
+      collectRent: false,
+      collectDeposit: false,
+      paymentDate: today(),
+      paymentMethod: "微信",
+    });
   const [numbersLoading, setNumbersLoading] = useState(false);
-  const [customerOffer, setCustomerOffer] = useState<{ name: string; level: string; label: string; discount: number; suggestion: string; note: string | null } | null>(null);
+  const [customerOffer, setCustomerOffer] = useState<{
+    name: string;
+    level: string;
+    label: string;
+    discount: number;
+    suggestion: string;
+    note: string | null;
+  } | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
-  const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {} });
+  const [historySuggestions, setHistorySuggestions] = useState<
+    Awaited<ReturnType<typeof getRentalFormSuggestions>>
+  >({ contacts: [], configurations: {} });
   const draftReady = useRef(false);
   useEffect(() => {
     document.documentElement.dataset.unsavedRental = "true";
     try {
       const saved = sessionStorage.getItem("suwei:new-rental-draft");
       if (saved) {
-        const draft = JSON.parse(saved) as { form?: RentalInput; step?: number };
+        const draft = JSON.parse(saved) as {
+          form?: RentalInput;
+          step?: number;
+        };
         if (draft.form) setForm(draft.form);
-        if (typeof draft.step === "number") setStep(Math.min(3, Math.max(0, draft.step)));
+        if (typeof draft.step === "number")
+          setStep(Math.min(3, Math.max(0, draft.step)));
         toast.info("已恢复上次未完成的租赁录入");
       }
     } catch {
       sessionStorage.removeItem("suwei:new-rental-draft");
     }
-    return () => { delete document.documentElement.dataset.unsavedRental; };
+    return () => {
+      delete document.documentElement.dataset.unsavedRental;
+    };
   }, [setForm]);
   useEffect(() => {
     if (!draftReady.current) {
       draftReady.current = true;
       return;
     }
-    sessionStorage.setItem("suwei:new-rental-draft", JSON.stringify({ form, step }));
+    sessionStorage.setItem(
+      "suwei:new-rental-draft",
+      JSON.stringify({ form, step }),
+    );
   }, [form, step]);
   useEffect(() => {
     let active = true;
-    getRentalFormSuggestions().then((value) => { if (active) setHistorySuggestions(value); }).catch(() => {});
-    return () => { active = false; };
+    getRentalFormSuggestions()
+      .then((value) => {
+        if (active) setHistorySuggestions(value);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, []);
   const applyContact = (name: string) => {
-    const matches = historySuggestions.contacts.filter((contact) => contact.name === name.trim());
+    const matches = historySuggestions.contacts.filter(
+      (contact) => contact.name === name.trim(),
+    );
     if (!matches.length) return;
     const selected = matches[0];
-    setForm((current) => ({ ...current, customerName: selected.name, customerPhone: selected.phone, customerCompany: selected.company, customerAddress: selected.address }));
+    setForm((current) => ({
+      ...current,
+      customerName: selected.name,
+      customerPhone: selected.phone,
+      customerCompany: selected.company,
+      customerAddress: selected.address,
+    }));
     setCustomerOffer(null);
   };
   const checkCustomerOffer = async () => {
-    if (!/^1\d{10}$/.test(form.customerPhone.trim())) { setCustomerOffer(null); return; }
+    if (!/^1\d{10}$/.test(form.customerPhone.trim())) {
+      setCustomerOffer(null);
+      return;
+    }
     setOfferLoading(true);
-    try { setCustomerOffer(await getCustomerOfferSuggestion(form.customerPhone)); }
-    catch { setCustomerOffer(null); }
-    finally { setOfferLoading(false); }
+    try {
+      setCustomerOffer(await getCustomerOfferSuggestion(form.customerPhone));
+    } catch {
+      setCustomerOffer(null);
+    } finally {
+      setOfferLoading(false);
+    }
   };
   const billingType = form.billingType || "monthly";
   const duration = Math.max(1, form.duration || 1);
@@ -1904,24 +2650,26 @@ function RentalForm({
     setStep((current) => Math.min(3, current + 1));
   };
   const confirmSubmit = (orderType: "draft" | "test" | "official") => {
-  const customerError = form.customerName.trim().length < 2
-    ? "联系人姓名至少需要 2 个字，请返回第 1 步修改"
-    : !/^1\d{10}$/.test(form.customerPhone.trim())
-      ? "请输入正确的 11 位手机号，请返回第 1 步修改"
-      : "";
-  const itemError = form.items.map(validateRentalItemFields).find(Boolean) || "";
-  const contractError = !form.startDate
-    ? "请选择起租日期"
-    : !Number.isInteger(form.duration) || form.duration < 1
-      ? `请输入正确的租赁时间（至少 1 ${billingType === "daily" ? "天" : "个月"}）`
-      : form.startDate !== today() && !form.startDateReason
-        ? "非当天起租必须选择原因"
-        : "";
-  const message = customerError || itemError || contractError;
-  if (message) {
-  setError(message);
-  return;
-  }
+    const customerError =
+      form.customerName.trim().length < 2
+        ? "联系人姓名至少需要 2 个字，请返回第 1 步修改"
+        : !/^1\d{10}$/.test(form.customerPhone.trim())
+          ? "请输入正确的 11 位手机号，请返回第 1 步修改"
+          : "";
+    const itemError =
+      form.items.map(validateRentalItemFields).find(Boolean) || "";
+    const contractError = !form.startDate
+      ? "请选择起租日期"
+      : !Number.isInteger(form.duration) || form.duration < 1
+        ? `请输入正确的租赁时间（至少 1 ${billingType === "daily" ? "天" : "个月"}）`
+        : form.startDate !== today() && !form.startDateReason
+          ? "非当天起租必须选择原因"
+          : "";
+    const message = customerError || itemError || contractError;
+    if (message) {
+      setError(message);
+      return;
+    }
 
     if (orderType === "official" && step < 3) {
       setError("");
@@ -1935,7 +2683,12 @@ function RentalForm({
     }
     setError("");
     setForm(normalizedForm);
-    submit(normalizedForm, orderType === "official" && sendNoticeNow, orderType, orderType === "official" ? initialCollection : undefined);
+    submit(
+      normalizedForm,
+      orderType === "official" && sendNoticeNow,
+      orderType,
+      orderType === "official" ? initialCollection : undefined,
+    );
   };
   const steps = ["客户与合同", "设备明细", "租期与费用", "复核与收款"];
   return (
@@ -2014,9 +2767,112 @@ function RentalForm({
               required={false}
               placeholder="选填，如某某科技有限公司"
             />
-            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系人姓名<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" list="rental-contact-history" value={form.customerName} onChange={(event) => { const name = event.target.value; setForm({ ...form, customerName: name }); const matches = historySuggestions.contacts.filter((contact) => contact.name === name.trim()); if (matches.length === 1 && !form.customerPhone) applyContact(name); }} onBlur={(event) => applyContact(event.currentTarget.value)} placeholder="输入或选择历史联系人" /><datalist id="rental-contact-history">{[...new Set(historySuggestions.contacts.map((contact) => contact.name))].map((name) => <option key={name} value={name} />)}</datalist></label>
-            <label className="flex flex-col gap-2 text-sm font-medium"><span>联系电话<span className="ml-1 text-destructive" aria-hidden="true">*</span></span><input className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary" list="rental-phone-history" value={form.customerPhone} inputMode="numeric" onChange={(event) => { setCustomerOffer(null); setForm({ ...form, customerPhone: event.target.value.replace(/\D/g, "").slice(0, 11) }); }} onBlur={checkCustomerOffer} placeholder="输入或选择历史电话" /><datalist id="rental-phone-history">{historySuggestions.contacts.filter((contact) => !form.customerName.trim() || contact.name === form.customerName.trim()).map((contact) => <option key={`${contact.name}-${contact.phone}`} value={contact.phone}>{contact.name}</option>)}</datalist></label>
-            <div className="flex flex-col justify-center rounded-lg border bg-muted/40 px-4 py-3" aria-live="polite">{offerLoading ? <p className="text-sm text-muted-foreground">正在查询客户等级…</p> : customerOffer ? <><p className="text-sm font-medium">{customerOffer.name} · {customerOffer.label}客户</p><p className="mt-1 text-xs text-muted-foreground">本单优惠建议：{customerOffer.suggestion}。仅供业务参考，合同金额仍由经办人确认。</p>{customerOffer.note ? <p className="mt-1 text-xs text-muted-foreground">等级备注：{customerOffer.note}</p> : null}</> : <><p className="text-sm font-medium">客户优惠建议</p><p className="mt-1 text-xs text-muted-foreground">输入已登记客户手机号后自动显示等级与建议折扣。</p></>}</div>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              <span>
+                联系人姓名
+                <span className="ml-1 text-destructive" aria-hidden="true">
+                  *
+                </span>
+              </span>
+              <input
+                className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
+                list="rental-contact-history"
+                value={form.customerName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setForm({ ...form, customerName: name });
+                  const matches = historySuggestions.contacts.filter(
+                    (contact) => contact.name === name.trim(),
+                  );
+                  if (matches.length === 1 && !form.customerPhone)
+                    applyContact(name);
+                }}
+                onBlur={(event) => applyContact(event.currentTarget.value)}
+                placeholder="输入或选择历史联系人"
+              />
+              <datalist id="rental-contact-history">
+                {[
+                  ...new Set(
+                    historySuggestions.contacts.map((contact) => contact.name),
+                  ),
+                ].map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              <span>
+                联系电话
+                <span className="ml-1 text-destructive" aria-hidden="true">
+                  *
+                </span>
+              </span>
+              <input
+                className="h-10 rounded-lg border bg-background px-3 outline-none focus:ring-2 focus:ring-primary"
+                list="rental-phone-history"
+                value={form.customerPhone}
+                inputMode="numeric"
+                onChange={(event) => {
+                  setCustomerOffer(null);
+                  setForm({
+                    ...form,
+                    customerPhone: event.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 11),
+                  });
+                }}
+                onBlur={checkCustomerOffer}
+                placeholder="输入或选择历史电话"
+              />
+              <datalist id="rental-phone-history">
+                {historySuggestions.contacts
+                  .filter(
+                    (contact) =>
+                      !form.customerName.trim() ||
+                      contact.name === form.customerName.trim(),
+                  )
+                  .map((contact) => (
+                    <option
+                      key={`${contact.name}-${contact.phone}`}
+                      value={contact.phone}
+                    >
+                      {contact.name}
+                    </option>
+                  ))}
+              </datalist>
+            </label>
+            <div
+              className="flex flex-col justify-center rounded-lg border bg-muted/40 px-4 py-3"
+              aria-live="polite"
+            >
+              {offerLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  正在查询客户等级…
+                </p>
+              ) : customerOffer ? (
+                <>
+                  <p className="text-sm font-medium">
+                    {customerOffer.name} · {customerOffer.label}客户
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    本单优惠建议：{customerOffer.suggestion}
+                    。仅供业务参考，合同金额仍由经办人确认。
+                  </p>
+                  {customerOffer.note ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      等级备注：{customerOffer.note}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">客户优惠建议</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    输入已登记客户手机号后自动显示等级与建议折扣。
+                  </p>
+                </>
+              )}
+            </div>
             <Field
               label="客户地址"
               value={form.customerAddress || ""}
@@ -2150,7 +3006,9 @@ function RentalForm({
                           value={String(item[key] || "")}
                           placeholder={placeholder}
                           onChange={(v) => updateItem(index, key, v)}
-                          suggestions={historySuggestions.configurations[key] || []}
+                          suggestions={
+                            historySuggestions.configurations[key] || []
+                          }
                           listId={`rental-config-${index}-${key}`}
                           required={
                             item.deviceType !== "显示器" || key === "screenSize"
@@ -2165,7 +3023,9 @@ function RentalForm({
                     label="其他配置"
                     value={item.deviceConfig || ""}
                     onChange={(v) => updateItem(index, "deviceConfig", v)}
-                    suggestions={historySuggestions.configurations.deviceConfig || []}
+                    suggestions={
+                      historySuggestions.configurations.deviceConfig || []
+                    }
                     listId={`rental-config-${index}-deviceConfig`}
                     required={false}
                   />
@@ -2303,8 +3163,21 @@ function RentalForm({
             </div>
           </FormSection>
           <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
-            <input type="checkbox" checked={sendNoticeNow} onChange={(event) => setSendNoticeNow(event.target.checked)} className="mt-1 size-4 accent-primary" />
-            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无需通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
+            <input
+              type="checkbox"
+              checked={sendNoticeNow}
+              onChange={(event) => setSendNoticeNow(event.target.checked)}
+              className="mt-1 size-4 accent-primary"
+            />
+            <span>
+              <strong className="block text-foreground">
+                合同保存成功后立即发送初始租赁通知
+              </strong>
+              <span className="mt-1 block leading-6 text-muted-foreground">
+                已默认勾选，将发送至 {form.customerPhone || "客户手机号"}
+                。如无需通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。
+              </span>
+            </span>
           </label>
           <FormSection
             title="业务备注"
@@ -2322,23 +3195,138 @@ function RentalForm({
         <div className="flex flex-col gap-5">
           <section className="rounded-xl border border-warning/40 bg-warning/10 p-4">
             <h3 className="font-semibold">请操作员逐项核对后再创建正式合同</h3>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">正式合同创建后会立即生成应收账单；勾选即时收款后，还会同步生成不可随意删除的收款与资金流水。</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              正式合同创建后会立即生成应收账单；勾选即时收款后，还会同步生成不可随意删除的收款与资金流水。
+            </p>
           </section>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">起租日期</p><p className="mt-2 font-semibold">{form.startDate}</p></div>
-            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">到期日期</p><p className="mt-2 font-semibold">{calculatedEndDate}</p></div>
-            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">租赁金额</p><p className="mt-2 font-semibold">{money(totals.total)}</p></div>
-            <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">约定押金</p><p className="mt-2 font-semibold">{money(form.deposit)}</p></div>
-          </div>
-          <FormSection title="是否现在收款" description="租金与押金分别确认；不勾选的费用将保留为待收账单">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectRent ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={initialCollection.collectRent} onChange={(event) => setInitialCollection({ ...initialCollection, collectRent: event.target.checked })} className="mt-1 size-4 accent-primary" /><span><strong className="block">现在收取全部租金</strong><span className="mt-1 block text-sm text-muted-foreground">本次收取 {money(totals.total)}</span></span></label>
-              <label className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectDeposit ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" disabled={Number(form.deposit) <= 0} checked={initialCollection.collectDeposit} onChange={(event) => setInitialCollection({ ...initialCollection, collectDeposit: event.target.checked })} className="mt-1 size-4 accent-primary" /><span><strong className="block">现在收取全部押金</strong><span className="mt-1 block text-sm text-muted-foreground">本次收取 {money(form.deposit)}</span></span></label>
+            <div className="rounded-xl border bg-card p-4">
+              <p className="text-xs text-muted-foreground">起租日期</p>
+              <p className="mt-2 font-semibold">{form.startDate}</p>
             </div>
-            {(initialCollection.collectRent || initialCollection.collectDeposit) && <div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="收款日期" type="date" value={initialCollection.paymentDate} onChange={(paymentDate) => setInitialCollection({ ...initialCollection, paymentDate })} /><label className="flex flex-col gap-2 text-sm font-medium">收款方式<select className="h-10 rounded-lg border bg-background px-3" value={initialCollection.paymentMethod} onChange={(event) => setInitialCollection({ ...initialCollection, paymentMethod: event.target.value as InitialCollectionInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div>}
-            <div className="mt-4 rounded-xl bg-muted p-4"><p className="text-sm text-muted-foreground">本单即时收款合计</p><p className="mt-1 text-xl font-bold">{money((initialCollection.collectRent ? totals.total : 0) + (initialCollection.collectDeposit ? Number(form.deposit) : 0))}</p></div>
+            <div className="rounded-xl border bg-card p-4">
+              <p className="text-xs text-muted-foreground">到期日期</p>
+              <p className="mt-2 font-semibold">{calculatedEndDate}</p>
+            </div>
+            <div className="rounded-xl border bg-card p-4">
+              <p className="text-xs text-muted-foreground">租赁金额</p>
+              <p className="mt-2 font-semibold">{money(totals.total)}</p>
+            </div>
+            <div className="rounded-xl border bg-card p-4">
+              <p className="text-xs text-muted-foreground">约定押金</p>
+              <p className="mt-2 font-semibold">{money(form.deposit)}</p>
+            </div>
+          </div>
+          <FormSection
+            title="是否现在收款"
+            description="租金与押金分别确认；不勾选的费用将保留为待收账单"
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectRent ? "border-primary bg-primary/5" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={initialCollection.collectRent}
+                  onChange={(event) =>
+                    setInitialCollection({
+                      ...initialCollection,
+                      collectRent: event.target.checked,
+                    })
+                  }
+                  className="mt-1 size-4 accent-primary"
+                />
+                <span>
+                  <strong className="block">现在收取全部租金</strong>
+                  <span className="mt-1 block text-sm text-muted-foreground">
+                    本次收取 {money(totals.total)}
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-4 ${initialCollection.collectDeposit ? "border-primary bg-primary/5" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  disabled={Number(form.deposit) <= 0}
+                  checked={initialCollection.collectDeposit}
+                  onChange={(event) =>
+                    setInitialCollection({
+                      ...initialCollection,
+                      collectDeposit: event.target.checked,
+                    })
+                  }
+                  className="mt-1 size-4 accent-primary"
+                />
+                <span>
+                  <strong className="block">现在收取全部押金</strong>
+                  <span className="mt-1 block text-sm text-muted-foreground">
+                    本次收取 {money(form.deposit)}
+                  </span>
+                </span>
+              </label>
+            </div>
+            {(initialCollection.collectRent ||
+              initialCollection.collectDeposit) && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="收款日期"
+                  type="date"
+                  value={initialCollection.paymentDate}
+                  onChange={(paymentDate) =>
+                    setInitialCollection({ ...initialCollection, paymentDate })
+                  }
+                />
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  收款方式
+                  <select
+                    className="h-10 rounded-lg border bg-background px-3"
+                    value={initialCollection.paymentMethod}
+                    onChange={(event) =>
+                      setInitialCollection({
+                        ...initialCollection,
+                        paymentMethod: event.target
+                          .value as InitialCollectionInput["paymentMethod"],
+                      })
+                    }
+                  >
+                    {["现金", "微信", "支付宝", "银行卡", "其他"].map(
+                      (method) => (
+                        <option key={method}>{method}</option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              </div>
+            )}
+            <div className="mt-4 rounded-xl bg-muted p-4">
+              <p className="text-sm text-muted-foreground">本单即时收款合计</p>
+              <p className="mt-1 text-xl font-bold">
+                {money(
+                  (initialCollection.collectRent ? totals.total : 0) +
+                    (initialCollection.collectDeposit
+                      ? Number(form.deposit)
+                      : 0),
+                )}
+              </p>
+            </div>
           </FormSection>
-          <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm"><input type="checkbox" checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">我已确认日期、租期、租赁金额和收款选择正确</strong><span className="mt-1 block leading-6 text-muted-foreground">请根据客户实际付款情况勾选，不要将“准备收款”登记为“已经收款”。</span></span></label>
+          <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
+            <input
+              type="checkbox"
+              checked={reviewConfirmed}
+              onChange={(event) => setReviewConfirmed(event.target.checked)}
+              className="mt-1 size-4 accent-primary"
+            />
+            <span>
+              <strong className="block">
+                我已确认日期、租期、租赁金额和收款选择正确
+              </strong>
+              <span className="mt-1 block leading-6 text-muted-foreground">
+                请根据客户实际付款情况勾选，不要将“准备收款”登记为“已经收款”。
+              </span>
+            </span>
+          </label>
         </div>
       )}
       {error && (
@@ -2365,15 +3353,50 @@ function RentalForm({
           第 {step + 1} / 4 步
         </span>
         {step < 2 ? (
-          <button type="button" onClick={next} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground">下一步</button>
+          <button
+            type="button"
+            onClick={next}
+            className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground"
+          >
+            下一步
+          </button>
         ) : step === 2 ? (
           <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" disabled={pending} onClick={() => confirmSubmit("draft")} className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-60">保存草稿</button>
-            {allowTest && <button type="button" disabled={pending} onClick={() => confirmSubmit("test")} className="h-10 rounded-lg border border-warning/40 bg-warning/10 px-4 text-sm font-medium text-foreground disabled:opacity-60">创建测试合同</button>}
-            <button type="button" onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">复核并决定收款</button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => confirmSubmit("draft")}
+              className="h-10 rounded-lg border px-4 text-sm font-medium disabled:opacity-60"
+            >
+              保存草稿
+            </button>
+            {allowTest && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => confirmSubmit("test")}
+                className="h-10 rounded-lg border border-warning/40 bg-warning/10 px-4 text-sm font-medium text-foreground disabled:opacity-60"
+              >
+                创建测试合同
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => confirmSubmit("official")}
+              className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+            >
+              复核并决定收款
+            </button>
           </div>
         ) : (
-          <button type="button" disabled={pending || !reviewConfirmed} onClick={() => confirmSubmit("official")} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "正在保存" : "确认创建正式合同"}</button>
+          <button
+            type="button"
+            disabled={pending || !reviewConfirmed}
+            onClick={() => confirmSubmit("official")}
+            className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {pending ? "正在保存" : "确认创建正式合同"}
+          </button>
         )}
       </div>
     </form>
@@ -2382,14 +3405,21 @@ function RentalForm({
 
 type ChangeScenario = "客户资料变更" | "租期调整";
 
-function RentalChangeGuide({ rental, initialScenario, pending, submit }: {
-rental: Rental;
-initialScenario: ChangeScenario;
-pending: boolean;
+function RentalChangeGuide({
+  rental,
+  initialScenario,
+  pending,
+  submit,
+}: {
+  rental: Rental;
+  initialScenario: ChangeScenario;
+  pending: boolean;
   submit: (value: ContractChangeInput) => void;
 }) {
   const scenario = initialScenario;
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
+  const [effectiveDate, setEffectiveDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [reason, setReason] = useState("");
   const [feeAdjustment, setFeeAdjustment] = useState("0");
   const [feeNote, setFeeNote] = useState("双方协商确认，按实际差额调整");
@@ -2400,21 +3430,123 @@ pending: boolean;
   const [endDate, setEndDate] = useState(rental.endDate);
   const submitChange = (event: FormEvent) => {
     event.preventDefault();
-    submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, startDate: scenario === "租期调整" ? startDate : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
+    submit({
+      rentalId: rental.id,
+      changeType: scenario,
+      effectiveDate,
+      reason,
+      customerName: scenario === "客户资料变更" ? customerName : undefined,
+      customerPhone: scenario === "客户资料变更" ? customerPhone : undefined,
+      startDate: scenario === "租期调整" ? startDate : undefined,
+      endDate: scenario === "租期调整" ? endDate : undefined,
+      feeAdjustment: Number(feeAdjustment),
+      feeNote,
+      customerConfirmed,
+    });
   };
-  return <form onSubmit={submitChange} className="flex flex-col gap-5">
-    <div className="rounded-xl bg-muted p-4"><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前生效资料。</p></div>
-    <div className="grid gap-4 sm:grid-cols-2">
-      {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <><Field label="新起租日期" type="date" value={startDate} onChange={setStartDate} /><Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} /></>}
-      <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
-      <Field label="费用差额（补收填正数，减免/退款填负数）" type="number" value={feeAdjustment} onChange={setFeeAdjustment} />
-    </div>
-    <label className="flex flex-col gap-2 text-sm font-medium"><span>变更原因 <span className="text-destructive">*</span></span><textarea required value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：客户临时调整项目人员安排" /></label>
-    <label className="flex flex-col gap-2 text-sm font-medium"><span>费用处理说明 <span className="text-destructive">*</span></span><textarea required value={feeNote} onChange={(e) => setFeeNote(e.target.value)} className="min-h-20 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" /></label>
-    <label className="flex items-start gap-3 rounded-xl border p-4 text-sm"><input type="checkbox" checked={customerConfirmed} onChange={(e) => setCustomerConfirmed(e.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">客户已确认本次变更</strong><span className="mt-1 block text-muted-foreground">未确认也可登记，但变更记录会明确标注“客户未确认”。</span></span></label>
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6"><strong>提交后：</strong>生成不可删除的变更记录；费用差额进入独立账务流水；原合同签订资料不被覆盖。</div>
-    <div className="flex justify-end"><button type="submit" disabled={pending} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在登记…" : "确认并登记变更"}</button></div>
-  </form>;
+  return (
+    <form onSubmit={submitChange} className="flex flex-col gap-5">
+      <div className="rounded-xl bg-muted p-4">
+        <p className="font-semibold">{scenario}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          原合同信息会作为历史快照保留，本次只���新当前生效资料。
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {scenario === "客户资料变更" ? (
+          <>
+            <Field
+              label="新联系人姓名"
+              value={customerName}
+              onChange={setCustomerName}
+            />
+            <Field
+              label="新联系电话"
+              value={customerPhone}
+              onChange={setCustomerPhone}
+            />
+          </>
+        ) : (
+          <>
+            <Field
+              label="新起租日期"
+              type="date"
+              value={startDate}
+              onChange={setStartDate}
+            />
+            <Field
+              label="新到期日期"
+              type="date"
+              value={endDate}
+              onChange={setEndDate}
+            />
+          </>
+        )}
+        <Field
+          label="生效日期"
+          type="date"
+          value={effectiveDate}
+          onChange={setEffectiveDate}
+        />
+        <Field
+          label="费用差额（补收填正数，减免/退款填负数）"
+          type="number"
+          value={feeAdjustment}
+          onChange={setFeeAdjustment}
+        />
+      </div>
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        <span>
+          变更原因 <span className="text-destructive">*</span>
+        </span>
+        <textarea
+          required
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary"
+          placeholder="例如：客户临时调整项目人员安排"
+        />
+      </label>
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        <span>
+          费用处理说明 <span className="text-destructive">*</span>
+        </span>
+        <textarea
+          required
+          value={feeNote}
+          onChange={(e) => setFeeNote(e.target.value)}
+          className="min-h-20 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary"
+        />
+      </label>
+      <label className="flex items-start gap-3 rounded-xl border p-4 text-sm">
+        <input
+          type="checkbox"
+          checked={customerConfirmed}
+          onChange={(e) => setCustomerConfirmed(e.target.checked)}
+          className="mt-1 size-4 accent-primary"
+        />
+        <span>
+          <strong className="block">客户已确认本次变更</strong>
+          <span className="mt-1 block text-muted-foreground">
+            未确认也可登记，但变更记录会明确标注“客户未确认”。
+          </span>
+        </span>
+      </label>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
+        <strong>提交后：</strong>
+        生成不可删除的变更记录；费用差额进入独立账务流水；原合同签订资料不被覆盖。
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={pending}
+          className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {pending ? "正在登记…" : "确认并登记变更"}
+        </button>
+      </div>
+    </form>
+  );
 }
 
 type DetailProps = {
@@ -2480,25 +3612,47 @@ function Detail(props: DetailProps) {
   const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
   // 优惠与现金都会分配到具体账单的 paidAmount；待收必须逐笔看账单余额，
   // 不能再用“账单原价合计 - 合同现金实收”，否则优惠会被重复算成欠款。
-  const outstandingBills = positiveRentBills.filter((bill) => billOutstandingCents(bill) > 0);
-  const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
+  const outstandingBills = positiveRentBills.filter(
+    (bill) => billOutstandingCents(bill) > 0,
+  );
+  const outstandingCents = outstandingBills.reduce(
+    (sum, bill) => sum + billOutstandingCents(bill),
+    0,
+  );
   const overdueBills = outstandingBills.filter(
-    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
+    (bill) =>
+      billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) ===
+      "逾期",
   );
   const nextBill = nextOpenBill(outstandingBills);
-  const settledBills = (outstandingBills.length === 0 ? positiveRentBills : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0))
-    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
-  const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
+  const settledBills = (
+    outstandingBills.length === 0
+      ? positiveRentBills
+      : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0)
+  ).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+  const paidThrough = settledBills[0]
+    ? addCalendarDays(settledBills[0].periodEnd, 1)
+    : null;
   const remainingDevices = rental.items.reduce(
     (sum, item) =>
-      sum + Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity),
+      sum +
+      Math.max(
+        0,
+        item.quantity -
+          item.boughtOutQuantity -
+          item.returnedQuantity -
+          item.lostQuantity,
+      ),
     0,
   );
   const openRepairs = rental.events.filter(
-    (event) => event.eventType === "维修" && !["已完成", "已结束"].includes(event.status),
+    (event) =>
+      event.eventType === "维修" &&
+      !["已完成", "已结束"].includes(event.status),
   );
   const daysToExpiry = Math.ceil(
-    (new Date(`${rental.endDate}T00:00:00Z`).getTime() - new Date(`${currentDate}T00:00:00Z`).getTime()) /
+    (new Date(`${rental.endDate}T00:00:00Z`).getTime() -
+      new Date(`${currentDate}T00:00:00Z`).getTime()) /
       86_400_000,
   );
   const recordCount =
@@ -2506,22 +3660,56 @@ function Detail(props: DetailProps) {
     rental.renewalRecords.length +
     rental.buyoutRecords.length;
   const canBuyout = rental.items.some((i) => i.boughtOutQuantity < i.quantity);
-  const refundableDeposit = Math.max(0, rental.ledger.reduce((sum, entry) => sum + (entry.entryType === "押金收取" ? Number(entry.amount) : entry.entryType.startsWith("押金") ? -Math.abs(Number(entry.amount)) : 0), 0));
+  const refundableDeposit = Math.max(
+    0,
+    rental.ledger.reduce(
+      (sum, entry) =>
+        sum +
+        (entry.entryType === "押金收取"
+          ? Number(entry.amount)
+          : entry.entryType.startsWith("押金")
+            ? -Math.abs(Number(entry.amount))
+            : 0),
+      0,
+    ),
+  );
   const isDraft = rental.orderType === "draft";
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({
+      tone: "danger",
+      text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}`,
+    });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
-  if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
-    todos.push({ tone: "warn", text: `合同 ${daysToExpiry === 0 ? "今日到期" : `${daysToExpiry} 天后到期`}，可提醒客户续租` });
-  if (isDraft) todos.push({ tone: "warn", text: "草稿未转正式，暂不计入经营数据" });
+  if (
+    remainingDevices > 0 &&
+    daysToExpiry >= 0 &&
+    daysToExpiry <= 7 &&
+    rental.status !== "已关闭"
+  )
+    todos.push({
+      tone: "warn",
+      text: `合同 ${daysToExpiry === 0 ? "今日到期" : `${daysToExpiry} 天后到期`}，可提醒客户续租`,
+    });
+  if (isDraft)
+    todos.push({ tone: "warn", text: "草稿未转正式，暂不计入经营数据" });
 
   const tabs: { key: DetailTab; label: string; badge?: string }[] = [
     { key: "overview", label: "概览" },
-    { key: "finance", label: "账务", badge: outstandingBills.length ? `${outstandingBills.length} 待收` : undefined },
-    { key: "records", label: "业务记录", badge: recordCount ? String(recordCount) : undefined },
+    {
+      key: "finance",
+      label: "账务",
+      badge: outstandingBills.length
+        ? `${outstandingBills.length} 待收`
+        : undefined,
+    },
+    {
+      key: "records",
+      label: "业务记录",
+      badge: recordCount ? String(recordCount) : undefined,
+    },
     { key: "manage", label: "合同与管理" },
   ];
 
@@ -2531,14 +3719,21 @@ function Detail(props: DetailProps) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold">{rental.customerCompany || rental.customerName}</h3>
+              <h3 className="text-base font-semibold">
+                {rental.customerCompany || rental.customerName}
+              </h3>
               <Status value={currentStatus} />
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                {rental.orderType === "draft" ? "草稿" : rental.orderType === "test" ? "测试" : "正式合同"}
+                {rental.orderType === "draft"
+                  ? "草稿"
+                  : rental.orderType === "test"
+                    ? "测试"
+                    : "正式合同"}
               </span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {rental.contractNo} · {rental.customerName} · {rental.customerPhone}
+              {rental.contractNo} · {rental.customerName} ·{" "}
+              {rental.customerPhone}
             </p>
           </div>
           <div className="grid grid-cols-3 gap-4 text-sm">
@@ -2564,7 +3759,9 @@ function Detail(props: DetailProps) {
             ))}
           </div>
         ) : (
-          <p className="mt-3 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary">当前暂无待办事项</p>
+          <p className="mt-3 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary">
+            当前暂无待办事项
+          </p>
         )}
         {isDraft && (
           <button
@@ -2593,7 +3790,9 @@ function Detail(props: DetailProps) {
             {item.badge && (
               <span
                 className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
-                  tab === item.key ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                  tab === item.key
+                    ? "bg-primary/10 text-primary"
+                    : "bg-muted text-muted-foreground"
                 }`}
               >
                 {item.badge}
@@ -2605,7 +3804,11 @@ function Detail(props: DetailProps) {
 
       <div className="mt-4 flex flex-col gap-4 pb-24">
         {tab === "overview" && (
-          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} />
+          <DetailOverview
+            rental={rental}
+            paidThrough={paidThrough}
+            nextBill={nextBill}
+          />
         )}
         {tab === "finance" && (
           <DetailFinance
@@ -2616,7 +3819,11 @@ function Detail(props: DetailProps) {
           />
         )}
         {tab === "records" && (
-          <DetailRecords rental={rental} role={role} onCorrectRenewal={onCorrectRenewal} />
+          <DetailRecords
+            rental={rental}
+            role={role}
+            onCorrectRenewal={onCorrectRenewal}
+          />
         )}
         {tab === "manage" && (
           <DetailManage
@@ -2626,8 +3833,8 @@ function Detail(props: DetailProps) {
             canManageContracts={canManageContracts}
             onSendNotice={onSendNotice}
             onAssignee={onAssignee}
-  onHistory={onHistory}
-  onDelete={onDelete}
+            onHistory={onHistory}
+            onDelete={onDelete}
             onStatus={onStatus}
           />
         )}
@@ -2688,10 +3895,18 @@ function Detail(props: DetailProps) {
   );
 }
 
-function ActionGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function ActionGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-2 last:mb-0">
-      <p className="px-1 pb-1 text-xs font-semibold text-muted-foreground">{title}</p>
+      <p className="px-1 pb-1 text-xs font-semibold text-muted-foreground">
+        {title}
+      </p>
       <div className="flex flex-col">{children}</div>
     </div>
   );
@@ -2719,7 +3934,11 @@ function ActionItem({
       onClick={onClick}
       className="rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
     >
-      <span className={`block text-sm font-medium ${danger ? "text-destructive" : ""}`}>{label}</span>
+      <span
+        className={`block text-sm font-medium ${danger ? "text-destructive" : ""}`}
+      >
+        {label}
+      </span>
       <span className="mt-0.5 block text-xs text-muted-foreground">
         {disabled && disabledHint ? disabledHint : hint}
       </span>
@@ -2749,9 +3968,19 @@ function DetailOverview({
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
       </section>
       <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
-        <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
+        <Info
+          l="已付覆盖至"
+          v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"}
+        />
         <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
-        <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+        <Info
+          l="下次应付金额"
+          v={
+            nextBill
+              ? money(centsToMoney(billOutstandingCents(nextBill)))
+              : money(0)
+          }
+        />
       </section>
       <section className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
@@ -2761,10 +3990,22 @@ function DetailOverview({
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-2 sm:flex-row">
                 <div>
-                  <p className="font-semibold">{item.deviceType} · {item.deviceName}</p>
-                  <p className="text-sm text-muted-foreground">{item.deviceCode || ""}</p>
+                  <p className="font-semibold">
+                    {item.deviceType} · {item.deviceName}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {item.deviceCode || ""}
+                  </p>
                 </div>
-                <Status value={remain === 0 ? "已买断" : item.boughtOutQuantity > 0 ? "部分买断" : "在租"} />
+                <Status
+                  value={
+                    remain === 0
+                      ? "已买断"
+                      : item.boughtOutQuantity > 0
+                        ? "部分买断"
+                        : "在租"
+                  }
+                />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Info l="原数量" v={`${item.quantity} 台`} />
@@ -2772,12 +4013,17 @@ function DetailOverview({
                 <Info l="剩余在租" v={`${remain} 台`} />
                 <Info l="买断金额" v={money(item.buyoutAmount)} />
                 <Info l="月租单价 / 台" v={money(item.monthlyRent)} />
-                <Info l="设备租期" v={`${item.startDate || rental.startDate} 至 ${item.endDate || rental.endDate}`} />
+                <Info
+                  l="设备租期"
+                  v={`${item.startDate || rental.startDate} 至 ${item.endDate || rental.endDate}`}
+                />
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
                 {getDeviceConfigRows(item).map((row) => (
                   <div key={row.label}>
-                    <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                    <dt className="text-xs text-muted-foreground">
+                      {row.label}
+                    </dt>
                     <dd className="min-h-5">{row.value}</dd>
                   </div>
                 ))}
@@ -2804,70 +4050,446 @@ function DetailFinance({
   const today = new Date().toISOString().slice(0, 10);
   const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
   const rentBills = rental.bills
-    .filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType))
-    .sort((left, right) => left.periodStart.localeCompare(right.periodStart) || left.periodEnd.localeCompare(right.periodEnd) || left.dueDate.localeCompare(right.dueDate) || left.id - right.id);
-  const adjustmentBills = rental.bills.filter((bill) => Number(bill.amount) < 0 && bill.billType !== "押金");
-  const otherBills = rental.bills.filter((bill) => !rentBills.includes(bill) && !adjustmentBills.includes(bill));
-  const rentSummary = rentFinanceSummary({ totalRent: rental.totalRent, paidAmount: rental.paidAmount, rentBills, ledger: rental.ledger });
-  const { grossRentCents, discountCents, netReceivableCents: totalReceivable, cashReceivedCents: totalPaid, outstandingCents: totalOutstanding, accountBalanceCents: accountBalance, billSettlement } = rentSummary;
-  const depositSummary = depositFinanceSummary({ contractualDeposit: rental.deposit, ledger: rental.ledger });
-  const depositLedger = rental.ledger.filter((entry) => isDepositLedgerEntry(entry.entryType)).sort((left, right) => right.entryDate.localeCompare(left.entryDate) || right.id - left.id);
-  const reversedPaymentIds = new Set(rental.ledger.filter((entry) => entry.entryType === "收款冲正" && entry.paymentRecordId).map((entry) => entry.paymentRecordId as number));
+    .filter(
+      (bill) =>
+        Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType),
+    )
+    .sort(
+      (left, right) =>
+        left.periodStart.localeCompare(right.periodStart) ||
+        left.periodEnd.localeCompare(right.periodEnd) ||
+        left.dueDate.localeCompare(right.dueDate) ||
+        left.id - right.id,
+    );
+  const adjustmentBills = rental.bills.filter(
+    (bill) => Number(bill.amount) < 0 && bill.billType !== "押金",
+  );
+  const otherBills = rental.bills.filter(
+    (bill) => !rentBills.includes(bill) && !adjustmentBills.includes(bill),
+  );
+  const rentSummary = rentFinanceSummary({
+    totalRent: rental.totalRent,
+    paidAmount: rental.paidAmount,
+    rentBills,
+    ledger: rental.ledger,
+  });
+  const {
+    grossRentCents,
+    discountCents,
+    netReceivableCents: totalReceivable,
+    cashReceivedCents: totalPaid,
+    outstandingCents: totalOutstanding,
+    accountBalanceCents: accountBalance,
+    billSettlement,
+  } = rentSummary;
+  const depositSummary = depositFinanceSummary({
+    contractualDeposit: rental.deposit,
+    ledger: rental.ledger,
+  });
+  const depositLedger = rental.ledger
+    .filter((entry) => isDepositLedgerEntry(entry.entryType))
+    .sort(
+      (left, right) =>
+        right.entryDate.localeCompare(left.entryDate) || right.id - left.id,
+    );
+  const reversedPaymentIds = new Set(
+    rental.ledger
+      .filter(
+        (entry) => entry.entryType === "收款冲正" && entry.paymentRecordId,
+      )
+      .map((entry) => entry.paymentRecordId as number),
+  );
   const hasOutstanding = totalOutstanding > 0;
   const billingUnit = normalizeBillingUnit(rental.billingType);
-  const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
+  const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(
+    rentBills,
+    { anchorDate: rental.startDate, unit: billingUnit },
+  );
   const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
-  const receivedAt = (value: Date | string) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  const receivedAt = (value: Date | string) =>
+    new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(value));
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-xl border bg-card">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="font-semibold">租金分期账单</h3>
-            <p className="mt-1 text-sm text-muted-foreground">按账期核对约定还款、实际到账和未收金额</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              按账期核对约定还款、实际到账和未收金额
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
-            <button type="button" disabled={!hasOutstanding} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部待收</button>
+            <button
+              type="button"
+              onClick={() => onPayment(null)}
+              className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted"
+            >
+              登记其他金额
+            </button>
+            <button
+              type="button"
+              disabled={!hasOutstanding}
+              onClick={() => onPayment("all")}
+              className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              收全部待收
+            </button>
           </div>
         </div>
         <div className="grid grid-cols-3 border-b bg-muted/40 text-center">
-          <div className="p-3"><p className="text-xs text-muted-foreground">合同应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{discountCents > 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 优惠 {money(centsToMoney(discountCents))}</p>}</div>
-          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已到账</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}</div>
-          <div className="p-3"><p className="text-xs text-muted-foreground">还需收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
+          <div className="p-3">
+            <p className="text-xs text-muted-foreground">合同应收</p>
+            <p className="mt-1 font-semibold">
+              {money(centsToMoney(totalReceivable))}
+            </p>
+            {discountCents > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                原应收 {money(centsToMoney(grossRentCents))} · 优惠{" "}
+                {money(centsToMoney(discountCents))}
+              </p>
+            )}
+          </div>
+          <div className="border-x p-3">
+            <p className="text-xs text-muted-foreground">���到账</p>
+            <p className="mt-1 font-semibold text-primary">
+              {money(centsToMoney(totalPaid))}
+            </p>
+            {accountBalance > 0 && (
+              <p className="mt-1 text-xs text-primary">
+                账户余额 {money(centsToMoney(accountBalance))}
+              </p>
+            )}
+          </div>
+          <div className="p-3">
+            <p className="text-xs text-muted-foreground">还需收</p>
+            <p className="mt-1 font-semibold text-destructive">
+              {money(centsToMoney(totalOutstanding))}
+            </p>
+          </div>
         </div>
-        <p className="border-b bg-muted/20 px-4 py-2 text-center text-xs text-muted-foreground">合同应收 − 已到账 = 还需收（{money(centsToMoney(totalReceivable))} − {money(centsToMoney(totalPaid))} = {money(centsToMoney(totalOutstanding))}）</p>
+        <p className="border-b bg-muted/20 px-4 py-2 text-center text-xs text-muted-foreground">
+          合同应收 − 已到账 = 还需收（{money(centsToMoney(totalReceivable))} −{" "}
+          {money(centsToMoney(totalPaid))} ={" "}
+          {money(centsToMoney(totalOutstanding))}）
+        </p>
         {rentBills.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">期数</th><th className="px-3 py-2.5">账期</th><th className="px-3 py-2.5">应收 / 已收</th><th className="px-3 py-2.5">约定还款日</th><th className="px-3 py-2.5">实际到账</th><th className="px-3 py-2.5">状态</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead>
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2.5">期数</th>
+                  <th className="px-3 py-2.5">账期</th>
+                  <th className="px-3 py-2.5">应收 / 已收</th>
+                  <th className="px-3 py-2.5">约定还款日</th>
+                  <th className="px-3 py-2.5">实际到账</th>
+                  <th className="px-3 py-2.5">状态</th>
+                  <th className="px-3 py-2.5 text-right">操作</th>
+                </tr>
+              </thead>
               <tbody className="divide-y">
                 {rentBills.map((bill, index) => {
-                  const settlement = billSettlement.get(bill.id) ?? { cashCents: 0, discountCents: 0, outstandingCents: Math.round(Number(bill.amount) * 100) };
+                  const settlement = billSettlement.get(bill.id) ?? {
+                    cashCents: 0,
+                    discountCents: 0,
+                    outstandingCents: Math.round(Number(bill.amount) * 100),
+                  };
                   const outstanding = settlement.outstandingCents;
-                  const settledCents = Math.max(0, Math.round(Number(bill.amount) * 100) - outstanding);
-                  const cashState = billState(bill.amount, centsToMoney(settledCents), bill.dueDate, today);
-                  const state: ReturnType<typeof billState> | "已抵扣" = settlement.discountCents > 0 && outstanding === 0 ? "已抵扣" : cashState;
-                  return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
-                    <td className="px-3 py-3 align-top"><strong>{billPeriodLabel(periodRanges.get(bill.id), billingUnit)}</strong><p className="mt-1 text-xs text-muted-foreground">共 {totalPeriods} {periodUnitLabel} · 第 {index + 1} 笔账单</p></td>
-                    <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
-                    <td className="px-3 py-3 align-top"><strong>本期应收 {money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">已到账 {money(centsToMoney(settlement.cashCents))} · 优惠 {money(centsToMoney(settlement.discountCents))} · 还需收 {money(centsToMoney(outstanding))}</p></td>
-                    <td className="px-3 py-3 align-top">{bill.dueDate}</td>
-                    <td className="px-3 py-3 align-top">{bill.allocations.length ? bill.allocations.map((allocation) => <div key={allocation.id} className="mb-1 last:mb-0"><p>{allocation.paymentDate} · {money(allocation.amount)}</p><p className="text-xs text-muted-foreground">录入 {receivedAt(allocation.receivedAt)} · {allocation.paymentMethod}</p></div>) : settlement.cashCents > 0 ? <p>{money(centsToMoney(settlement.cashCents))} · 已实收</p> : <span className="text-muted-foreground">尚未到账</span>}{settlement.discountCents > 0 && <p className="mt-1 text-xs font-medium text-primary">另有优惠核销 {money(centsToMoney(settlement.discountCents))}</p>}</td>
-                    <td className="px-3 py-3 align-top"><BillingStatus value={state} /></td>
-                    <td className="px-3 py-3 text-right align-top">{outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}</td>
-                  </tr>;
+                  const settledCents = Math.max(
+                    0,
+                    Math.round(Number(bill.amount) * 100) - outstanding,
+                  );
+                  const cashState = billState(
+                    bill.amount,
+                    centsToMoney(settledCents),
+                    bill.dueDate,
+                    today,
+                  );
+                  const state: ReturnType<typeof billState> | "已抵扣" =
+                    settlement.discountCents > 0 && outstanding === 0
+                      ? "已抵扣"
+                      : cashState;
+                  return (
+                    <tr
+                      key={bill.id}
+                      className={
+                        cashState === "逾期" && state !== "已抵扣"
+                          ? "bg-destructive/5"
+                          : "hover:bg-muted/20"
+                      }
+                    >
+                      <td className="px-3 py-3 align-top">
+                        <strong>
+                          {billPeriodLabel(
+                            periodRanges.get(bill.id),
+                            billingUnit,
+                          )}
+                        </strong>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          共 {totalPeriods} {periodUnitLabel} · 第 {index + 1}{" "}
+                          笔账单
+                        </p>
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <p>
+                          {billCoverageLabel(bill.periodStart, bill.periodEnd)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {bill.billType}
+                        </p>
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <strong>本期应收 {money(bill.amount)}</strong>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          已到账 {money(centsToMoney(settlement.cashCents))} ·
+                          优惠 {money(centsToMoney(settlement.discountCents))} ·
+                          还需收 {money(centsToMoney(outstanding))}
+                        </p>
+                      </td>
+                      <td className="px-3 py-3 align-top">{bill.dueDate}</td>
+                      <td className="px-3 py-3 align-top">
+                        {bill.allocations.length ? (
+                          bill.allocations.map((allocation) => (
+                            <div key={allocation.id} className="mb-1 last:mb-0">
+                              <p>
+                                {allocation.paymentDate} ·{" "}
+                                {money(allocation.amount)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                录入 {receivedAt(allocation.receivedAt)} ·{" "}
+                                {allocation.paymentMethod}
+                              </p>
+                            </div>
+                          ))
+                        ) : settlement.cashCents > 0 ? (
+                          <p>
+                            {money(centsToMoney(settlement.cashCents))} · 已实收
+                          </p>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            尚未到账
+                          </span>
+                        )}
+                        {settlement.discountCents > 0 && (
+                          <p className="mt-1 text-xs font-medium text-primary">
+                            另有优惠核销{" "}
+                            {money(centsToMoney(settlement.discountCents))}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <BillingStatus value={state} />
+                      </td>
+                      <td className="px-3 py-3 text-right align-top">
+                        {outstanding > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => onPayment(bill.id)}
+                            className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
+                          >
+                            收本期
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>
           </div>
-        ) : <p className="p-6 text-center text-sm text-muted-foreground">暂无租金账单</p>}
+        ) : (
+          <p className="p-6 text-center text-sm text-muted-foreground">
+            暂无租金账单
+          </p>
+        )}
       </section>
-      {adjustmentBills.length > 0 && <section><h3 className="mb-3 font-semibold">减免与账务调整</h3><div className="flex flex-col gap-2">{adjustmentBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">{bill.dueDate} · 减少应收 {money(centsToMoney(Math.abs(Math.round(Number(bill.amount) * 100))))}</p>{bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}</div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">已调整</span></div>)}</div></section>}
-      {(otherBills.length > 0 || depositLedger.length > 0) && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-3"><div className="grid grid-cols-3 rounded-xl border bg-muted/30 text-center"><div className="p-3"><p className="text-xs text-muted-foreground">累计收取押金</p><p className="mt-1 font-semibold">{money(centsToMoney(depositSummary.collectedCents))}</p></div><div className="border-x p-3"><p className="text-xs text-muted-foreground">已退 / 已抵扣</p><p className="mt-1 font-semibold">{money(centsToMoney(depositSummary.returnedOrOffsetCents))}</p></div><div className="p-3"><p className="text-xs text-muted-foreground">当前可退余额</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(depositSummary.refundableCents))}</p></div></div>{depositLedger.length > 0 && <div className="rounded-xl border"><div className="border-b px-3 py-2 text-sm font-semibold">押金流水</div><div className="divide-y">{depositLedger.map((entry) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm"><div><strong>{entry.entryType}</strong><p className="mt-1 text-muted-foreground">{entry.entryDate} · {entry.operatorName || "系统记录"}</p>{entry.notes && <p className="mt-1 text-xs text-muted-foreground">{entry.notes}</p>}</div><span className={entry.entryType === "押金收取" ? "font-semibold text-primary" : "font-semibold text-destructive"}>{entry.entryType === "押金收取" ? "+" : "−"}{money(Math.abs(Number(entry.amount)))}</span></div>)}</div></div>}{otherBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 约定日 {bill.dueDate}</p></div><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} /></div>)}</div></section>}
+      {adjustmentBills.length > 0 && (
+        <section>
+          <h3 className="mb-3 font-semibold">减免与账务调整</h3>
+          <div className="flex flex-col gap-2">
+            {adjustmentBills.map((bill) => (
+              <div
+                key={bill.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"
+              >
+                <div>
+                  <strong>{bill.billType}</strong>
+                  <p className="mt-1 text-muted-foreground">
+                    {bill.dueDate} · 减少应收{" "}
+                    {money(
+                      centsToMoney(
+                        Math.abs(Math.round(Number(bill.amount) * 100)),
+                      ),
+                    )}
+                  </p>
+                  {bill.notes && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {bill.notes}
+                    </p>
+                  )}
+                </div>
+                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                  已调整
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {(otherBills.length > 0 || depositLedger.length > 0) && (
+        <section>
+          <h3 className="mb-3 font-semibold">押金与其他费用</h3>
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-3 rounded-xl border bg-muted/30 text-center">
+              <div className="p-3">
+                <p className="text-xs text-muted-foreground">累计收取押金</p>
+                <p className="mt-1 font-semibold">
+                  {money(centsToMoney(depositSummary.collectedCents))}
+                </p>
+              </div>
+              <div className="border-x p-3">
+                <p className="text-xs text-muted-foreground">已退 / 已抵扣</p>
+                <p className="mt-1 font-semibold">
+                  {money(centsToMoney(depositSummary.returnedOrOffsetCents))}
+                </p>
+              </div>
+              <div className="p-3">
+                <p className="text-xs text-muted-foreground">当前可退余额</p>
+                <p className="mt-1 font-semibold text-primary">
+                  {money(centsToMoney(depositSummary.refundableCents))}
+                </p>
+              </div>
+            </div>
+            {depositLedger.length > 0 && (
+              <div className="rounded-xl border">
+                <div className="border-b px-3 py-2 text-sm font-semibold">
+                  押金流水
+                </div>
+                <div className="divide-y">
+                  {depositLedger.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm"
+                    >
+                      <div>
+                        <strong>{entry.entryType}</strong>
+                        <p className="mt-1 text-muted-foreground">
+                          {entry.entryDate} · {entry.operatorName || "系统记录"}
+                        </p>
+                        {entry.notes && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {entry.notes}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={
+                          entry.entryType === "押金收取"
+                            ? "font-semibold text-primary"
+                            : "font-semibold text-destructive"
+                        }
+                      >
+                        {entry.entryType === "押金收取" ? "+" : "−"}
+                        {money(Math.abs(Number(entry.amount)))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {otherBills.map((bill) => (
+              <div
+                key={bill.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"
+              >
+                <div>
+                  <strong>{bill.billType}</strong>
+                  <p className="mt-1 text-muted-foreground">
+                    应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} ·
+                    约定日 {bill.dueDate}
+                  </p>
+                </div>
+                <BillingStatus
+                  value={billState(
+                    bill.amount,
+                    bill.paidAmount,
+                    bill.dueDate,
+                    today,
+                  )}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <section>
         <h3 className="mb-3 font-semibold">全部收款流水</h3>
-        {rental.paymentRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{rental.paymentRecords.map((payment) => { const isReversed = reversedPaymentIds.has(payment.id); return <tr key={payment.id} className={isReversed ? "bg-muted/30 text-muted-foreground" : undefined}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{isReversed ? <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">已冲正</span> : canViewFinance && Number(payment.amount) > 0 ? <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button> : null}</td></tr>; })}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无收款记录</p>}
+        {rental.paymentRecords.length > 0 ? (
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2.5">付款日期</th>
+                  <th className="px-3 py-2.5">金额</th>
+                  <th className="px-3 py-2.5">费用类型</th>
+                  <th className="px-3 py-2.5">收款方式</th>
+                  <th className="px-3 py-2.5">备注</th>
+                  <th className="px-3 py-2.5 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rental.paymentRecords.map((payment) => {
+                  const isReversed = reversedPaymentIds.has(payment.id);
+                  return (
+                    <tr
+                      key={payment.id}
+                      className={
+                        isReversed
+                          ? "bg-muted/30 text-muted-foreground"
+                          : undefined
+                      }
+                    >
+                      <td className="px-3 py-3">{payment.paymentDate}</td>
+                      <td className="px-3 py-3 font-semibold">
+                        {money(payment.amount)}
+                      </td>
+                      <td className="px-3 py-3">{payment.feeType}</td>
+                      <td className="px-3 py-3">{payment.paymentMethod}</td>
+                      <td className="max-w-52 truncate px-3 py-3 text-muted-foreground">
+                        {payment.notes || "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        {isReversed ? (
+                          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
+                            已冲正
+                          </span>
+                        ) : canViewFinance && Number(payment.amount) > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => onReverse(payment.id)}
+                            className="rounded-lg border px-3 py-1.5 text-destructive"
+                          >
+                            冲正
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+            暂无收款记录
+          </p>
+        )}
       </section>
     </div>
   );
@@ -2884,18 +4506,112 @@ function DetailRecords({
 }) {
   const records = [
     ...rental.renewalRecords.map((record) => {
-      const item = rental.items.find((row) => row.id === record.renewedRentalItemId) || rental.items.find((row) => row.id === record.sourceRentalItemId);
-      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}`, operator: "系统记录", status: "已完成", renewal: record };
+      const item =
+        rental.items.find((row) => row.id === record.renewedRentalItemId) ||
+        rental.items.find((row) => row.id === record.sourceRentalItemId);
+      return {
+        key: `renewal-${record.id}`,
+        date: record.renewalDate,
+        type: "续租",
+        title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`,
+        detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}`,
+        operator: "系统记录",
+        status: "已完成",
+        renewal: record,
+      };
     }),
-    ...rental.events.map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, status: event.status, renewal: null })),
-    ...rental.buyoutRecords.map((record) => ({ key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: "系统记录", status: "已完成", renewal: null })),
+    ...rental.events.map((event) => ({
+      key: `event-${event.id}`,
+      date: event.eventDate,
+      type: event.eventType,
+      title:
+        event.eventType === "维修"
+          ? event.faultDescription || "设备维修"
+          : event.reason || "设备与合同变更",
+      detail:
+        event.eventType === "维修"
+          ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}`
+          : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`,
+      operator: event.operatorName,
+      status: event.status,
+      renewal: null,
+    })),
+    ...rental.buyoutRecords.map((record) => ({
+      key: `buyout-${record.id}`,
+      date: record.buyoutDate,
+      type: "买断",
+      title: `${record.quantity} 台设备买断`,
+      detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`,
+      operator: "系统记录",
+      status: "已完成",
+      renewal: null,
+    })),
   ].sort((left, right) => right.date.localeCompare(left.date));
-  if (!records.length) return <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无续租、变更、维修或买断记录</p>;
+  if (!records.length)
+    return (
+      <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+        暂无续租、变更、维修或买断记录
+      </p>
+    );
   return (
     <section>
-      <div className="mb-4"><h3 className="font-semibold">业务时间轴</h3><p className="mt-1 text-sm text-muted-foreground">按发生时间统一查看续租、退租、买断、换机、维修和费用调整</p></div>
+      <div className="mb-4">
+        <h3 className="font-semibold">业务时间轴</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          按发生时间统一查看续租、退租、买断、换机、维修和费用调整
+        </p>
+      </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">
-        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}</div></article>)}
+        {records.map((record) => (
+          <article key={record.key} className="relative pl-6">
+            <span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" />
+            <div className="rounded-xl border bg-card p-4 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{record.type}</strong>
+                    <Status value={record.status} />
+                  </div>
+                  <p className="mt-2 font-medium">{record.title}</p>
+                </div>
+                <time className="text-sm text-muted-foreground">
+                  {record.date}
+                </time>
+              </div>
+              <p className="mt-2 leading-6 text-muted-foreground">
+                {record.detail}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                经办人：{record.operator || "—"}
+              </p>
+              {record.renewal?.adjustments.length ? (
+                <div className="mt-3 rounded-lg bg-muted p-3">
+                  <p className="font-medium">价格更正记录</p>
+                  {record.renewal.adjustments.map((adjustment) => (
+                    <p
+                      key={adjustment.id}
+                      className="mt-1 text-xs leading-5 text-muted-foreground"
+                    >
+                      {money(adjustment.previousUnitPrice)} →{" "}
+                      {money(adjustment.correctedUnitPrice)} · 差额{" "}
+                      {money(adjustment.differenceAmount)} · {adjustment.reason}{" "}
+                      · {adjustment.operatorName}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+              {record.renewal && role === "admin" && (
+                <button
+                  type="button"
+                  onClick={() => onCorrectRenewal(record.renewal!)}
+                  className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary"
+                >
+                  更正续租价格
+                </button>
+              )}
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -2925,43 +4641,79 @@ function DetailManage({
   return (
     <>
       <section className="grid gap-2 sm:grid-cols-2">
-        <Link href={`/contracts/${rental.id}`} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+        <Link
+          href={`/contracts/${rental.id}`}
+          className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted"
+        >
           <FileText className="size-4 text-primary" />
           查看合同
         </Link>
-        <button type="button" onClick={onHistory} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+        <button
+          type="button"
+          onClick={onHistory}
+          className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted"
+        >
           <Search className="size-4 text-primary" />
           客户历史
         </button>
-        <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
+        <button
+          type="button"
+          onClick={onSendNotice}
+          className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted"
+        >
           <BellRing className="size-4 text-primary" />
           发送初始租赁通知
         </button>
       </section>
       {!["在租", "买断"].includes(rental.status) && (
-        <button type="button" onClick={() => onStatus("在租")} className="rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary">恢复为在租状态</button>
+        <button
+          type="button"
+          onClick={() => onStatus("在租")}
+          className="rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"
+        >
+          恢复为在租状态
+        </button>
       )}
       {role !== "employee" && canManageContracts && (
         <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <div>
             <h3 className="font-semibold">业务主管订单管理</h3>
-            <p className="text-sm text-muted-foreground">当天录错且没有后续业务记录的正式订单，可验证管理员密码后移入回收站；正式订单仍禁止永久删除。</p>
+            <p className="text-sm text-muted-foreground">
+              当天录错且没有后续业务记录的正式订单，可验证管理员密码后移入回收站；正式订单仍禁止永久删除。
+            </p>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <span className="shrink-0 font-medium">维护负责人</span>
-            <select className="h-9 rounded-lg border bg-background px-3" value={rental.assigneeUserId || ""} onChange={(event) => onAssignee(event.target.value)}>
+            <select
+              className="h-9 rounded-lg border bg-background px-3"
+              value={rental.assigneeUserId || ""}
+              onChange={(event) => onAssignee(event.target.value)}
+            >
               {assignees.map((person) => (
-                <option key={person.id} value={person.id}>{person.name}</option>
+                <option key={person.id} value={person.id}>
+                  {person.name}
+                </option>
               ))}
             </select>
           </label>
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={rental.status === "已关闭"} onClick={() => onStatus("已关闭")} className="rounded-lg border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
+            <button
+              type="button"
+              disabled={rental.status === "已关闭"}
+              onClick={() => onStatus("已关闭")}
+              className="rounded-lg border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50"
+            >
               {rental.status === "已关闭" ? "订单已关闭" : "关闭订单"}
             </button>
-            <button type="button" onClick={onDelete} className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground"
+            >
               <Trash2 className="size-4" />
-              {rental.orderType === "official" ? "删除当天录错订单" : "移入回收站"}
+              {rental.orderType === "official"
+                ? "删除当天录错订单"
+                : "移入回收站"}
             </button>
           </div>
         </section>
@@ -3028,12 +4780,20 @@ function LegacyDetail({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold">这是一份草稿订单</h3>
-                <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">待审核 · 未转正式</span>
+                <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">
+                  待审核 · 未转正式
+                </span>
               </div>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">草稿不计入经营数据、收款和应收账单。核对客户、设备、租期和金额后，再转为正式合同。</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                草稿不计入经营数据、收款和应收账单。核对客户、设备、租期和金额后，再转为正式合同。
+              </p>
             </div>
           </div>
-          <button type="button" onClick={onConfirmDraft} className="h-11 shrink-0 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
+          <button
+            type="button"
+            onClick={onConfirmDraft}
+            className="h-11 shrink-0 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
+          >
             转为正式合同
           </button>
         </section>
@@ -3069,14 +4829,16 @@ function LegacyDetail({
             >
               {rental.status === "已关闭" ? "订单已关闭" : "关闭订单"}
             </button>
-            {rental.orderType !== "official" && <button
-              type="button"
-              onClick={onDelete}
-              className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground"
-            >
-              <Trash2 className="size-4" />
-              移入回收站
-            </button>}
+            {rental.orderType !== "official" && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground"
+              >
+                <Trash2 className="size-4" />
+                移入回收站
+              </button>
+            )}
           </div>
         </section>
       )}
@@ -3085,7 +4847,16 @@ function LegacyDetail({
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
-        <Info l="订单类型" v={rental.orderType === "draft" ? "草稿订单（待转正式）" : rental.orderType === "test" ? "测试订单" : "正式合同"} />
+        <Info
+          l="订单类型"
+          v={
+            rental.orderType === "draft"
+              ? "草稿订单（待转正式）"
+              : rental.orderType === "test"
+                ? "测试订单"
+                : "正式合同"
+          }
+        />
         <Info l="联系人" v={rental.customerName} />
         <Info l="联系电话" v={rental.customerPhone} />
         <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
@@ -3096,15 +4867,31 @@ function LegacyDetail({
         <Info l="约定押金" v={money(rental.deposit)} />
       </div>
       {(() => {
-        const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
+        const rentBills = rental.bills.filter(
+          (bill) => bill.billType !== "押金",
+        );
         const nextBill = nextOpenBill(rentBills);
-        const settledBills = rentBills.filter((bill) => billOutstandingCents(bill) === 0).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
-        const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
+        const settledBills = rentBills
+          .filter((bill) => billOutstandingCents(bill) === 0)
+          .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+        const paidThrough = settledBills[0]
+          ? addCalendarDays(settledBills[0].periodEnd, 1)
+          : null;
         return (
           <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
-            <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
+            <Info
+              l="已付覆盖至"
+              v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"}
+            />
             <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
-            <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+            <Info
+              l="下次应付金额"
+              v={
+                nextBill
+                  ? money(centsToMoney(billOutstandingCents(nextBill)))
+                  : money(0)
+              }
+            />
           </section>
         );
       })()}
@@ -3159,34 +4946,86 @@ function LegacyDetail({
         })}
       </div>
       {rental.bills.length > 0 && (
-          <section>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">应收账单明细</h3>
-                <p className="text-sm text-muted-foreground">起租期一次预收；续租默认按月收取，可按客户要求选择多个月</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
-                <button type="button" disabled={!rental.bills.some((bill) => bill.billType !== "押金" && billOutstandingCents(bill) > 0)} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部</button>
-              </div>
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">应收账单明细</h3>
+              <p className="text-sm text-muted-foreground">
+                起租期一次预收；续租默认按月收取，可按客户要求选择多个月
+              </p>
             </div>
-            <div className="flex flex-col gap-2">
-              {rental.bills.map((bill) => {
-                const outstanding = billOutstandingCents(bill);
-                return <div key={bill.id} className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onPayment(null)}
+                className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted"
+              >
+                登记其他金额
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !rental.bills.some(
+                    (bill) =>
+                      bill.billType !== "押金" &&
+                      billOutstandingCents(bill) > 0,
+                  )
+                }
+                onClick={() => onPayment("all")}
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                收全部
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            {rental.bills.map((bill) => {
+              const outstanding = billOutstandingCents(bill);
+              return (
+                <div
+                  key={bill.id}
+                  className="flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div>
-                    <p className="font-medium">{bill.billType} · 覆盖 {billCoverageLabel(bill.periodStart, bill.periodEnd)}</p>
-                    <p className="mt-1 text-muted-foreground">付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(outstanding))}</p>
-                    {bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}
+                    <p className="font-medium">
+                      {bill.billType} · 覆盖{" "}
+                      {billCoverageLabel(bill.periodStart, bill.periodEnd)}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      付款日 {bill.dueDate} · 应收 {money(bill.amount)} · 已收{" "}
+                      {money(bill.paidAmount)} · 待收{" "}
+                      {money(centsToMoney(outstanding))}
+                    </p>
+                    {bill.notes && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {bill.notes}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, new Date().toISOString().slice(0, 10))} />
-                    {bill.billType !== "押金" && outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
+                    <BillingStatus
+                      value={billState(
+                        bill.amount,
+                        bill.paidAmount,
+                        bill.dueDate,
+                        new Date().toISOString().slice(0, 10),
+                      )}
+                    />
+                    {bill.billType !== "押金" && outstanding > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => onPayment(bill.id)}
+                        className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
+                      >
+                        收本期
+                      </button>
+                    )}
                   </div>
-                </div>;
-              })}
-            </div>
-          </section>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
       {rental.paymentRecords.length > 0 && (
         <section>
@@ -3259,20 +5098,43 @@ function LegacyDetail({
                     <span>{record.renewalDate}</span>
                   </div>
                   <p className="mt-1 text-muted-foreground">
-                    {record.billingUnit === "day" ? "日租" : "月租"} {money(record.unitPrice || record.newMonthlyRent)} · 到期 {record.oldEndDate} → {record.newEndDate} · 原续租金额 {money(record.renewalAmount)}
+                    {record.billingUnit === "day" ? "日租" : "月租"}{" "}
+                    {money(record.unitPrice || record.newMonthlyRent)} · 到期{" "}
+                    {record.oldEndDate} → {record.newEndDate} · 原续租金额{" "}
+                    {money(record.renewalAmount)}
                   </p>
                   {record.adjustments.length > 0 && (
                     <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted p-3">
-                      <p className="font-medium">当前有效单价 {money(record.adjustments[0].correctedUnitPrice)} · 累计差额 {money(record.adjustments.reduce((sum, item) => sum + Number(item.differenceAmount), 0))}</p>
+                      <p className="font-medium">
+                        当前有效单价{" "}
+                        {money(record.adjustments[0].correctedUnitPrice)} ·
+                        累计差额{" "}
+                        {money(
+                          record.adjustments.reduce(
+                            (sum, item) => sum + Number(item.differenceAmount),
+                            0,
+                          ),
+                        )}
+                      </p>
                       {record.adjustments.map((item) => (
-                        <p key={item.id} className="text-xs leading-5 text-muted-foreground">
-                          {money(item.previousUnitPrice)} → {money(item.correctedUnitPrice)}，差额 {money(item.differenceAmount)} · {item.reason} · {item.operatorName}
+                        <p
+                          key={item.id}
+                          className="text-xs leading-5 text-muted-foreground"
+                        >
+                          {money(item.previousUnitPrice)} →{" "}
+                          {money(item.correctedUnitPrice)}，差额{" "}
+                          {money(item.differenceAmount)} · {item.reason} ·{" "}
+                          {item.operatorName}
                         </p>
                       ))}
                     </div>
                   )}
                   {role === "admin" && (
-                    <button type="button" onClick={() => onCorrectRenewal(record)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">
+                    <button
+                      type="button"
+                      onClick={() => onCorrectRenewal(record)}
+                      className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary"
+                    >
                       更正价格
                     </button>
                   )}
@@ -3302,13 +5164,33 @@ function LegacyDetail({
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"><BellRing className="size-4" />发送初始租赁通知</button>
-        <button onClick={onHistory} className="rounded-lg border px-4 py-2 text-sm font-medium">客户历史</button>
-        <Link href={`/contracts/${rental.id}`} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium">
+        <button
+          type="button"
+          onClick={onSendNotice}
+          className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary"
+        >
+          <BellRing className="size-4" />
+          发送初始租赁通知
+        </button>
+        <button
+          onClick={onHistory}
+          className="rounded-lg border px-4 py-2 text-sm font-medium"
+        >
+          客户历史
+        </button>
+        <Link
+          href={`/contracts/${rental.id}`}
+          className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium"
+        >
           <FileText className="size-4" />
           查看合同
         </Link>
-        <button onClick={() => onPayment(null)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">登记收款</button>
+        <button
+          onClick={() => onPayment(null)}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          登记收款
+        </button>
         {!["在租", "买断"].includes(rental.status) && (
           <button
             onClick={() => onStatus("在租")}
@@ -3335,34 +5217,156 @@ function addDays(date: string, days = 1) {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
-function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; pending: boolean; submit: (correctedUnitPrice: number, reason: string) => void }) {
-  const currentUnitPrice = Number(record.adjustments[0]?.correctedUnitPrice ?? record.unitPrice ?? record.newMonthlyRent);
-  const currentAmount = Number(record.adjustments[0]?.correctedAmount ?? record.renewalAmount);
-  const [correctedUnitPrice, setCorrectedUnitPrice] = useState(String(currentUnitPrice));
+function RenewalCorrectionForm({
+  record,
+  pending,
+  submit,
+}: {
+  record: Renewal;
+  pending: boolean;
+  submit: (correctedUnitPrice: number, reason: string) => void;
+}) {
+  const currentUnitPrice = Number(
+    record.adjustments[0]?.correctedUnitPrice ??
+      record.unitPrice ??
+      record.newMonthlyRent,
+  );
+  const currentAmount = Number(
+    record.adjustments[0]?.correctedAmount ?? record.renewalAmount,
+  );
+  const [correctedUnitPrice, setCorrectedUnitPrice] = useState(
+    String(currentUnitPrice),
+  );
   const [reason, setReason] = useState("");
   const duration = record.duration ?? record.renewalMonths ?? 1;
-  const correctedAmount = record.quantity * duration * Number(correctedUnitPrice || 0);
+  const correctedAmount =
+    record.quantity * duration * Number(correctedUnitPrice || 0);
   const difference = correctedAmount - currentAmount;
   return (
-    <form onSubmit={(event) => { event.preventDefault(); submit(Number(correctedUnitPrice), reason); }} className="flex flex-col gap-5">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(Number(correctedUnitPrice), reason);
+      }}
+      className="flex flex-col gap-5"
+    >
       <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4 text-sm">
         <Info l="续租数量" v={`${record.quantity} 台`} />
-        <Info l="续租周期" v={`${duration} ${record.billingUnit === "day" ? "天" : "个月"}`} />
+        <Info
+          l="续租周期"
+          v={`${duration} ${record.billingUnit === "day" ? "天" : "个月"}`}
+        />
         <Info l="当前有效单价" v={money(currentUnitPrice)} />
         <Info l="当前有效金额" v={money(currentAmount)} />
       </div>
-      <Field label={`正确${record.billingUnit === "day" ? "日" : "月"}租单价`} type="number" value={correctedUnitPrice} onChange={setCorrectedUnitPrice} />
+      <Field
+        label={`正确${record.billingUnit === "day" ? "日" : "月"}租单价`}
+        type="number"
+        value={correctedUnitPrice}
+        onChange={setCorrectedUnitPrice}
+      />
       <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
-        更正后金额 <strong>{money(correctedAmount)}</strong>，{difference > 0 ? "将新增待收补差账单" : difference < 0 ? "将生成续租减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原续租和收款记录不会被覆盖。
+        更正后金额 <strong>{money(correctedAmount)}</strong>，
+        {difference > 0
+          ? "将新增待收补差账单"
+          : difference < 0
+            ? "将生成续租减免调整"
+            : "价格没有变化"}{" "}
+        <strong>{money(Math.abs(difference))}</strong>
+        。原续租和收款记录不会被覆盖。
       </div>
-      <label className="flex flex-col gap-2 text-sm font-medium"><span>更正原因 <span className="text-destructive">*</span></span><textarea required minLength={2} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：录入时误将月租填写为设备总价" /></label>
-      <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在更正…" : "确认差额更正"}</button></div>
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        <span>
+          更正原因 <span className="text-destructive">*</span>
+        </span>
+        <textarea
+          required
+          minLength={2}
+          maxLength={200}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary"
+          placeholder="例如：录入时误将月租填写为设备总价"
+        />
+      </label>
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={
+            pending ||
+            !Number(correctedUnitPrice) ||
+            difference === 0 ||
+            reason.trim().length < 2
+          }
+          className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {pending ? "正在更正…" : "确认差额更正"}
+        </button>
+      </div>
     </form>
   );
 }
 
-function SettlementFields({ label, value, onChange }: { label: string; value: SettlementInput; onChange: (value: SettlementInput) => void }) {
-  return <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{label}</legend><div className="grid gap-4 sm:grid-cols-3"><label className="flex flex-col gap-2 text-sm font-medium">结算时间<select className="h-10 rounded-lg border bg-background px-3" value={value.timing} onChange={(event) => onChange({ ...value, timing: event.target.value as SettlementInput["timing"] })}><option value="now">现在结算</option><option value="later">以后结算</option></select></label><Field label={value.timing === "now" ? "结算日期" : "约定日期"} type="date" value={value.date} onChange={(date) => onChange({ ...value, date })} /><label className="flex flex-col gap-2 text-sm font-medium">结算方式<select className="h-10 rounded-lg border bg-background px-3" value={value.method} onChange={(event) => onChange({ ...value, method: event.target.value as SettlementInput["method"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => <option key={method}>{method}</option>)}</select></label></div><p className="mt-3 text-xs text-muted-foreground">{value.timing === "now" ? "保存后立即登记已结算金额。" : "保存后登记为待处理，后续再登记收付款。"}</p></fieldset>;
+function SettlementFields({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: SettlementInput;
+  onChange: (value: SettlementInput) => void;
+}) {
+  return (
+    <fieldset className="rounded-xl border p-4">
+      <legend className="px-1 text-sm font-semibold">{label}</legend>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          结算时间
+          <select
+            className="h-10 rounded-lg border bg-background px-3"
+            value={value.timing}
+            onChange={(event) =>
+              onChange({
+                ...value,
+                timing: event.target.value as SettlementInput["timing"],
+              })
+            }
+          >
+            <option value="now">现在结算</option>
+            <option value="later">以后结算</option>
+          </select>
+        </label>
+        <Field
+          label={value.timing === "now" ? "结算日期" : "约定日期"}
+          type="date"
+          value={value.date}
+          onChange={(date) => onChange({ ...value, date })}
+        />
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          结算方式
+          <select
+            className="h-10 rounded-lg border bg-background px-3"
+            value={value.method}
+            onChange={(event) =>
+              onChange({
+                ...value,
+                method: event.target.value as SettlementInput["method"],
+              })
+            }
+          >
+            {["现金", "微信", "支付宝", "银行卡", "其他"].map((method) => (
+              <option key={method}>{method}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {value.timing === "now"
+          ? "保存后立即登记已结算金额。"
+          : "保存后登记为待处理，后续再登记收付款。"}
+      </p>
+    </fieldset>
+  );
 }
 
 function RenewalForm({
@@ -3375,13 +5379,28 @@ function RenewalForm({
   pending: boolean;
 }) {
   const available = rental.items.filter(
-    (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
   );
   const [rows, setRows] = useState<Record<number, RenewalInput>>({});
-  const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const [settlement, setSettlement] = useState<SettlementInput>({
+    timing: "now",
+    date: today(),
+    method: "微信",
+  });
   const inferredStartPeriod = (item: Item) => {
-    try { return periodNumberAt(item.startDate || rental.startDate, item.endDate || rental.endDate); }
-    catch { return Math.max(1, rental.duration + 1); }
+    try {
+      return periodNumberAt(
+        item.startDate || rental.startDate,
+        item.endDate || rental.endDate,
+      );
+    } catch {
+      return Math.max(1, rental.duration + 1);
+    }
   };
   const toggle = (item: Item) =>
     setRows((current) => {
@@ -3389,10 +5408,17 @@ function RenewalForm({
       if (next[item.id]) delete next[item.id];
       else {
         const startPeriod = inferredStartPeriod(item);
-        const boundary = billingPeriod(item.startDate || rental.startDate, startPeriod).start;
+        const boundary = billingPeriod(
+          item.startDate || rental.startDate,
+          startPeriod,
+        ).start;
         next[item.id] = {
           rentalItemId: item.id,
-          quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity,
+          quantity:
+            item.quantity -
+            item.boughtOutQuantity -
+            item.returnedQuantity -
+            item.lostQuantity,
           startPeriod,
           billingUnit: "month",
           duration: 1,
@@ -3414,15 +5440,51 @@ function RenewalForm({
       [id]: { ...current[id], [key]: value },
     }));
   const selected = Object.values(rows);
-  const allSelected = available.length > 0 && selected.length === available.length;
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => {
-    const startPeriod = inferredStartPeriod(item);
-    const boundary = billingPeriod(item.startDate || rental.startDate, startPeriod).start;
-    return [item.id, { rentalItemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, startPeriod, billingUnit: "month" as const, duration: 1, unitPrice: Number(item.monthlyRent), newEndDate: addMonths(boundary, 1), pricePeriods: [{ periods: 1, unitPrice: Number(item.monthlyRent) }], notes: "" }];
-  })));
+  const allSelected =
+    available.length > 0 && selected.length === available.length;
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => {
+              const startPeriod = inferredStartPeriod(item);
+              const boundary = billingPeriod(
+                item.startDate || rental.startDate,
+                startPeriod,
+              ).start;
+              return [
+                item.id,
+                {
+                  rentalItemId: item.id,
+                  quantity:
+                    item.quantity -
+                    item.boughtOutQuantity -
+                    item.returnedQuantity -
+                    item.lostQuantity,
+                  startPeriod,
+                  billingUnit: "month" as const,
+                  duration: 1,
+                  unitPrice: Number(item.monthlyRent),
+                  newEndDate: addMonths(boundary, 1),
+                  pricePeriods: [
+                    { periods: 1, unitPrice: Number(item.monthlyRent) },
+                  ],
+                  notes: "",
+                },
+              ];
+            }),
+          ),
+    );
   const totalQty = selected.reduce((sum, row) => sum + row.quantity, 0);
   const renewalTotal = selected.reduce(
-    (sum, row) => sum + row.quantity * (row.pricePeriods?.reduce((periodSum, period) => periodSum + period.periods * period.unitPrice, 0) ?? row.unitPrice * row.duration),
+    (sum, row) =>
+      sum +
+      row.quantity *
+        (row.pricePeriods?.reduce(
+          (periodSum, period) => periodSum + period.periods * period.unitPrice,
+          0,
+        ) ?? row.unitPrice * row.duration),
     0,
   );
   return (
@@ -3434,21 +5496,42 @@ function RenewalForm({
       className="flex flex-col gap-4"
     >
       <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        账期按起租日对日计算：例如 5 日起租，每期显示为本月 5 日至次月 4 日（含），下一期从次月 5 日当天生效。可用多个价格区间明确设置“第 4 期 90 元、第 5–6 期 80 元”，系统不会再把 8 月 1 日错误顺延到 8 月 2 日。
+        账期按起租日对日计算：例如 5 日起租，每期显示为本月 5 日至次月 4
+        日（含），下一期从次月 5 日当天生效。可用多个价格区间明确设置“第 4 期 90
+        元、第 5–6 期 80 元”，系统不会再把 8 月 1 日错误顺延到 8 月 2 日。
       </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
-    <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQty} 台</span>
-    <button type="button" onClick={toggleAll} disabled={!available.length} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{allSelected ? "取消全选" : "全选全部设备"}</button>
-  </div>
-  <div className="flex flex-col gap-3">
-  {available.map((item) => {
+        <span className="text-sm text-muted-foreground">
+          已选 {selected.length}/{available.length} 项，共 {totalQty} 台
+        </span>
+        <button
+          type="button"
+          onClick={toggleAll}
+          disabled={!available.length}
+          className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+        >
+          {allSelected ? "取消全选" : "全选全部设备"}
+        </button>
+      </div>
+      <div className="flex flex-col gap-3">
+        {available.map((item) => {
           const row = rows[item.id];
-          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const max =
+            item.quantity -
+            item.boughtOutQuantity -
+            item.returnedQuantity -
+            item.lostQuantity;
           const anchorDate = item.startDate || rental.startDate;
           const storedBoundary = item.endDate || rental.endDate;
           let firstPeriodNo: number | null = null;
-          try { firstPeriodNo = periodNumberAt(anchorDate, storedBoundary); } catch { firstPeriodNo = null; }
-          const currentBoundary = row?.startPeriod ? billingPeriod(anchorDate, row.startPeriod).start : storedBoundary;
+          try {
+            firstPeriodNo = periodNumberAt(anchorDate, storedBoundary);
+          } catch {
+            firstPeriodNo = null;
+          }
+          const currentBoundary = row?.startPeriod
+            ? billingPeriod(anchorDate, row.startPeriod).start
+            : storedBoundary;
           return (
             <article
               key={item.id}
@@ -3472,133 +5555,337 @@ function RenewalForm({
               </label>
               {row && (
                 <>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-                  <Field
-                    label="续租数量"
-                    type="number"
-                    value={row.quantity}
-                    onChange={(v) => update(item.id, "quantity", Number(v))}
-                  />
-                  <Field
-                    label="从第几期生效"
-                    type="number"
-                    value={row.startPeriod ?? firstPeriodNo ?? 1}
-                    onChange={(v) => {
-                      const startPeriod = Math.max(1, Math.floor(Number(v)));
-                      const boundary = billingPeriod(anchorDate, startPeriod).start;
-                      setRows((current) => ({ ...current, [item.id]: { ...current[item.id], startPeriod, newEndDate: addMonths(boundary, current[item.id].duration) } }));
-                    }}
-                  />
-                  <label className="flex flex-col gap-2 text-sm font-medium">
-                    计费方式
-                    <select
-                      className="h-10 rounded-lg border bg-background px-3"
-                      value={row.billingUnit}
-                      onChange={(e) => {
-                        const unit = e.target.value as "month" | "day";
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                    <Field
+                      label="续租数量"
+                      type="number"
+                      value={row.quantity}
+                      onChange={(v) => update(item.id, "quantity", Number(v))}
+                    />
+                    <Field
+                      label="从第几期生效"
+                      type="number"
+                      value={row.startPeriod ?? firstPeriodNo ?? 1}
+                      onChange={(v) => {
+                        const startPeriod = Math.max(1, Math.floor(Number(v)));
+                        const boundary = billingPeriod(
+                          anchorDate,
+                          startPeriod,
+                        ).start;
                         setRows((current) => ({
                           ...current,
                           [item.id]: {
                             ...current[item.id],
-                            billingUnit: unit,
-                            duration: 1,
-                            unitPrice:
-                              unit === "month"
-                                ? Number(item.monthlyRent)
-                                : Math.round(
-                                    (Number(item.monthlyRent) / 30) * 100,
-                                  ) / 100,
-                            newEndDate:
-                              unit === "month"
-                                ? addMonths(currentBoundary, 1)
-                                : addDays(item.endDate || rental.endDate, 1),
+                            startPeriod,
+                            newEndDate: addMonths(
+                              boundary,
+                              current[item.id].duration,
+                            ),
                           },
                         }));
                       }}
-                    >
-                      <option value="month">按月</option>
-                      <option value="day">按天</option>
-                    </select>
-                  </label>
-                  <Field
-                    label={`续租${row.billingUnit === "month" ? "月数" : "天数"}`}
-                    type="number"
-                    value={row.duration}
-                    onChange={(v) => {
-                      const duration = Math.max(1, Math.floor(Number(v)));
-                      setRows((current) => ({
-                        ...current,
-                        [item.id]: {
-                          ...current[item.id],
-                          duration,
-                          pricePeriods: row.billingUnit === "month" && (current[item.id].pricePeriods?.length ?? 0) <= 1 ? [{ periods: duration, unitPrice: current[item.id].pricePeriods?.[0]?.unitPrice ?? current[item.id].unitPrice }] : current[item.id].pricePeriods,
-                          newEndDate:
-                            row.billingUnit === "month"
-                              ? addMonths(currentBoundary, duration)
-                              : addDays(currentBoundary, duration),
-                        },
-                      }));
-                    }}
-                  />
-                  <Field
-                    label={`每${row.billingUnit === "month" ? "月" : "天"}单价（元）`}
-                    type="number"
-                    value={row.unitPrice}
-                    onChange={(v) => {
-                      const unitPrice = Number(v);
-                      setRows((current) => ({ ...current, [item.id]: { ...current[item.id], unitPrice, pricePeriods: current[item.id].pricePeriods?.length === 1 ? [{ ...current[item.id].pricePeriods![0], unitPrice }] : current[item.id].pricePeriods } }));
-                    }}
-                  />
-                  <div className="rounded-lg border bg-muted/50 px-3 py-2">
-                    <p className="text-sm font-medium">本次付款与覆盖</p>
-                    <p className="mt-1 font-semibold">{money(row.quantity * (row.pricePeriods?.reduce((sum, period) => sum + period.periods * period.unitPrice, 0) ?? row.unitPrice * row.duration))}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      新账期从 {currentBoundary} 当天生效<br />
-                      覆盖 {currentBoundary} 至 {addCalendarDays(row.newEndDate, -1)}（含）
-                    </p>
+                    />
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      计费方式
+                      <select
+                        className="h-10 rounded-lg border bg-background px-3"
+                        value={row.billingUnit}
+                        onChange={(e) => {
+                          const unit = e.target.value as "month" | "day";
+                          setRows((current) => ({
+                            ...current,
+                            [item.id]: {
+                              ...current[item.id],
+                              billingUnit: unit,
+                              duration: 1,
+                              unitPrice:
+                                unit === "month"
+                                  ? Number(item.monthlyRent)
+                                  : Math.round(
+                                      (Number(item.monthlyRent) / 30) * 100,
+                                    ) / 100,
+                              newEndDate:
+                                unit === "month"
+                                  ? addMonths(currentBoundary, 1)
+                                  : addDays(item.endDate || rental.endDate, 1),
+                            },
+                          }));
+                        }}
+                      >
+                        <option value="month">按月</option>
+                        <option value="day">按天</option>
+                      </select>
+                    </label>
+                    <Field
+                      label={`续租${row.billingUnit === "month" ? "月数" : "天数"}`}
+                      type="number"
+                      value={row.duration}
+                      onChange={(v) => {
+                        const duration = Math.max(1, Math.floor(Number(v)));
+                        setRows((current) => ({
+                          ...current,
+                          [item.id]: {
+                            ...current[item.id],
+                            duration,
+                            pricePeriods:
+                              row.billingUnit === "month" &&
+                              (current[item.id].pricePeriods?.length ?? 0) <= 1
+                                ? [
+                                    {
+                                      periods: duration,
+                                      unitPrice:
+                                        current[item.id].pricePeriods?.[0]
+                                          ?.unitPrice ??
+                                        current[item.id].unitPrice,
+                                    },
+                                  ]
+                                : current[item.id].pricePeriods,
+                            newEndDate:
+                              row.billingUnit === "month"
+                                ? addMonths(currentBoundary, duration)
+                                : addDays(currentBoundary, duration),
+                          },
+                        }));
+                      }}
+                    />
+                    <Field
+                      label={`每${row.billingUnit === "month" ? "月" : "天"}单价（元）`}
+                      type="number"
+                      value={row.unitPrice}
+                      onChange={(v) => {
+                        const unitPrice = Number(v);
+                        setRows((current) => ({
+                          ...current,
+                          [item.id]: {
+                            ...current[item.id],
+                            unitPrice,
+                            pricePeriods:
+                              current[item.id].pricePeriods?.length === 1
+                                ? [
+                                    {
+                                      ...current[item.id].pricePeriods![0],
+                                      unitPrice,
+                                    },
+                                  ]
+                                : current[item.id].pricePeriods,
+                          },
+                        }));
+                      }}
+                    />
+                    <div className="rounded-lg border bg-muted/50 px-3 py-2">
+                      <p className="text-sm font-medium">本次付款与覆盖</p>
+                      <p className="mt-1 font-semibold">
+                        {money(
+                          row.quantity *
+                            (row.pricePeriods?.reduce(
+                              (sum, period) =>
+                                sum + period.periods * period.unitPrice,
+                              0,
+                            ) ?? row.unitPrice * row.duration),
+                        )}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        新账期从 {currentBoundary} 当天生效
+                        <br />
+                        覆盖 {currentBoundary} 至{" "}
+                        {addCalendarDays(row.newEndDate, -1)}（含）
+                      </p>
+                    </div>
                   </div>
-                </div>
-                {row.billingUnit === "month" && (
-                  <section className="mt-4 rounded-xl border bg-background p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h4 className="font-semibold">分期价格计划</h4>
-                        <p className="text-sm text-muted-foreground">每段可设置不同期数、月单价，日期由期号自动计算。</p>
+                  {row.billingUnit === "month" && (
+                    <section className="mt-4 rounded-xl border bg-background p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="font-semibold">分期价格计划</h4>
+                          <p className="text-sm text-muted-foreground">
+                            每段可设置不同期数、月单价，日期由期号自动计算。
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
+                          onClick={() => {
+                            setRows((current) => {
+                              const currentRow = current[item.id];
+                              const pricePeriods = [
+                                ...(currentRow.pricePeriods ?? [
+                                  {
+                                    periods: currentRow.duration,
+                                    unitPrice: currentRow.unitPrice,
+                                  },
+                                ]),
+                                {
+                                  periods: 1,
+                                  unitPrice:
+                                    currentRow.pricePeriods?.at(-1)
+                                      ?.unitPrice ?? currentRow.unitPrice,
+                                },
+                              ];
+                              const duration = pricePeriods.reduce(
+                                (sum, period) => sum + period.periods,
+                                0,
+                              );
+                              return {
+                                ...current,
+                                [item.id]: {
+                                  ...currentRow,
+                                  duration,
+                                  newEndDate: addMonths(
+                                    currentBoundary,
+                                    duration,
+                                  ),
+                                  pricePeriods,
+                                },
+                              };
+                            });
+                          }}
+                        >
+                          添加价格区间
+                        </button>
                       </div>
-                      <button type="button" className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted" onClick={() => {
-                        setRows((current) => {
-                          const currentRow = current[item.id];
-                          const pricePeriods = [...(currentRow.pricePeriods ?? [{ periods: currentRow.duration, unitPrice: currentRow.unitPrice }]), { periods: 1, unitPrice: currentRow.pricePeriods?.at(-1)?.unitPrice ?? currentRow.unitPrice }];
-                          const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0);
-                          return { ...current, [item.id]: { ...currentRow, duration, newEndDate: addMonths(currentBoundary, duration), pricePeriods } };
-                        });
-                      }}>添加价格区间</button>
-                    </div>
-                    <div className="mt-4 flex flex-col gap-3">
-                      {(row.pricePeriods ?? [{ periods: row.duration, unitPrice: row.unitPrice }]).map((segment, segmentIndex, segments) => {
-                        const priorPeriods = segments.slice(0, segmentIndex).reduce((sum, period) => sum + period.periods, 0);
-                        const segmentStartPeriod = (row.startPeriod ?? firstPeriodNo ?? 1) + priorPeriods;
-                        const segmentEndPeriod = segmentStartPeriod + segment.periods - 1;
-                        const start = billingPeriod(anchorDate, segmentStartPeriod).start;
-                        const end = billingPeriod(anchorDate, segmentEndPeriod).displayEnd;
-                        return <div key={`${segmentIndex}-${segmentStartPeriod}`} className="grid gap-3 rounded-lg bg-muted/50 p-3 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
-                          <div className="text-sm"><p className="font-medium">第 {segmentStartPeriod}{segmentEndPeriod > segmentStartPeriod ? `–${segmentEndPeriod}` : ""} 期</p><p className="text-muted-foreground">{start} 至 {end}（含）</p></div>
-                          <Field label="覆盖期数" type="number" value={segment.periods} onChange={(v) => {
-                            const periods = Math.max(1, Math.floor(Number(v)));
-                            setRows((current) => { const pricePeriods = [...(current[item.id].pricePeriods ?? [])]; pricePeriods[segmentIndex] = { ...pricePeriods[segmentIndex], periods }; const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0); return { ...current, [item.id]: { ...current[item.id], duration, newEndDate: addMonths(currentBoundary, duration), pricePeriods } }; });
-                          }} />
-                          <Field label="月单价（元/台）" type="number" value={segment.unitPrice} onChange={(v) => {
-                            const unitPrice = Number(v);
-                            setRows((current) => { const pricePeriods = [...(current[item.id].pricePeriods ?? [])]; pricePeriods[segmentIndex] = { ...pricePeriods[segmentIndex], unitPrice }; return { ...current, [item.id]: { ...current[item.id], unitPrice: pricePeriods[0]?.unitPrice ?? unitPrice, pricePeriods } }; });
-                          }} />
-                          <button type="button" disabled={segments.length === 1} className="h-10 rounded-lg border px-3 text-sm disabled:opacity-40" onClick={() => {
-                            setRows((current) => { const pricePeriods = (current[item.id].pricePeriods ?? []).filter((_, index) => index !== segmentIndex); const duration = pricePeriods.reduce((sum, period) => sum + period.periods, 0); return { ...current, [item.id]: { ...current[item.id], duration, newEndDate: addMonths(currentBoundary, duration), unitPrice: pricePeriods[0]?.unitPrice ?? current[item.id].unitPrice, pricePeriods } }; });
-                          }}>删除</button>
-                        </div>;
-                      })}
-                    </div>
-                  </section>
-                )}
+                      <div className="mt-4 flex flex-col gap-3">
+                        {(
+                          row.pricePeriods ?? [
+                            { periods: row.duration, unitPrice: row.unitPrice },
+                          ]
+                        ).map((segment, segmentIndex, segments) => {
+                          const priorPeriods = segments
+                            .slice(0, segmentIndex)
+                            .reduce((sum, period) => sum + period.periods, 0);
+                          const segmentStartPeriod =
+                            (row.startPeriod ?? firstPeriodNo ?? 1) +
+                            priorPeriods;
+                          const segmentEndPeriod =
+                            segmentStartPeriod + segment.periods - 1;
+                          const start = billingPeriod(
+                            anchorDate,
+                            segmentStartPeriod,
+                          ).start;
+                          const end = billingPeriod(
+                            anchorDate,
+                            segmentEndPeriod,
+                          ).displayEnd;
+                          return (
+                            <div
+                              key={`${segmentIndex}-${segmentStartPeriod}`}
+                              className="grid gap-3 rounded-lg bg-muted/50 p-3 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end"
+                            >
+                              <div className="text-sm">
+                                <p className="font-medium">
+                                  第 {segmentStartPeriod}
+                                  {segmentEndPeriod > segmentStartPeriod
+                                    ? `–${segmentEndPeriod}`
+                                    : ""}{" "}
+                                  期
+                                </p>
+                                <p className="text-muted-foreground">
+                                  {start} 至 {end}（含）
+                                </p>
+                              </div>
+                              <Field
+                                label="覆盖期数"
+                                type="number"
+                                value={segment.periods}
+                                onChange={(v) => {
+                                  const periods = Math.max(
+                                    1,
+                                    Math.floor(Number(v)),
+                                  );
+                                  setRows((current) => {
+                                    const pricePeriods = [
+                                      ...(current[item.id].pricePeriods ?? []),
+                                    ];
+                                    pricePeriods[segmentIndex] = {
+                                      ...pricePeriods[segmentIndex],
+                                      periods,
+                                    };
+                                    const duration = pricePeriods.reduce(
+                                      (sum, period) => sum + period.periods,
+                                      0,
+                                    );
+                                    return {
+                                      ...current,
+                                      [item.id]: {
+                                        ...current[item.id],
+                                        duration,
+                                        newEndDate: addMonths(
+                                          currentBoundary,
+                                          duration,
+                                        ),
+                                        pricePeriods,
+                                      },
+                                    };
+                                  });
+                                }}
+                              />
+                              <Field
+                                label="月单价（元/台）"
+                                type="number"
+                                value={segment.unitPrice}
+                                onChange={(v) => {
+                                  const unitPrice = Number(v);
+                                  setRows((current) => {
+                                    const pricePeriods = [
+                                      ...(current[item.id].pricePeriods ?? []),
+                                    ];
+                                    pricePeriods[segmentIndex] = {
+                                      ...pricePeriods[segmentIndex],
+                                      unitPrice,
+                                    };
+                                    return {
+                                      ...current,
+                                      [item.id]: {
+                                        ...current[item.id],
+                                        unitPrice:
+                                          pricePeriods[0]?.unitPrice ??
+                                          unitPrice,
+                                        pricePeriods,
+                                      },
+                                    };
+                                  });
+                                }}
+                              />
+                              <button
+                                type="button"
+                                disabled={segments.length === 1}
+                                className="h-10 rounded-lg border px-3 text-sm disabled:opacity-40"
+                                onClick={() => {
+                                  setRows((current) => {
+                                    const pricePeriods = (
+                                      current[item.id].pricePeriods ?? []
+                                    ).filter(
+                                      (_, index) => index !== segmentIndex,
+                                    );
+                                    const duration = pricePeriods.reduce(
+                                      (sum, period) => sum + period.periods,
+                                      0,
+                                    );
+                                    return {
+                                      ...current,
+                                      [item.id]: {
+                                        ...current[item.id],
+                                        duration,
+                                        newEndDate: addMonths(
+                                          currentBoundary,
+                                          duration,
+                                        ),
+                                        unitPrice:
+                                          pricePeriods[0]?.unitPrice ??
+                                          current[item.id].unitPrice,
+                                        pricePeriods,
+                                      },
+                                    };
+                                  });
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
                 </>
               )}
               {row && row.quantity > max && (
@@ -3615,7 +5902,11 @@ function RenewalForm({
           当前没有可续租设备
         </p>
       )}
-      <SettlementFields label="续租费收款" value={settlement} onChange={setSettlement} />
+      <SettlementFields
+        label="续租费收款"
+        value={settlement}
+        onChange={setSettlement}
+      />
       <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4">
         <Info l="本次续租" v={`${totalQty} 台`} />
         <Info l="续租金额" v={money(renewalTotal)} />
@@ -3629,7 +5920,11 @@ function RenewalForm({
             return (
               !item ||
               row.quantity <= 0 ||
-              row.quantity > item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity ||
+              row.quantity >
+                item.quantity -
+                  item.boughtOutQuantity -
+                  item.returnedQuantity -
+                  item.lostQuantity ||
               row.duration < 1 ||
               row.duration > 3650 ||
               row.unitPrice < 0 ||
@@ -3644,33 +5939,204 @@ function RenewalForm({
     </form>
   );
 }
-function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | null }) {
+function PaymentForm({
+  submit,
+  pending,
+  bills,
+  target,
+}: {
+  submit: (value: PaymentInput) => void;
+  pending: boolean;
+  bills: Bill[];
+  target: number | "all" | null;
+}) {
   const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
-  const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
-  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), discountAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
+  const targetBill =
+    typeof target === "number"
+      ? eligibleBills.find((bill) => bill.id === target)
+      : undefined;
+  const defaultAmountCents = targetBill
+    ? billOutstandingCents(targetBill)
+    : target === "all"
+      ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
+      : 0;
+  const [value, setValue] = useState<PaymentInput>({
+    amount: Number(centsToMoney(defaultAmountCents)),
+    discountAmount: 0,
+    paymentDate: today(),
+    paymentMethod: "微信",
+    feeType: "原合同租金",
+    billId: targetBill?.id,
+    notes: "",
+  });
   const settlementAmount = value.amount + value.discountAmount;
   let preview: ReturnType<typeof allocatePayment> = [];
   let previewError = "";
   if (settlementAmount > 0 && value.feeType !== "押金") {
-    try { preview = allocatePayment(eligibleBills, settlementAmount, value.billId); } catch (error) { previewError = error instanceof Error ? error.message : "金额无法分配"; }
+    try {
+      preview = allocatePayment(eligibleBills, settlementAmount, value.billId);
+    } catch (error) {
+      previewError = error instanceof Error ? error.message : "金额无法分配";
+    }
   }
   const billMap = new Map(bills.map((bill) => [bill.id, bill]));
-  return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
-    {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
-    {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 笔账单</p></div>}
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="实际收款（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
-      <Field label="优惠金额（元）" type="number" value={value.discountAmount} onChange={(discountAmount) => setValue({ ...value, discountAmount: Math.max(0, Number(discountAmount)) })} />
-      <Field label="收款日期" type="date" value={value.paymentDate} onChange={(paymentDate) => setValue({ ...value, paymentDate })} />
-      <label className="flex flex-col gap-2 text-sm font-medium">支付方式<select className="h-10 rounded-lg border bg-background px-3" value={value.paymentMethod} onChange={(e) => setValue({ ...value, paymentMethod: e.target.value as PaymentInput["paymentMethod"] })}>{["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label className="flex flex-col gap-2 text-sm font-medium">费用类型<select disabled={target !== null} className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60" value={value.feeType} onChange={(e) => setValue({ ...value, feeType: e.target.value as PaymentInput["feeType"] })}>{["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => <option key={item}>{item}</option>)}</select></label>
-    </div>
-    {value.feeType !== "押金" && settlementAmount > 0 && <section className="rounded-xl bg-muted p-4"><div className="grid grid-cols-3 gap-3 border-b pb-4"><Info l="实际到账" v={money(value.amount)} /><Info l="优惠减免" v={money(value.discountAmount)} /><Info l="合计核销" v={money(settlementAmount)} /></div><h3 className="mt-4 font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">核销 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">核销后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
-    {value.feeType === "押金" && value.discountAmount > 0 && <p className="text-sm text-destructive">押金收取不能使用优惠，请将优惠金额改为 0。</p>}
-    <label className="flex flex-col gap-2 text-sm font-medium">{value.discountAmount > 0 ? "备注 / 优惠原因（必填）" : "备注"}<textarea required={value.discountAmount > 0} minLength={value.discountAmount > 0 ? 2 : undefined} className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} placeholder={value.discountAmount > 0 ? "例如：抹零优惠、老客户优惠" : undefined} /></label>
-    <button disabled={pending || value.amount <= 0 || Boolean(previewError) || (value.discountAmount > 0 && ((value.notes?.trim().length ?? 0) < 2 || value.feeType === "押金"))} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
-  </form>;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit(value);
+      }}
+      className="flex flex-col gap-4"
+    >
+      {targetBill && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <p className="font-semibold">收取本期账单</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {targetBill.periodStart} 至 {targetBill.periodEnd} · 待收{" "}
+            {money(centsToMoney(billOutstandingCents(targetBill)))}
+          </p>
+        </div>
+      )}
+      {target === "all" && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <p className="font-semibold">收取全部待收账单</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            将按到期日从早到晚结清{" "}
+            {preview.length ||
+              eligibleBills.filter((bill) => billOutstandingCents(bill) > 0)
+                .length}{" "}
+            笔账单
+          </p>
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="实际收款（元）"
+          type="number"
+          value={value.amount}
+          onChange={(amount) => setValue({ ...value, amount: Number(amount) })}
+        />
+        <Field
+          label="优惠金额（元）"
+          type="number"
+          value={value.discountAmount}
+          onChange={(discountAmount) =>
+            setValue({
+              ...value,
+              discountAmount: Math.max(0, Number(discountAmount)),
+            })
+          }
+        />
+        <Field
+          label="收款日期"
+          type="date"
+          value={value.paymentDate}
+          onChange={(paymentDate) => setValue({ ...value, paymentDate })}
+        />
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          支付方式
+          <select
+            className="h-10 rounded-lg border bg-background px-3"
+            value={value.paymentMethod}
+            onChange={(e) =>
+              setValue({
+                ...value,
+                paymentMethod: e.target.value as PaymentInput["paymentMethod"],
+              })
+            }
+          >
+            {["现金", "微信", "支付宝", "银行卡", "其他"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          费用类型
+          <select
+            disabled={target !== null}
+            className="h-10 rounded-lg border bg-background px-3 disabled:opacity-60"
+            value={value.feeType}
+            onChange={(e) =>
+              setValue({
+                ...value,
+                feeType: e.target.value as PaymentInput["feeType"],
+              })
+            }
+          >
+            {["原合同租金", "续租费", "押金", "买断费", "其他"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {value.feeType !== "押金" && settlementAmount > 0 && (
+        <section className="rounded-xl bg-muted p-4">
+          <div className="grid grid-cols-3 gap-3 border-b pb-4">
+            <Info l="实际到账" v={money(value.amount)} />
+            <Info l="优惠减免" v={money(value.discountAmount)} />
+            <Info l="合计核销" v={money(settlementAmount)} />
+          </div>
+          <h3 className="mt-4 font-semibold">本次分配预览</h3>
+          {previewError ? (
+            <p className="mt-2 text-sm text-destructive">{previewError}</p>
+          ) : (
+            <div className="mt-3 flex flex-col gap-2">
+              {preview.map((allocation) => {
+                const bill = billMap.get(allocation.billId)!;
+                return (
+                  <div
+                    key={allocation.billId}
+                    className="flex justify-between gap-3 text-sm"
+                  >
+                    <span>
+                      {bill.periodStart} 至 {bill.periodEnd}
+                    </span>
+                    <span className="text-right">
+                      核销 {money(centsToMoney(allocation.amountCents))}
+                      <span className="block text-xs text-muted-foreground">
+                        核销后待收{" "}
+                        {money(centsToMoney(allocation.balanceAfterCents))}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+      {value.feeType === "押金" && value.discountAmount > 0 && (
+        <p className="text-sm text-destructive">
+          押金收取不能使用优惠，请将优惠金额改为 0。
+        </p>
+      )}
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        {value.discountAmount > 0 ? "备注 / 优惠原因（必填）" : "备注"}
+        <textarea
+          required={value.discountAmount > 0}
+          minLength={value.discountAmount > 0 ? 2 : undefined}
+          className="min-h-20 rounded-lg border bg-background p-3"
+          value={value.notes || ""}
+          onChange={(e) => setValue({ ...value, notes: e.target.value })}
+          placeholder={
+            value.discountAmount > 0 ? "例如：抹零优惠、老客户优惠" : undefined
+          }
+        />
+      </label>
+      <button
+        disabled={
+          pending ||
+          value.amount <= 0 ||
+          Boolean(previewError) ||
+          (value.discountAmount > 0 &&
+            ((value.notes?.trim().length ?? 0) < 2 || value.feeType === "押金"))
+        }
+        className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
+      >
+        {pending ? "处理中" : "确认收款"}
+      </button>
+    </form>
+  );
 }
 function CustomerHistory({ phone }: { phone: string }) {
   const [data, setData] = useState<Awaited<
@@ -3829,140 +6295,476 @@ function OperationForm({
       0,
   );
   const [rows, setRows] = useState<Record<number, number>>({});
-  const selectedRows = Object.entries(rows).map(([itemId, quantity]) => ({ itemId: Number(itemId), quantity }));
-  const allSelected = available.length > 0 && selectedRows.length === available.length;
-  const toggleItem = (item: Item) => setRows((current) => {
-    const next = { ...current };
-    if (next[item.id]) delete next[item.id];
-    else next[item.id] = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
-    return next;
-  });
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity])));
+  const selectedRows = Object.entries(rows).map(([itemId, quantity]) => ({
+    itemId: Number(itemId),
+    quantity,
+  }));
+  const allSelected =
+    available.length > 0 && selectedRows.length === available.length;
+  const toggleItem = (item: Item) =>
+    setRows((current) => {
+      const next = { ...current };
+      if (next[item.id]) delete next[item.id];
+      else
+        next[item.id] =
+          item.quantity -
+          item.boughtOutQuantity -
+          item.returnedQuantity -
+          item.lostQuantity;
+      return next;
+    });
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => [
+              item.id,
+              item.quantity -
+                item.boughtOutQuantity -
+                item.returnedQuantity -
+                item.lostQuantity,
+            ]),
+          ),
+    );
   const [date, setDate] = useState(today());
-  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">("完好");
+  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">(
+    "完好",
+  );
   const [amount, setAmount] = useState(0);
   const [refund, setRefund] = useState(0);
-  const [billingModes, setBillingModes] = useState<Record<number, ReturnInput["billingMode"]>>({});
-  const [billingReasons, setBillingReasons] = useState<Record<number, string>>({});
-  const [collectionSettlement, setCollectionSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
-  const [refundSettlement, setRefundSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
-  const [rentRefundSettlement, setRentRefundSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const [billingModes, setBillingModes] = useState<
+    Record<number, ReturnInput["billingMode"]>
+  >({});
+  const [collectionSettlement, setCollectionSettlement] =
+    useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const [refundSettlement, setRefundSettlement] = useState<SettlementInput>({
+    timing: "now",
+    date: today(),
+    method: "微信",
+  });
+  const [rentRefundSettlement, setRentRefundSettlement] =
+    useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
   const [settlementConfirmed, setSettlementConfirmed] = useState(false);
-  const billingTrialByItem = new Map(selectedRows.map((row) => {
-    const item = available.find((candidate) => candidate.id === row.itemId);
-    const endDate = item?.endDate ?? rental.endDate;
-    const timing = returnTiming(date, endDate);
-    const anchorDate = item?.startDate ?? rental.startDate;
-    const currentPeriod = timing === "late" ? undefined : billingPeriodAt(anchorDate, date);
-    const periodStart = timing === "late" ? endDate : currentPeriod!.start;
-    const periodEnd = timing === "late" ? date : currentPeriod!.endExclusive;
-    const displayEnd = timing === "late" ? date : currentPeriod!.displayEnd;
-    const fullAmount = item ? Math.round(Number(item.monthlyRent) * row.quantity * 100) / 100 : 0;
-    const periodSettlement = returnPeriodSettlement({ anchorDate, returnDate: date, bills: rental.bills });
-    const collectedAmount = periodSettlement.currentSettled ? fullAmount : 0;
-    const defaultMode: ReturnInput["billingMode"] = timing === "late" ? "late_daily" : "full_month";
-    const requestedMode = billingModes[row.itemId] ?? defaultMode;
-    const selectedMode = periodSettlement.currentSettled && timing !== "late" ? "full_month" : requestedMode;
-    const earlyMode = selectedMode === "daily" || selectedMode === "waive" ? selectedMode : "full_month";
-    const settlement = timing === "early" ? calculateReturnRent({ periodStart, periodEnd, returnDate: date, fullAmount, collectedAmount, mode: earlyMode }) : { usedDays: 0, remainingDays: 0, dailyAmount: fullAmount / 30, chargeAmount: timing === "late" && selectedMode !== "late_waive" ? selectedMode === "late_monthly" ? Math.ceil(Math.max(1, Math.ceil((Date.parse(`${date}T00:00:00+08:00`) - Date.parse(`${endDate}T00:00:00+08:00`)) / 86400000)) / 30) * fullAmount : Math.round(fullAmount * Math.max(1, Math.ceil((Date.parse(`${date}T00:00:00+08:00`) - Date.parse(`${endDate}T00:00:00+08:00`)) / 86400000)) / 30 * 100) / 100 : 0, refundAmount: 0, collectAmount: 0, adjustmentAmount: 0 };
-    return [row.itemId, { timing, endDate, periodStart, periodEnd, displayEnd, fullAmount, collectedAmount, selectedMode, periodSettlement, ...settlement, collectAmount: timing === "late" ? settlement.chargeAmount : settlement.collectAmount, refundAmount: 0, returnQuantity: row.quantity, remainingQuantity: Math.max(0, (item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0) - row.quantity) }] as const;
-  }));
-  const rentRefundTotal = [...billingTrialByItem.values()].reduce((sum, trial) => sum + trial.refundAmount, 0);
-  const rentCollectTotal = [...billingTrialByItem.values()].reduce((sum, trial) => sum + trial.collectAmount, 0);
+  const billingTrialByItem = new Map(
+    selectedRows.map((row) => {
+      const item = available.find((candidate) => candidate.id === row.itemId);
+      const endDate = item?.endDate ?? rental.endDate;
+      const timing = returnTiming(date, endDate);
+      const anchorDate = item?.startDate ?? rental.startDate;
+      const currentPeriod = billingPeriodAt(anchorDate, date);
+      const periodStart = currentPeriod.start;
+      const periodEnd = currentPeriod.endExclusive;
+      const displayEnd = currentPeriod.displayEnd;
+      const fullAmount = item
+        ? Math.round(Number(item.monthlyRent) * row.quantity * 100) / 100
+        : 0;
+      const periodSettlement = returnPeriodSettlement({
+        anchorDate,
+        returnDate: date,
+        bills: rental.bills,
+      });
+      const collectedAmount = periodSettlement.currentSettled ? fullAmount : 0;
+      const requestedMode = billingModes[row.itemId] ?? "full_month";
+      const selectedMode: ReturnInput["billingMode"] =
+        periodSettlement.currentSettled ? "full_month" : requestedMode;
+      const currentMode =
+        selectedMode === "daily" || selectedMode === "waive"
+          ? selectedMode
+          : "full_month";
+      const settlement = periodSettlement.currentSettled
+        ? {
+            usedDays: 0,
+            remainingDays: 0,
+            dailyAmount: fullAmount / 30,
+            chargeAmount: 0,
+            refundAmount: 0,
+            collectAmount: 0,
+            adjustmentAmount: 0,
+          }
+        : calculateReturnRent({
+            periodStart,
+            periodEnd,
+            returnDate: date,
+            fullAmount,
+            collectedAmount: 0,
+            mode: currentMode,
+          });
+    const historicalAmount = periodSettlement.historicalUnpaidPeriods * fullAmount;
+      return [
+        row.itemId,
+        {
+          timing,
+          endDate,
+          periodStart,
+          periodEnd,
+          displayEnd,
+          fullAmount,
+          collectedAmount,
+          selectedMode,
+          periodSettlement,
+          historicalAmount,
+          ...settlement,
+          collectAmount: historicalAmount + settlement.collectAmount,
+          refundAmount: 0,
+          returnQuantity: row.quantity,
+          remainingQuantity: Math.max(
+            0,
+            (item
+              ? item.quantity -
+                item.boughtOutQuantity -
+                item.returnedQuantity -
+                item.lostQuantity
+              : 0) - row.quantity,
+          ),
+        },
+      ] as const;
+    }),
+  );
+  const rentRefundTotal = [...billingTrialByItem.values()].reduce(
+    (sum, trial) => sum + trial.refundAmount,
+    0,
+  );
+  const rentCollectTotal = [...billingTrialByItem.values()].reduce(
+    (sum, trial) => sum + trial.collectAmount,
+    0,
+  );
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(selectedRows.map((row, index) => {
-          const trial = billingTrialByItem.get(row.itemId);
-          const billingMode = trial?.selectedMode ?? (trial?.timing === "late" ? "late_daily" : "full_month");
-          const base = {
-            rentalId: rental.id,
-            rentalItemId: row.itemId,
-            quantity: row.quantity,
-            date,
-            notes,
-          };
-          return mode === "return"
-            ? {
-                ...base,
-                condition,
-                deductionAmount: amount,
-                depositRefund: refund / selectedRows.length,
-                billingMode,
-                billingReason: billingReasons[row.itemId] ?? "",
-                collectionSettlement: { timing: collectionSettlement.timing, method: collectionSettlement.method },
-                refundSettlement: { timing: refundSettlement.timing, method: refundSettlement.method },
-                rentRefundSettlement: { timing: rentRefundSettlement.timing, method: rentRefundSettlement.method },
-              }
-            : { ...base, unitCompensation: amount };
-        }));
+        submit(
+          selectedRows.map((row, index) => {
+            const trial = billingTrialByItem.get(row.itemId);
+            const billingMode = trial?.selectedMode ?? "full_month";
+            const base = {
+              rentalId: rental.id,
+              rentalItemId: row.itemId,
+              quantity: row.quantity,
+              date,
+              notes,
+            };
+            return mode === "return"
+              ? {
+                  ...base,
+                  condition,
+                  deductionAmount: amount,
+                  depositRefund: refund / selectedRows.length,
+                  billingMode,
+                  billingReason: "",
+                  collectionSettlement: {
+                    timing: collectionSettlement.timing,
+                    method: collectionSettlement.method,
+                  },
+                  refundSettlement: {
+                    timing: refundSettlement.timing,
+                    method: refundSettlement.method,
+                  },
+                  rentRefundSettlement: {
+                    timing: rentRefundSettlement.timing,
+                    method: rentRefundSettlement.method,
+                  },
+                }
+              : { ...base, unitCompensation: amount };
+          }),
+        );
       }}
       className="flex flex-col gap-4"
     >
       <section className="flex flex-col gap-3" aria-label="选择设备">
         <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
-          <span className="text-sm text-muted-foreground">已选 {selectedRows.length}/{available.length} 项，共 {selectedRows.reduce((sum, row) => sum + row.quantity, 0)} 台</span>
-          <button type="button" onClick={toggleAll} disabled={!available.length} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">{allSelected ? "取消全选" : "全选全部设备"}</button>
+          <span className="text-sm text-muted-foreground">
+            已选 {selectedRows.length}/{available.length} 项，共{" "}
+            {selectedRows.reduce((sum, row) => sum + row.quantity, 0)} 台
+          </span>
+          <button
+            type="button"
+            onClick={toggleAll}
+            disabled={!available.length}
+            className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+          >
+            {allSelected ? "取消全选" : "全选全部设备"}
+          </button>
         </div>
         {available.map((item) => {
-          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const max =
+            item.quantity -
+            item.boughtOutQuantity -
+            item.returnedQuantity -
+            item.lostQuantity;
           const selected = rows[item.id] !== undefined;
-          return <article key={item.id} className={`rounded-xl border p-4 ${selected ? "border-primary bg-primary/5" : ""}`}>
-            <label className="flex cursor-pointer items-start gap-3">
-              <input type="checkbox" checked={selected} onChange={() => toggleItem(item)} className="mt-1 size-4 accent-primary" />
-              <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可处理 {max} 台</span></span>
-            </label>
-            {selected && <div className="mt-3 flex flex-col gap-3"><label className="flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>{mode === "return" && (() => { const trial = billingTrialByItem.get(item.id); const billingMode = billingModes[item.id] ?? (trial?.timing === "late" ? "late_daily" : "full_month"); const options = trial?.timing === "late" ? ([{ value: "late_daily", title: "按实际天数补收", detail: "月租÷30×延迟天数×本次退租台数" }, { value: "late_monthly", title: "按整月补收", detail: "不足30天按一个整月计算" }, { value: "late_waive", title: "协商免收", detail: "登记延迟但不产生补租" }] as const) : ([{ value: "full_month", title: "本期按月收", detail: `应收 ${money(trial?.fullAmount ?? 0)}` }, { value: "daily", title: "本期按天收", detail: `30天折算，当天计费` }, { value: "waive", title: "本期不收", detail: "本期应收调整为 ¥0" }] as const); return <div className="rounded-lg border bg-background p-3">{trial?.periodSettlement.currentSettled && trial.timing !== "late" ? <div className="rounded-lg bg-muted p-3 text-sm"><strong>本期已收清，无需处理租金</strong><p className="mt-1 text-xs leading-5 text-muted-foreground">已收款账期不退款、不改账，只登记设备退回。</p></div> : <fieldset className="flex flex-col gap-2"><legend className="text-sm font-semibold">{trial?.timing === "late" ? "延迟退租租金怎么补？" : "退租所在的未收当期怎么收？"}</legend><div className="grid gap-2 sm:grid-cols-3">{options.map((option) => <label key={option.value} className={`cursor-pointer rounded-lg border p-3 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}><input type="radio" name={`billing-${item.id}`} value={option.value} checked={billingMode === option.value} onChange={() => { setBillingModes((current) => ({ ...current, [item.id]: option.value })); setSettlementConfirmed(false); }} className="mr-2 accent-primary"/><strong className="text-sm">{option.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{option.detail}</span></label>)}</div></fieldset>}{trial && trial.periodSettlement.historicalUnpaidPeriods > 0 && <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"><strong>历史未收 {trial.periodSettlement.historicalUnpaidPeriods} 期必须整期收取</strong><p className="mt-1 text-xs leading-5 text-muted-foreground">历史欠期不参与本次三选一，原账单继续保留待收。</p></div>}{trial && <div className={`mt-3 rounded-lg border p-3 text-sm leading-6 ${trial.fullAmount > 0 ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"}`}>{trial.fullAmount > 0 ? <><p className="text-xs text-muted-foreground">退租所属账期：{trial.periodStart} 至 {trial.displayEnd}（含）</p><p className="text-xs text-muted-foreground">本次退 {trial.returnQuantity} 台 · 退后剩余 {trial.remainingQuantity} 台</p><p className="mt-1 font-semibold text-foreground">{billingMode === "daily" ? `本次 ${trial.returnQuantity} 台按天结算：应退 ${money(trial.refundAmount)}` : billingMode === "waive" ? `本次 ${trial.returnQuantity} 台本期全退：应退 ${money(trial.refundAmount)}` : `本期 ${trial.returnQuantity} 台租金不退、不在退租时补收；下一账期起仅按剩余 ${trial.remainingQuantity} 台计租`}</p></> : <p className="font-medium text-destructive">未找到归还日期对应的租金账期，请检查归还日期或账单后再提交。</p>}</div>}{billingMode !== "full_month" && <label className="mt-3 flex flex-col gap-2 text-sm font-medium">协商说明<span className="text-xs text-destructive">必填</span><textarea value={billingReasons[item.id] ?? ""} onChange={(event) => setBillingReasons((current) => ({ ...current, [item.id]: event.target.value }))} className="min-h-16 rounded-lg border bg-background p-3" placeholder="填写退款或减免原因，便于后续核对" /></label>}</div>; })()}</div>}
-          </article>;
+          return (
+            <article
+              key={item.id}
+              className={`rounded-xl border p-4 ${selected ? "border-primary bg-primary/5" : ""}`}
+            >
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => toggleItem(item)}
+                  className="mt-1 size-4 accent-primary"
+                />
+                <span className="min-w-0 flex-1">
+                  <strong>
+                    {item.deviceType} · {item.deviceName}
+                  </strong>
+                  <span className="block text-xs text-muted-foreground">
+                    {item.deviceCode || "未编号"} · 可处理 {max} 台
+                  </span>
+                </span>
+              </label>
+              {selected && (
+                <div className="mt-3 flex flex-col gap-3">
+                  <label className="flex items-center gap-3 text-sm font-medium">
+                    本次数量
+                    <input
+                      type="number"
+                      min={1}
+                      max={max}
+                      value={rows[item.id]}
+                      onChange={(event) =>
+                        setRows((current) => ({
+                          ...current,
+                          [item.id]: Number(event.target.value),
+                        }))
+                      }
+                      className="h-10 w-24 rounded-lg border bg-background px-3"
+                    />
+                    <span className="text-muted-foreground">最多 {max} 台</span>
+                  </label>
+                  {mode === "return" &&
+                    (() => {
+                      const trial = billingTrialByItem.get(item.id);
+                      const billingMode = billingModes[item.id] ?? "full_month";
+                      const options = [
+                        {
+                          value: "full_month",
+                          title: "按月收",
+                          detail: `整期 ${money(trial?.fullAmount ?? 0)}`,
+                        },
+                        {
+                          value: "daily",
+                          title: "按天收",
+                          detail: `30天折算，当天计费`,
+                        },
+                        {
+                          value: "waive",
+                          title: "本期不收",
+                          detail: "本期应收 ¥0",
+                        },
+                      ] as const;
+                      return (
+                        <div className="rounded-lg border bg-background p-3">
+                          {trial?.periodSettlement.currentSettled &&
+                          trial.timing !== "late" ? (
+                            <div className="rounded-lg bg-muted p-3 text-sm">
+                              <strong>本期已收清，无需处理租金</strong>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                已收款账期不退款、不改账，只登记设备退回。
+                              </p>
+                            </div>
+                          ) : (
+                            <fieldset className="flex flex-col gap-3">
+                              <legend className="text-sm font-semibold">
+                                待处理账期
+                              </legend>
+                              {trial?.periodSettlement.unpaidPeriods
+                                .filter(
+                                  (period) => period.kind === "historical",
+                                )
+                                .map((period) => (
+                                  <div
+                                    key={period.periodNo}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/60 p-3 text-sm"
+                                  >
+                                    <span>
+                                      <strong>第 {period.periodNo} 期</strong>
+                                      <span className="ml-2 text-muted-foreground">
+                                        {period.periodStart} 至{" "}
+                                        {period.periodEnd}
+                                      </span>
+                                    </span>
+                                    <span className="font-medium">
+                                      按月收 ·{" "}
+                                      {money(trial?.fullAmount ?? 0)}
+                                    </span>
+                                  </div>
+                                ))}
+                              {!trial?.periodSettlement.currentSettled && (
+                                <div className="rounded-lg border bg-card p-3">
+                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+                                    <span>
+                                      <strong>
+                                        第{" "}
+                                        {
+                                          trial?.periodSettlement.currentPeriod
+                                            .periodNo
+                                        }{" "}
+                                        期
+                                      </strong>
+                                      <span className="ml-2 text-muted-foreground">
+                                        {trial?.periodStart} 至{" "}
+                                        {trial?.displayEnd}
+                                      </span>
+                                    </span>
+                                    <span className="font-semibold text-primary">
+                                      应收 {money(trial?.chargeAmount ?? 0)}
+                                    </span>
+                                  </div>
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    {options.map((option) => (
+                                      <label
+                                        key={option.value}
+                                        className={`cursor-pointer rounded-lg border p-3 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`billing-${item.id}`}
+                                          value={option.value}
+                                          checked={billingMode === option.value}
+                                          onChange={() => {
+                                            setBillingModes((current) => ({
+                                              ...current,
+                                              [item.id]: option.value,
+                                            }));
+                                            setSettlementConfirmed(false);
+                                          }}
+                                          className="mr-2 accent-primary"
+                                        />
+                                        <strong className="text-sm">
+                                          {option.title}
+                                        </strong>
+                                        <span className="mt-1 block text-xs text-muted-foreground">
+                                          {option.detail}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </fieldset>
+                          )}
+
+                        </div>
+                      );
+                    })()}
+                </div>
+              )}
+            </article>
+          );
         })}
       </section>
       <section className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">
+          下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。
+        </p>
         <div className="grid grid-cols-2 gap-4">
-        <Field
-          label={mode === "return" ? "归还日期" : "发生日期"}
-          type="date"
-          value={date}
-          onChange={setDate}
-        />
-        {mode === "return" && (
-          <label className="flex flex-col gap-2 text-sm font-medium">
-            设备状况
-            <select
-              value={condition}
-              onChange={(e) => setCondition(e.target.value as typeof condition)}
-              className="h-10 rounded-lg border bg-background px-3"
-            >
-              <option>完好</option>
-              <option>轻微磨损</option>
-              <option>损坏</option>
-            </select>
-          </label>
-        )}
-        <Field
-          label={mode === "return" ? "损坏/清洁扣款（元）" : "单台赔偿（元）"}
-          type="number"
-          value={amount}
-          onChange={(v) => setAmount(Number(v))}
-        />
-        {mode === "return" && (
           <Field
-            label="押金退还（元）"
-            type="number"
-            value={refund}
-            onChange={(v) => setRefund(Number(v))}
+            label={mode === "return" ? "归还日期" : "发生日期"}
+            type="date"
+            value={date}
+            onChange={setDate}
           />
-        )}
+          {mode === "return" && (
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              设备状况
+              <select
+                value={condition}
+                onChange={(e) =>
+                  setCondition(e.target.value as typeof condition)
+                }
+                className="h-10 rounded-lg border bg-background px-3"
+              >
+                <option>完好</option>
+                <option>轻微磨损</option>
+                <option>损坏</option>
+              </select>
+            </label>
+          )}
+          <Field
+            label={mode === "return" ? "损坏/清洁扣款（元）" : "单台赔偿（元）"}
+            type="number"
+            value={amount}
+            onChange={(v) => setAmount(Number(v))}
+          />
+          {mode === "return" && (
+            <Field
+              label="押金退还（元）"
+              type="number"
+              value={refund}
+              onChange={(v) => setRefund(Number(v))}
+            />
+          )}
         </div>
       </section>
-      {mode === "return" && <section className="rounded-xl border bg-card p-4"><p className="font-semibold">结算核对</p><p className="mt-1 text-xs leading-5 text-muted-foreground">租金、押金和扣款分别处理，不自动互相抵扣。租金退款不会超过本期实际已收金额。</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-3"><div className="rounded-lg bg-muted p-3"><span className="text-muted-foreground">租金</span><p className="mt-1 font-semibold">{rentRefundTotal > 0 ? `应退 ${money(rentRefundTotal)}` : rentCollectTotal > 0 ? `应补 ${money(rentCollectTotal)}` : "无需补退"}</p></div><div className="rounded-lg bg-muted p-3"><span className="text-muted-foreground">押金</span><p className="mt-1 font-semibold">应退 {money(refund)}</p></div><div className="rounded-lg bg-muted p-3"><span className="text-muted-foreground">损坏/清洁扣款</span><p className="mt-1 font-semibold">应收 {money(amount)}</p></div></div></section>}
-      {mode === "return" && rentRefundTotal > 0 && <SettlementFields label="租金退款" value={rentRefundSettlement} onChange={setRentRefundSettlement} />}
-      {mode === "return" && amount > 0 && <SettlementFields label="损坏/清洁扣款" value={collectionSettlement} onChange={setCollectionSettlement} />}
-      {mode === "return" && refund > 0 && <SettlementFields label="押金退款" value={refundSettlement} onChange={setRefundSettlement} />}
-      {mode === "return" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm"><input type="checkbox" checked={settlementConfirmed} onChange={(event) => setSettlementConfirmed(event.target.checked)} className="mt-0.5 size-4 accent-primary"/><span><strong>我已核对本次退租结算</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">已确认租金应补/应退、押金退款和损坏扣款三项金额无误。</span></span></label>}
+      {mode === "return" && (
+        <section className="rounded-xl border bg-card p-4">
+          <p className="font-semibold">结算核对</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            租金、押金和扣款分别处理，不自动互相抵扣。租金退款不会超过本期实际已收金额。
+          </p>
+          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+            <div className="rounded-lg bg-muted p-3">
+              <span className="text-muted-foreground">租金</span>
+              <p className="mt-1 font-semibold">
+                {rentRefundTotal > 0
+                  ? `应退 ${money(rentRefundTotal)}`
+                  : rentCollectTotal > 0
+                    ? `应补 ${money(rentCollectTotal)}`
+                    : "无需补退"}
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted p-3">
+              <span className="text-muted-foreground">押金</span>
+              <p className="mt-1 font-semibold">应退 {money(refund)}</p>
+            </div>
+            <div className="rounded-lg bg-muted p-3">
+              <span className="text-muted-foreground">损坏/清洁扣款</span>
+              <p className="mt-1 font-semibold">应收 {money(amount)}</p>
+            </div>
+          </div>
+        </section>
+      )}
+      {mode === "return" && rentRefundTotal > 0 && (
+        <SettlementFields
+          label="租金退款"
+          value={rentRefundSettlement}
+          onChange={setRentRefundSettlement}
+        />
+      )}
+      {mode === "return" && amount > 0 && (
+        <SettlementFields
+          label="损坏/清洁扣款"
+          value={collectionSettlement}
+          onChange={setCollectionSettlement}
+        />
+      )}
+      {mode === "return" && refund > 0 && (
+        <SettlementFields
+          label="押金退款"
+          value={refundSettlement}
+          onChange={setRefundSettlement}
+        />
+      )}
+      {mode === "return" && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
+          <input
+            type="checkbox"
+            checked={settlementConfirmed}
+            onChange={(event) => setSettlementConfirmed(event.target.checked)}
+            className="mt-0.5 size-4 accent-primary"
+          />
+          <span>
+            <strong>我已核对本次退租结算</strong>
+            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              已确认租金应补/应退、押金退款和损坏扣款三项金额无误。
+            </span>
+          </span>
+        </label>
+      )}
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
         <textarea
@@ -3972,10 +6774,37 @@ function OperationForm({
         />
       </label>
       <button
-        disabled={pending || !selectedRows.length || selectedRows.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max; }) || (mode === "loss" && amount <= 0) || (mode === "return" && (!settlementConfirmed || selectedRows.some((row) => { const trial = billingTrialByItem.get(row.itemId); const billingMode = trial?.selectedMode ?? (trial?.timing === "late" ? "late_daily" : "full_month"); return (trial?.timing !== "on_time" && billingMode !== "full_month" && (!trial?.fullAmount || !(billingReasons[row.itemId] ?? "").trim())); })))}
+        disabled={
+          pending ||
+          !selectedRows.length ||
+          selectedRows.some((row) => {
+            const item = available.find((current) => current.id === row.itemId);
+            const max = item
+              ? item.quantity -
+                item.boughtOutQuantity -
+                item.returnedQuantity -
+                item.lostQuantity
+              : 0;
+            return (
+              !Number.isInteger(row.quantity) ||
+              row.quantity < 1 ||
+              row.quantity > max
+            );
+          }) ||
+          (mode === "loss" && amount <= 0) ||
+          (mode === "return" && !settlementConfirmed)
+        }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground"
       >
-        {pending ? "处理中" : mode === "return" ? rentRefundTotal > 0 ? `确认退租（租金应退 ${money(rentRefundTotal)}）` : rentCollectTotal > 0 ? `确认退租（租金应补 ${money(rentCollectTotal)}）` : "确认退租（无需补退租金）" : "确认丢失"}
+        {pending
+          ? "处理中"
+          : mode === "return"
+            ? rentRefundTotal > 0
+              ? `确认退租（租金应退 ${money(rentRefundTotal)}）`
+              : rentCollectTotal > 0
+                ? `确认退租（租金应补 ${money(rentCollectTotal)}）`
+                : "确认退租（无需补退租金）"
+            : "确认丢失"}
       </button>
     </form>
   );
@@ -4041,7 +6870,11 @@ function DepositForm({
         value={value.amount}
         onChange={(amount) => setValue({ ...value, amount: Number(amount) })}
       />
-      {value.amount > balance && <p className="text-sm font-medium text-destructive">退押金额不能超过当前可用押金 {money(balance)}</p>}
+      {value.amount > balance && (
+        <p className="text-sm font-medium text-destructive">
+          退押金额不能超过当前可用押金 {money(balance)}
+        </p>
+      )}
       <Field
         label="处理日期"
         type="date"
@@ -4054,7 +6887,13 @@ function DepositForm({
         onChange={(notes) => setValue({ ...value, notes })}
       />
       <button
-        disabled={pending || balance <= 0 || value.amount <= 0 || value.amount > balance || !value.date}
+        disabled={
+          pending ||
+          balance <= 0 ||
+          value.amount <= 0 ||
+          value.amount > balance ||
+          !value.date
+        }
         className="h-10 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : "确认退押金"}
@@ -4071,7 +6910,14 @@ function ExchangeForm({
   submit: (values: ExchangeInput[]) => void;
   pending: boolean;
 }) {
-  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const available = rental.items.filter(
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
+  );
   const createValue = (itemId: number): ExchangeInput => ({
     rentalId: rental.id,
     rentalItemId: itemId,
@@ -4104,17 +6950,32 @@ function ExchangeForm({
   const [activeId, setActiveId] = useState(available[0]?.id || 0);
   const value = rows[activeId] ?? createValue(activeId);
   const selected = Object.values(rows);
-  const allSelected = available.length > 0 && selected.length === available.length;
-  const toggleItem = (itemId: number) => setRows((current) => {
-    const next = { ...current };
-    if (next[itemId]) delete next[itemId];
-    else next[itemId] = createValue(itemId);
-    setActiveId(itemId);
-    return next;
-  });
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, createValue(item.id)])));
+  const allSelected =
+    available.length > 0 && selected.length === available.length;
+  const toggleItem = (itemId: number) =>
+    setRows((current) => {
+      const next = { ...current };
+      if (next[itemId]) delete next[itemId];
+      else next[itemId] = createValue(itemId);
+      setActiveId(itemId);
+      return next;
+    });
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => [item.id, createValue(item.id)]),
+          ),
+    );
   const update = (key: keyof ExchangeInput, next: string | number) =>
-    setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? createValue(activeId)), [key]: next } }));
+    setRows((current) => ({
+      ...current,
+      [activeId]: {
+        ...(current[activeId] ?? createValue(activeId)),
+        [key]: next,
+      },
+    }));
   return (
     <form
       onSubmit={(e) => {
@@ -4124,76 +6985,132 @@ function ExchangeForm({
       className="flex flex-col gap-4"
     >
       <section className="flex flex-col gap-3" aria-label="选择换机设备">
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
-        <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item.id)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "无编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
-      </section>
-      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请先选择需要换机的设备，每台原设备可分别填写新设备信息。</p>}
-      {rows[activeId] && <section className="flex flex-col gap-4 rounded-xl border p-4">
-        <p className="text-sm font-semibold">填写当前设备的新机信息</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="换机日期"
-          type="date"
-          value={value.exchangeDate}
-          onChange={(next) => update("exchangeDate", next)}
-        />
-        <label className="flex flex-col gap-2 text-sm font-medium">
-          设备类型
-          <select
-            className="h-10 rounded-lg border bg-background px-3"
-            value={value.newDeviceType}
-            onChange={(e) => update("newDeviceType", e.target.value)}
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+          <span className="text-sm text-muted-foreground">
+            已选 {selected.length}/{available.length} 项
+          </span>
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
           >
-            {["台式机", "笔记本", "显示器", "一体机", "其他"].map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
-        </label>
-        <Field
-          label="新设备名称 / 型号"
-          value={value.newDeviceName}
-          onChange={(next) => update("newDeviceName", next)}
-        />
-        <Field
-          label="新设备编号"
-          value={value.newDeviceCode}
-          onChange={(next) => update("newDeviceCode", next)}
-        />
-        {(configs[value.newDeviceType] || []).map(([key, label]) => {
-          const exchangeKey = key as keyof ExchangeInput;
-          return (
+            {allSelected ? "取消全选" : "全选全部设备"}
+          </button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {available.map((item) => (
+            <div
+              key={item.id}
+              className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(rows[item.id])}
+                onChange={() => toggleItem(item.id)}
+                className="size-4 accent-primary"
+              />
+              <button
+                type="button"
+                onClick={() => setActiveId(item.id)}
+                disabled={!rows[item.id]}
+                className="min-w-0 flex-1 text-left disabled:opacity-60"
+              >
+                <strong className="block truncate text-sm">
+                  {item.deviceType} · {item.deviceName}
+                </strong>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {item.deviceCode || "无编号"}
+                  {activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}
+                </span>
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+      {!selected.length && (
+        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          请先选择需要换机的设备，每台原设备可分别填写新设备信息。
+        </p>
+      )}
+      {rows[activeId] && (
+        <section className="flex flex-col gap-4 rounded-xl border p-4">
+          <p className="text-sm font-semibold">填写当前设备的新机信息</p>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field
-              key={key}
-              label={label}
-              value={String(value[exchangeKey] || "")}
-              onChange={(next) => update(exchangeKey, next)}
+              label="换机日期"
+              type="date"
+              value={value.exchangeDate}
+              onChange={(next) => update("exchangeDate", next)}
+            />
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              设备类型
+              <select
+                className="h-10 rounded-lg border bg-background px-3"
+                value={value.newDeviceType}
+                onChange={(e) => update("newDeviceType", e.target.value)}
+              >
+                {["台式机", "笔记本", "显示器", "一体机", "其他"].map(
+                  (type) => (
+                    <option key={type}>{type}</option>
+                  ),
+                )}
+              </select>
+            </label>
+            <Field
+              label="新设备名称 / 型号"
+              value={value.newDeviceName}
+              onChange={(next) => update("newDeviceName", next)}
+            />
+            <Field
+              label="新设备编号"
+              value={value.newDeviceCode}
+              onChange={(next) => update("newDeviceCode", next)}
+            />
+            {(configs[value.newDeviceType] || []).map(([key, label]) => {
+              const exchangeKey = key as keyof ExchangeInput;
+              return (
+                <Field
+                  key={key}
+                  label={label}
+                  value={String(value[exchangeKey] || "")}
+                  onChange={(next) => update(exchangeKey, next)}
+                  required={false}
+                />
+              );
+            })}
+            {value.newDeviceType === "其他" && (
+              <Field
+                label="新设备配置"
+                value={value.newDeviceConfig || ""}
+                onChange={(next) => update("newDeviceConfig", next)}
+                required={false}
+              />
+            )}
+            <Field
+              label="换机原因"
+              value={value.reason}
+              onChange={(next) => update("reason", next)}
+            />
+            <Field
+              label="备注"
+              value={value.notes || ""}
+              onChange={(next) => update("notes", next)}
               required={false}
             />
-          );
-        })}
-        {value.newDeviceType === "其他" && (
-          <Field
-            label="新设备配置"
-            value={value.newDeviceConfig || ""}
-            onChange={(next) => update("newDeviceConfig", next)}
-            required={false}
-          />
-        )}
-        <Field
-          label="换机原因"
-          value={value.reason}
-          onChange={(next) => update("reason", next)}
-        />
-        <Field
-          label="备注"
-          value={value.notes || ""}
-          onChange={(next) => update("notes", next)}
-          required={false}
-        />
-        </div>
-      </section>}
+          </div>
+        </section>
+      )}
       <button
-        disabled={pending || !selected.length || selected.some((row) => !row.newDeviceName.trim() || !row.newDeviceCode.trim() || !row.reason.trim())}
+        disabled={
+          pending ||
+          !selected.length ||
+          selected.some(
+            (row) =>
+              !row.newDeviceName.trim() ||
+              !row.newDeviceCode.trim() ||
+              !row.reason.trim(),
+          )
+        }
         className="h-10 rounded-lg bg-primary font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : `确认换机 ${selected.length} 项`}
@@ -4245,32 +7162,95 @@ function ChangeForm({
   submit: (values: RentalChangeInput[]) => void;
   pending: boolean;
 }) {
-  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const available = rental.items.filter(
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
+  );
   const first = available[0];
   const [rows, setRows] = useState<Record<number, RentalChangeInput>>({});
   const [activeId, setActiveId] = useState(first?.id || 0);
   if (!first) return <p>暂无可变更设备</p>;
-  const value = rows[activeId] ?? itemToChange(available.find((item) => item.id === activeId) ?? first);
+  const value =
+    rows[activeId] ??
+    itemToChange(available.find((item) => item.id === activeId) ?? first);
   const selected = Object.values(rows);
   const allSelected = selected.length === available.length;
-  const toggleItem = (item: Item) => setRows((current) => { const next = { ...current }; if (next[item.id]) delete next[item.id]; else next[item.id] = itemToChange(item); setActiveId(item.id); return next; });
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, itemToChange(item)])));
+  const toggleItem = (item: Item) =>
+    setRows((current) => {
+      const next = { ...current };
+      if (next[item.id]) delete next[item.id];
+      else next[item.id] = itemToChange(item);
+      setActiveId(item.id);
+      return next;
+    });
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => [item.id, itemToChange(item)]),
+          ),
+    );
   const selectedItem = available.find((item) => item.id === activeId) ?? first;
   const currentEndDate = selectedItem.endDate || rental.endDate;
-  const pricePeriodFor = (item: Item, effectiveDate: string) => { let periodStart=item.startDate||rental.startDate,periodEnd=addMonths(periodStart,1); while(periodEnd<=effectiveDate){periodStart=periodEnd;periodEnd=addMonths(periodStart,1)} return {periodStart,periodEnd}; };
+  const pricePeriodFor = (item: Item, effectiveDate: string) => {
+    let periodStart = item.startDate || rental.startDate,
+      periodEnd = addMonths(periodStart, 1);
+    while (periodEnd <= effectiveDate) {
+      periodStart = periodEnd;
+      periodEnd = addMonths(periodStart, 1);
+    }
+    return { periodStart, periodEnd };
+  };
   const currentPricePeriod = pricePeriodFor(selectedItem, value.eventDate);
-  const currentPriceAdjustment = priceChangeAdjustment({ ...currentPricePeriod, effectiveDate:value.eventDate, oldMonthlyRent:selectedItem.monthlyRent, newMonthlyRent:String(value.monthlyRent), quantity:selectedItem.quantity-selectedItem.boughtOutQuantity-selectedItem.returnedQuantity-selectedItem.lostQuantity });
+  const currentPriceAdjustment = priceChangeAdjustment({
+    ...currentPricePeriod,
+    effectiveDate: value.eventDate,
+    oldMonthlyRent: selectedItem.monthlyRent,
+    newMonthlyRent: String(value.monthlyRent),
+    quantity:
+      selectedItem.quantity -
+      selectedItem.boughtOutQuantity -
+      selectedItem.returnedQuantity -
+      selectedItem.lostQuantity,
+  });
   const remainingDays = currentPriceAdjustment.newPriceDays;
   const calculatedAdjustment = currentPriceAdjustment.adjustmentCents / 100;
   const adjustedEndDate = addDays(currentEndDate, Number(value.giftDays || 0));
   const update = (key: keyof RentalChangeInput, next: string | number) =>
-    setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? itemToChange(selectedItem)), [key]: next } }));
+    setRows((current) => ({
+      ...current,
+      [activeId]: {
+        ...(current[activeId] ?? itemToChange(selectedItem)),
+        [key]: next,
+      },
+    }));
   const finalize = (row: RentalChangeInput) => {
-    const item = available.find((current) => current.id === row.itemId) ?? first;
-    const availableCount = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+    const item =
+      available.find((current) => current.id === row.itemId) ?? first;
+    const availableCount =
+      item.quantity -
+      item.boughtOutQuantity -
+      item.returnedQuantity -
+      item.lostQuantity;
     const period = pricePeriodFor(item, row.eventDate);
-    const feeAdjustment = priceChangeAdjustment({ ...period, effectiveDate:row.eventDate, oldMonthlyRent:item.monthlyRent, newMonthlyRent:String(row.monthlyRent), quantity:availableCount }).adjustmentCents / 100;
-    return { ...row, feeAdjustment, totalRent: Number(row.monthlyRent) * row.quantity };
+    const feeAdjustment =
+      priceChangeAdjustment({
+        ...period,
+        effectiveDate: row.eventDate,
+        oldMonthlyRent: item.monthlyRent,
+        newMonthlyRent: String(row.monthlyRent),
+        quantity: availableCount,
+      }).adjustmentCents / 100;
+    return {
+      ...row,
+      feeAdjustment,
+      totalRent: Number(row.monthlyRent) * row.quantity,
+    };
   };
   return (
     <form
@@ -4281,10 +7261,54 @@ function ChangeForm({
       className="flex flex-col gap-4"
     >
       <section className="flex flex-col gap-3" aria-label="选择配置变更设备">
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每项可单独修改配置和月租</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
-        <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "未编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+          <span className="text-sm text-muted-foreground">
+            已选 {selected.length}/{available.length}{" "}
+            项，每项可单独修改配置和月租
+          </span>
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
+          >
+            {allSelected ? "取消全选" : "全选全部设备"}
+          </button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {available.map((item) => (
+            <div
+              key={item.id}
+              className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(rows[item.id])}
+                onChange={() => toggleItem(item)}
+                className="size-4 accent-primary"
+              />
+              <button
+                type="button"
+                onClick={() => setActiveId(item.id)}
+                disabled={!rows[item.id]}
+                className="min-w-0 flex-1 text-left disabled:opacity-60"
+              >
+                <strong className="block truncate text-sm">
+                  {item.deviceType} · {item.deviceName}
+                </strong>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {item.deviceCode || "未编号"}
+                  {activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}
+                </span>
+              </button>
+            </div>
+          ))}
+        </div>
       </section>
-      {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请选择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。</p>}
+      {!selected.length && (
+        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          请选择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。
+        </p>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="新租金生效日期"
@@ -4358,15 +7382,25 @@ function ChangeForm({
           label="赠送天数"
           type="number"
           value={value.giftDays}
-          onChange={(next) => update("giftDays", Math.max(0, Math.floor(Number(next))))}
+          onChange={(next) =>
+            update("giftDays", Math.max(0, Math.floor(Number(next))))
+          }
           required={false}
         />
       </div>
-      <section className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3" aria-label="配置变更费用预览">
+      <section
+        className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3"
+        aria-label="配置变更费用预览"
+      >
         <Info l="调整后月租" v={money(Number(value.monthlyRent))} />
         <Info l="本次配置补差" v={money(calculatedAdjustment)} />
         <Info l="调整后到期日" v={adjustedEndDate} />
-        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">生效日前保持旧价；生效日起至本账期结束共 {remainingDays} 天按 30 天拆分差额，后续账期全部使用新租金。赠送 {Number(value.giftDays || 0)} 天不计费，当前账期结束日为 {currentPricePeriod.periodEnd}，调整后到期日为 {adjustedEndDate}。</p>
+        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">
+          生效日前保持旧价；生效日起至本账期结束共 {remainingDays} 天按 30
+          天拆分差额，后续账期全部使用新租金。赠送 {Number(value.giftDays || 0)}{" "}
+          天不计费，当前账期结束日为 {currentPricePeriod.periodEnd}
+          ，调整后到期日为 {adjustedEndDate}。
+        </p>
       </section>
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
@@ -4377,7 +7411,16 @@ function ChangeForm({
         />
       </label>
       <button
-        disabled={pending || !selected.length || selected.some((row) => !row.reason.trim() || !row.eventDate || Number(row.monthlyRent) < 0)}
+        disabled={
+          pending ||
+          !selected.length ||
+          selected.some(
+            (row) =>
+              !row.reason.trim() ||
+              !row.eventDate ||
+              Number(row.monthlyRent) < 0,
+          )
+        }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : `确认变更 ${selected.length} 项`}
@@ -4394,7 +7437,14 @@ function RepairForm({
   submit: (values: RepairInput[]) => void;
   pending: boolean;
 }) {
-  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const available = rental.items.filter(
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
+  );
   const createValue = (itemId: number): RepairInput => ({
     rentalId: rental.id,
     itemId,
@@ -4411,10 +7461,32 @@ function RepairForm({
   const [activeId, setActiveId] = useState(available[0]?.id || 0);
   const value = rows[activeId] ?? createValue(activeId);
   const selected = Object.values(rows);
-  const allSelected = available.length > 0 && selected.length === available.length;
-  const toggleItem = (itemId: number) => setRows((current) => { const next = { ...current }; if (next[itemId]) delete next[itemId]; else next[itemId] = createValue(itemId); setActiveId(itemId); return next; });
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, createValue(item.id)])));
-  const update = (changes: Partial<RepairInput>) => setRows((current) => ({ ...current, [activeId]: { ...(current[activeId] ?? createValue(activeId)), ...changes } }));
+  const allSelected =
+    available.length > 0 && selected.length === available.length;
+  const toggleItem = (itemId: number) =>
+    setRows((current) => {
+      const next = { ...current };
+      if (next[itemId]) delete next[itemId];
+      else next[itemId] = createValue(itemId);
+      setActiveId(itemId);
+      return next;
+    });
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => [item.id, createValue(item.id)]),
+          ),
+    );
+  const update = (changes: Partial<RepairInput>) =>
+    setRows((current) => ({
+      ...current,
+      [activeId]: {
+        ...(current[activeId] ?? createValue(activeId)),
+        ...changes,
+      },
+    }));
   return (
     <form
       onSubmit={(e) => {
@@ -4424,9 +7496,52 @@ function RepairForm({
       className="flex flex-col gap-4"
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <section className="flex flex-col gap-3 sm:col-span-2" aria-label="选择维修设备">
-          <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每台设备独立登记故障和费用</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
-          <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item.id)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "无编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
+        <section
+          className="flex flex-col gap-3 sm:col-span-2"
+          aria-label="选择维修设备"
+        >
+          <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+            <span className="text-sm text-muted-foreground">
+              已选 {selected.length}/{available.length}{" "}
+              项，每台设备独立登记故障和费用
+            </span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
+            >
+              {allSelected ? "取消全选" : "全选全部设备"}
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {available.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(rows[item.id])}
+                  onChange={() => toggleItem(item.id)}
+                  className="size-4 accent-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setActiveId(item.id)}
+                  disabled={!rows[item.id]}
+                  className="min-w-0 flex-1 text-left disabled:opacity-60"
+                >
+                  <strong className="block truncate text-sm">
+                    {item.deviceType} · {item.deviceName}
+                  </strong>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {item.deviceCode || "无编号"}
+                    {activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
         <Field
           label="报修日期"
@@ -4459,9 +7574,7 @@ function RepairForm({
           label="维修费用（元）"
           type="number"
           value={value.repairCost}
-          onChange={(repairCost) =>
-            update({ repairCost: Number(repairCost) })
-          }
+          onChange={(repairCost) => update({ repairCost: Number(repairCost) })}
         />
         <Field
           label="客户承担金额（元）"
@@ -4478,9 +7591,7 @@ function RepairForm({
           required
           className="min-h-20 rounded-lg border bg-background p-3"
           value={value.faultDescription}
-          onChange={(e) =>
-            update({ faultDescription: e.target.value })
-          }
+          onChange={(e) => update({ faultDescription: e.target.value })}
         />
       </label>
       <label className="flex flex-col gap-2 text-sm font-medium">
@@ -4496,11 +7607,20 @@ function RepairForm({
         <textarea
           className="min-h-20 rounded-lg border bg-background p-3"
           value={value.notes || ""}
-onChange={(e) => update({ notes: e.target.value })}
+          onChange={(e) => update({ notes: e.target.value })}
         />
       </label>
       <button
-        disabled={pending || !selected.length || selected.some((row) => !row.eventDate || !row.faultDescription.trim() || (row.status === "已完成" && !row.completedDate))}
+        disabled={
+          pending ||
+          !selected.length ||
+          selected.some(
+            (row) =>
+              !row.eventDate ||
+              !row.faultDescription.trim() ||
+              (row.status === "已完成" && !row.completedDate),
+          )
+        }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : `保存 ${selected.length} 张维修单`}
@@ -4515,28 +7635,84 @@ function BuyoutForm({
 }: {
   rental: Rental;
   submit: (
-    values: Array<{ itemId: number; quantity: number; price: number; date: string; notes: string }>,
+    values: Array<{
+      itemId: number;
+      quantity: number;
+      price: number;
+      date: string;
+      notes: string;
+    }>,
     settlement: SettlementInput,
   ) => void;
   pending: boolean;
 }) {
   const available = rental.items.filter(
-    (item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
+    (item) =>
+      item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity >
+      0,
   );
-  type BuyoutRow = { itemId: number; quantity: number; price: number; date: string; notes: string };
+  type BuyoutRow = {
+    itemId: number;
+    quantity: number;
+    price: number;
+    date: string;
+    notes: string;
+  };
   const [rows, setRows] = useState<Record<number, BuyoutRow>>({});
   const [price, setPrice] = useState(0);
   const [date, setDate] = useState(today());
-  const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
+  const [settlement, setSettlement] = useState<SettlementInput>({
+    timing: "now",
+    date: today(),
+    method: "微信",
+  });
   const [notes, setNotes] = useState("");
   const selected = Object.values(rows);
-  const allSelected = available.length > 0 && selected.length === available.length;
-  const defaultRow = (item: Item): BuyoutRow => ({ itemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, price, date, notes });
-  const toggle = (item: Item) => setRows((current) => { const next = { ...current }; if (next[item.id]) delete next[item.id]; else next[item.id] = defaultRow(item); return next; });
-  const toggleAll = () => setRows(allSelected ? {} : Object.fromEntries(available.map((item) => [item.id, defaultRow(item)])));
-  const applyDefaults = () => setRows((current) => Object.fromEntries(Object.values(current).map((row) => [row.itemId, { ...row, price, date, notes }])));
+  const allSelected =
+    available.length > 0 && selected.length === available.length;
+  const defaultRow = (item: Item): BuyoutRow => ({
+    itemId: item.id,
+    quantity:
+      item.quantity -
+      item.boughtOutQuantity -
+      item.returnedQuantity -
+      item.lostQuantity,
+    price,
+    date,
+    notes,
+  });
+  const toggle = (item: Item) =>
+    setRows((current) => {
+      const next = { ...current };
+      if (next[item.id]) delete next[item.id];
+      else next[item.id] = defaultRow(item);
+      return next;
+    });
+  const toggleAll = () =>
+    setRows(
+      allSelected
+        ? {}
+        : Object.fromEntries(
+            available.map((item) => [item.id, defaultRow(item)]),
+          ),
+    );
+  const applyDefaults = () =>
+    setRows((current) =>
+      Object.fromEntries(
+        Object.values(current).map((row) => [
+          row.itemId,
+          { ...row, price, date, notes },
+        ]),
+      ),
+    );
   const totalQuantity = selected.reduce((sum, row) => sum + row.quantity, 0);
-  const totalAmount = selected.reduce((sum, row) => sum + row.quantity * row.price, 0);
+  const totalAmount = selected.reduce(
+    (sum, row) => sum + row.quantity * row.price,
+    0,
+  );
   return (
     <form
       onSubmit={(e) => {
@@ -4547,39 +7723,166 @@ function BuyoutForm({
     >
       <section className="flex flex-col gap-3" aria-label="选择买断设备">
         <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
-          <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
-          <button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button>
+          <span className="text-sm text-muted-foreground">
+            已选 {selected.length}/{available.length} 项，共 {totalQuantity} 台
+          </span>
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
+          >
+            {allSelected ? "取消全选" : "全选全部设备"}
+          </button>
         </div>
         {available.map((item) => {
-          const max = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const max =
+            item.quantity -
+            item.boughtOutQuantity -
+            item.returnedQuantity -
+            item.lostQuantity;
           const row = rows[item.id];
-          return <article key={item.id} className={`rounded-xl border p-4 ${row ? "border-primary bg-primary/5" : ""}`}>
-            <label className="flex cursor-pointer items-start gap-3">
-              <input type="checkbox" checked={Boolean(row)} onChange={() => toggle(item)} className="mt-1 size-4 accent-primary" />
-              <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可买断 {max} 台</span></span>
-            </label>
-            {row && <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Field label="买断数量" type="number" value={row.quantity} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], quantity: Number(value) } }))} />
-              <Field label="买断单价（元）" type="number" value={row.price} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], price: Number(value) } }))} />
-              <Field label="买断日期" type="date" value={row.date} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], date: value } }))} />
-              <Field label="单项备注" value={row.notes} required={false} onChange={(value) => setRows((current) => ({ ...current, [item.id]: { ...current[item.id], notes: value } }))} />
-            </div>}
-          </article>;
+          return (
+            <article
+              key={item.id}
+              className={`rounded-xl border p-4 ${row ? "border-primary bg-primary/5" : ""}`}
+            >
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={Boolean(row)}
+                  onChange={() => toggle(item)}
+                  className="mt-1 size-4 accent-primary"
+                />
+                <span className="min-w-0 flex-1">
+                  <strong>
+                    {item.deviceType} · {item.deviceName}
+                  </strong>
+                  <span className="block text-xs text-muted-foreground">
+                    {item.deviceCode || "未编号"} · 可买断 {max} 台
+                  </span>
+                </span>
+              </label>
+              {row && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="买断数量"
+                    type="number"
+                    value={row.quantity}
+                    onChange={(value) =>
+                      setRows((current) => ({
+                        ...current,
+                        [item.id]: {
+                          ...current[item.id],
+                          quantity: Number(value),
+                        },
+                      }))
+                    }
+                  />
+                  <Field
+                    label="买断单价（元）"
+                    type="number"
+                    value={row.price}
+                    onChange={(value) =>
+                      setRows((current) => ({
+                        ...current,
+                        [item.id]: {
+                          ...current[item.id],
+                          price: Number(value),
+                        },
+                      }))
+                    }
+                  />
+                  <Field
+                    label="买断日期"
+                    type="date"
+                    value={row.date}
+                    onChange={(value) =>
+                      setRows((current) => ({
+                        ...current,
+                        [item.id]: { ...current[item.id], date: value },
+                      }))
+                    }
+                  />
+                  <Field
+                    label="单项备注"
+                    value={row.notes}
+                    required={false}
+                    onChange={(value) =>
+                      setRows((current) => ({
+                        ...current,
+                        [item.id]: { ...current[item.id], notes: value },
+                      }))
+                    }
+                  />
+                </div>
+              )}
+            </article>
+          );
         })}
       </section>
       <section className="flex flex-col gap-4 rounded-xl border bg-muted/40 p-4">
-        <div><p className="text-sm font-semibold">批量默认值</p><p className="mt-1 text-xs leading-5 text-muted-foreground">先设置统一值并应用，再按设备单独覆盖。</p></div>
+        <div>
+          <p className="text-sm font-semibold">批量默认值</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            先设置统一值并应用，再按设备单独覆盖。
+          </p>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="买断单价（元）" type="number" value={price} onChange={(value) => setPrice(Number(value))} />
+          <Field
+            label="买断单价（元）"
+            type="number"
+            value={price}
+            onChange={(value) => setPrice(Number(value))}
+          />
           <Field label="买断日期" type="date" value={date} onChange={setDate} />
-          <Field label="统一备注" value={notes} required={false} onChange={setNotes} />
-          <button type="button" onClick={applyDefaults} disabled={!selected.length} className="h-10 self-end rounded-lg border bg-background px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">应用到已选设备</button>
+          <Field
+            label="统一备注"
+            value={notes}
+            required={false}
+            onChange={setNotes}
+          />
+          <button
+            type="button"
+            onClick={applyDefaults}
+            disabled={!selected.length}
+            className="h-10 self-end rounded-lg border bg-background px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+          >
+            应用到已选设备
+          </button>
         </div>
       </section>
-      <div className="rounded-xl bg-muted p-4"><p className="text-xs text-muted-foreground">本次买断汇总</p><p className="mt-1 text-lg font-semibold">{totalQuantity} 台 · {money(totalAmount)}</p></div>
-      <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
+      <div className="rounded-xl bg-muted p-4">
+        <p className="text-xs text-muted-foreground">本次买断汇总</p>
+        <p className="mt-1 text-lg font-semibold">
+          {totalQuantity} 台 · {money(totalAmount)}
+        </p>
+      </div>
+      <SettlementFields
+        label="买断费收款"
+        value={settlement}
+        onChange={setSettlement}
+      />
       <button
-        disabled={pending || !selected.length || selected.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max || row.price <= 0 || !row.date; })}
+        disabled={
+          pending ||
+          !selected.length ||
+          selected.some((row) => {
+            const item = available.find((current) => current.id === row.itemId);
+            const max = item
+              ? item.quantity -
+                item.boughtOutQuantity -
+                item.returnedQuantity -
+                item.lostQuantity
+              : 0;
+            return (
+              !Number.isInteger(row.quantity) ||
+              row.quantity < 1 ||
+              row.quantity > max ||
+              row.price <= 0 ||
+              !row.date
+            );
+          })
+        }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
         {pending ? "处理中" : `确认买断 ${totalQuantity} 台`}
@@ -4626,7 +7929,9 @@ function Dialog({
             <X className="size-5" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -4700,13 +8005,17 @@ function Field({
         readOnly={readOnly}
         placeholder={placeholder}
         min={
-          type === "number" && !/(差额|可填负数)/.test(label)
-            ? "0"
-            : undefined
+          type === "number" && !/(差额|可填负数)/.test(label) ? "0" : undefined
         }
         step={type === "number" ? (integer ? "1" : "0.01") : undefined}
       />
-      {suggestions.length > 0 && listId && <datalist id={listId}>{suggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}</datalist>}
+      {suggestions.length > 0 && listId && (
+        <datalist id={listId}>
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
@@ -4729,16 +8038,26 @@ function Stat({
     </div>
   );
 }
-function BillingStatus({ value }: { value: ReturnType<typeof billState> | "已抵扣" }) {
+function BillingStatus({
+  value,
+}: {
+  value: ReturnType<typeof billState> | "已抵扣";
+}) {
   const tones = {
-    "已结清": "bg-primary/10 text-primary",
-    "已抵扣": "bg-accent text-accent-foreground",
-    "待付款": "bg-chart-2/15 text-chart-2",
-    "即将到期": "bg-accent text-accent-foreground",
-    "逾期": "bg-destructive/10 text-destructive",
-    "部分收款": "bg-secondary text-secondary-foreground",
+    已结清: "bg-primary/10 text-primary",
+    已抵扣: "bg-accent text-accent-foreground",
+    待付款: "bg-chart-2/15 text-chart-2",
+    即将到期: "bg-accent text-accent-foreground",
+    逾期: "bg-destructive/10 text-destructive",
+    部分收款: "bg-secondary text-secondary-foreground",
   } as const;
-  return <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tones[value]}`}>{value}</span>;
+  return (
+    <span
+      className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tones[value]}`}
+    >
+      {value}
+    </span>
+  );
 }
 
 function Status({ value }: { value: string }) {
@@ -4753,7 +8072,9 @@ function Status({ value }: { value: string }) {
             ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
             : "bg-muted text-muted-foreground ring-1 ring-inset ring-border";
   return (
-    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+    <span
+      className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}
+    >
       {value}
     </span>
   );
