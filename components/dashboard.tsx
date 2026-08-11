@@ -2102,6 +2102,7 @@ submit={(value) =>
       <Dialog
         open={dialog === "return"}
         title="办理设备退租"
+        medium
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -6463,10 +6464,10 @@ function OperationForm({
           }),
         );
       }}
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-3"
     >
-      <section className="flex flex-col gap-3" aria-label="选择设备">
-        <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+      <section className="flex flex-col gap-2" aria-label="选择设备">
+        <div className="flex items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2">
           <span className="text-sm text-muted-foreground">
             已选 {selectedRows.length}/{available.length} 项，共{" "}
             {selectedRows.reduce((sum, row) => sum + row.quantity, 0)} 台
@@ -6475,9 +6476,9 @@ function OperationForm({
             type="button"
             onClick={toggleAll}
             disabled={!available.length}
-            className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            className="h-8 rounded-lg border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"
           >
-            {allSelected ? "取消全选" : "全选全部设备"}
+            {allSelected ? "取消全选" : "全选"}
           </button>
         </div>
         {available.map((item) => {
@@ -6490,7 +6491,7 @@ function OperationForm({
           return (
             <article
               key={item.id}
-              className={`rounded-xl border p-4 ${selected ? "border-primary bg-primary/5" : ""}`}
+              className={`rounded-xl border p-3 ${selected ? "border-primary bg-primary/5" : ""}`}
             >
               <label className="flex cursor-pointer items-start gap-3">
                 <input
@@ -6509,8 +6510,8 @@ function OperationForm({
                 </span>
               </label>
               {selected && (
-                <div className="mt-3 flex flex-col gap-3">
-                  <label className="flex items-center gap-3 text-sm font-medium">
+                <div className="mt-2 flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm font-medium">
                     本次数量
                     <input
                       type="number"
@@ -6523,7 +6524,7 @@ function OperationForm({
                           [item.id]: Number(event.target.value),
                         }))
                       }
-                      className="h-10 w-24 rounded-lg border bg-background px-3"
+                      className="h-9 w-20 rounded-lg border bg-background px-3"
                     />
                     <span className="text-muted-foreground">最多 {max} 台</span>
                   </label>
@@ -6535,32 +6536,32 @@ function OperationForm({
                         {
                           value: "full_month",
                           title: "按月收",
-                          detail: `整期 ${money(trial?.fullAmount ?? 0)}`,
+                          detail: money(trial?.fullAmount ?? 0),
                         },
                         {
                           value: "daily",
                           title: "按天收",
-                          detail: `30天折算，当天计费`,
+                          detail: "月租÷30×天数",
                         },
                         {
                           value: "waive",
                           title: "本期不收",
-                          detail: "本期应收 ¥0",
+                          detail: "¥0",
                         },
                       ] as const;
                       return (
-                        <div className="rounded-lg border bg-background p-3">
+                        <div className="rounded-lg border bg-background p-2.5">
                           {trial?.periodSettlement.currentSettled &&
                           trial.timing !== "late" ? (
-                            <div className="rounded-lg bg-muted p-3 text-sm">
-                              <strong>本期已收清，无需处理租金</strong>
-                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                已收款账期不退款、不改账，只登记设备退回。
-                              </p>
-                            </div>
+                            <p className="rounded-md bg-muted px-3 py-2 text-sm">
+                              <strong>租金已结清</strong>
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                本次仅登记退回
+                              </span>
+                            </p>
                           ) : (
-                            <fieldset className="flex flex-col gap-3">
-                              <legend className="text-sm font-semibold">
+                            <fieldset className="flex flex-col gap-2">
+                              <legend className="text-xs font-medium text-muted-foreground">
                                 待处理账期
                               </legend>
                               {trial?.periodSettlement.unpaidPeriods
@@ -6570,7 +6571,7 @@ function OperationForm({
                                 .map((period) => (
                                   <div
                                     key={period.periodNo}
-                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/60 p-3 text-sm"
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/60 px-3 py-2 text-sm"
                                   >
                                     <span>
                                       <strong>第 {period.periodNo} 期</strong>
@@ -6586,8 +6587,8 @@ function OperationForm({
                                   </div>
                                 ))}
                               {!trial?.periodSettlement.currentSettled && (
-                                <div className="rounded-lg border bg-card p-3">
-                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+                                <div className="rounded-lg border bg-card p-2.5">
+                                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                                     <span>
                                       <strong>
                                         第{" "}
@@ -6610,7 +6611,7 @@ function OperationForm({
                                     {options.map((option) => (
                                       <label
                                         key={option.value}
-                                        className={`cursor-pointer rounded-lg border p-3 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}
+                                        className={`cursor-pointer rounded-lg border px-3 py-2 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}
                                       >
                                         <input
                                           type="radio"
@@ -6629,7 +6630,7 @@ function OperationForm({
                                         <strong className="text-sm">
                                           {option.title}
                                         </strong>
-                                        <span className="mt-1 block text-xs text-muted-foreground">
+                                        <span className="ml-1 text-xs text-muted-foreground">
                                           {option.detail}
                                         </span>
                                       </label>
@@ -6649,12 +6650,12 @@ function OperationForm({
           );
         })}
       </section>
-      <section className="rounded-xl border bg-muted/40 p-4">
-        <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">
-          下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。
-        </p>
-        <div className="grid grid-cols-2 gap-4">
+      <section className="rounded-xl border bg-muted/40 p-3">
+        <div className="mb-3 flex items-baseline gap-2">
+          <p className="text-sm font-semibold">退租信息</p>
+          <p className="text-xs text-muted-foreground">应用到已选设备</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <Field
             label={mode === "return" ? "归还日期" : "发生日期"}
             type="date"
@@ -7889,6 +7890,7 @@ function Dialog({
   children,
   onClose,
   wide = false,
+  medium = false,
   fixedHeight = false,
 }: {
   open: boolean;
@@ -7896,6 +7898,7 @@ function Dialog({
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  medium?: boolean;
   fixedHeight?: boolean;
 }) {
   if (!open) return null;
@@ -7910,7 +7913,7 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
+        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : medium ? "max-w-2xl" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
       >
         <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
           <h2 className="text-lg font-semibold">{title}</h2>
