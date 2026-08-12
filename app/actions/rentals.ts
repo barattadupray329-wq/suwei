@@ -236,6 +236,15 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       : [{ deviceType: row.deviceType, quantity: row.quantity, boughtOutQuantity: 0, returnedQuantity: 0, lostQuantity: 0 }]
     const deviceSummary = rentalDeviceSummary(summaryItems)
     const quantity = deviceSummary.reduce((sum, item) => sum + item.quantity, 0)
+    const deviceDisposition = summaryItems.reduce(
+      (summary, item) => ({
+        total: summary.total + item.quantity,
+        returned: summary.returned + item.returnedQuantity,
+        boughtOut: summary.boughtOut + item.boughtOutQuantity,
+        lost: summary.lost + item.lostQuantity,
+      }),
+      { total: 0, returned: 0, boughtOut: 0, lost: 0 },
+    )
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
     const effectiveEndDate = [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1) ?? row.endDate
     const status = rentalDisplayStatus({
@@ -250,6 +259,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       ...row,
       quantity,
       deviceSummary,
+      deviceDisposition,
       endDate: effectiveEndDate,
       periodCount: periodSummary.total,
       paidPeriodCount: periodSummary.paid,

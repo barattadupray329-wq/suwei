@@ -110,7 +110,8 @@ import {
 } from "@/lib/rental-form-rules";
 import { userErrorMessage } from "@/lib/errors";
 import { handleAuthExpired } from "@/lib/session-expiry";
-import { isSettledReturnedRental } from "@/lib/rental-completion";
+import { RentalCompletionStamp } from "@/components/rental-completion-stamp";
+import { getRentalCompletion } from "@/lib/rental-completion";
 import {
   isContractExpired,
   rentalDisplayStatus,
@@ -3653,10 +3654,22 @@ function Detail(props: DetailProps) {
       ),
     0,
   );
-  const settledReturn = isSettledReturnedRental({
-    status: currentStatus,
+  const deviceDisposition = rental.items.reduce(
+    (summary, item) => ({
+      total: summary.total + item.quantity,
+      returned: summary.returned + item.returnedQuantity,
+      boughtOut: summary.boughtOut + item.boughtOutQuantity,
+      lost: summary.lost + item.lostQuantity,
+    }),
+    { total: 0, returned: 0, boughtOut: 0, lost: 0 },
+  );
+  const completion = getRentalCompletion({
     outstandingCents,
+    totalDevices: deviceDisposition.total,
     remainingDevices,
+    returnedDevices: deviceDisposition.returned,
+    boughtOutDevices: deviceDisposition.boughtOut,
+    lostDevices: deviceDisposition.lost,
   });
   const openRepairs = rental.events.filter(
     (event) =>
@@ -3743,14 +3756,7 @@ function Detail(props: DetailProps) {
                     ? "测试"
                     : "正式合同"}
               </span>
-              {settledReturn ? (
-                <span
-                  aria-label="该订单已结清并退回"
-                  className="inline-flex -rotate-6 rounded border-2 border-destructive px-3 py-1 text-xs font-bold tracking-widest text-destructive"
-                >
-                  已结清退回
-                </span>
-              ) : null}
+              <RentalCompletionStamp completion={completion} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {rental.contractNo} · {rental.customerName} ·{" "}
