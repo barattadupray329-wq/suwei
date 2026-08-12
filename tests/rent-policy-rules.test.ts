@@ -66,12 +66,16 @@ describe('退租时点与人工租金规则', () => {
   })
 })
 
-describe('指定生效日调价', () => {
-  it('调高租金只计算生效日至本账期结束', () => {
-    expect(priceChangeAdjustment({periodStart:'2026-08-01',periodEnd:'2026-09-01',effectiveDate:'2026-08-16',oldMonthlyRent:'300',newMonthlyRent:'360',quantity:2})).toEqual({newPriceDays:16,adjustmentCents:6400})
+describe('按完整账期调价', () => {
+  it('调高租金按完整一期和剩余在租台数计算', () => {
+    expect(priceChangeAdjustment({periodStart:'2026-08-01',periodEnd:'2026-09-01',effectiveDate:'2026-08-01',oldMonthlyRent:'300',newMonthlyRent:'360',quantity:2})).toEqual({periodStart:'2026-08-01',periodEnd:'2026-09-01',adjustmentCents:12000})
   })
 
-  it('调低租金产生负差额且按剩余在租台数计算', () => {
-    expect(priceChangeAdjustment({periodStart:'2026-08-01',periodEnd:'2026-09-01',effectiveDate:'2026-08-31',oldMonthlyRent:'360',newMonthlyRent:'300',quantity:1})).toEqual({newPriceDays:1,adjustmentCents:-200})
+  it('调低租金产生完整一期负差额', () => {
+    expect(priceChangeAdjustment({periodStart:'2026-08-01',periodEnd:'2026-09-01',effectiveDate:'2026-08-01',oldMonthlyRent:'360',newMonthlyRent:'300',quantity:1})).toEqual({periodStart:'2026-08-01',periodEnd:'2026-09-01',adjustmentCents:-6000})
+  })
+
+  it('拒绝从账期中间日期按天调价', () => {
+    expect(() => priceChangeAdjustment({periodStart:'2026-08-01',periodEnd:'2026-09-01',effectiveDate:'2026-08-16',oldMonthlyRent:'300',newMonthlyRent:'360',quantity:2})).toThrow('租金只能从完整账期开始调整')
   })
 })

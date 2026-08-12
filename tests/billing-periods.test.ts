@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { billingPeriod, billingPeriodAt, periodNumberAt } from '../lib/billing-periods'
+import { billingPeriod, billingPeriodAt, billingPeriodOptions, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {
@@ -20,5 +20,18 @@ describe('billing periods', () => {
   it('only accepts exact period boundaries', () => {
     expect(periodNumberAt('2026-06-01', '2026-09-01')).toBe(4)
     expect(() => periodNumberAt('2026-06-01', '2026-09-02')).toThrow('不是')
+  })
+
+  it('starts price changes from the next period when operated mid-period', () => {
+    expect(effectiveBillingPeriod('2026-07-01', '2026-07-29').start).toBe('2026-08-01')
+    expect(effectiveBillingPeriod('2026-07-01', '2026-08-01').start).toBe('2026-08-01')
+  })
+
+  it('creates options from each item own billing anchor', () => {
+    expect(billingPeriodOptions({ anchorDate: '2026-05-22', operationDate: '2026-07-29', endDate: '2026-10-22' }).map((period) => period.start)).toEqual([
+      '2026-08-22',
+      '2026-09-22',
+      '2026-10-22',
+    ])
   })
 })

@@ -50,3 +50,26 @@ export function periodNumberAt(anchorDate: string, boundaryDate: string) {
 export function billingPeriodLabel(period: BillingPeriod) {
   return `第 ${period.periodNo} 期：${period.start} 至 ${period.displayEnd}（含）`
 }
+
+export function effectiveBillingPeriod(anchorDate: string, operationDate: string) {
+  const current = billingPeriodAt(anchorDate, operationDate)
+  return current.start === operationDate
+    ? current
+    : billingPeriod(anchorDate, current.periodNo + 1)
+}
+
+export function billingPeriodOptions(input: {
+  anchorDate: string
+  operationDate: string
+  endDate: string
+  limit?: number
+}) {
+  const first = effectiveBillingPeriod(input.anchorDate, input.operationDate)
+  const periods: BillingPeriod[] = []
+  for (let periodNo = first.periodNo; periodNo <= first.periodNo + (input.limit ?? 24); periodNo += 1) {
+    const period = billingPeriod(input.anchorDate, periodNo)
+    if (period.start > input.endDate) break
+    periods.push(period)
+  }
+  return periods
+}

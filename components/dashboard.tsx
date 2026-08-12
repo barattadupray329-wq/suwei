@@ -33,6 +33,9 @@ import { toast } from "sonner";
 import {
   billingPeriod,
   billingPeriodAt,
+  billingPeriodLabel,
+  billingPeriodOptions,
+  effectiveBillingPeriod,
   periodNumberAt,
 } from "@/lib/billing-periods";
 import {
@@ -7246,11 +7249,13 @@ function ExchangeForm({
     </form>
   );
 }
-function itemToChange(item: Item): RentalChangeInput {
+function itemToChange(item: Item, rental: Rental): RentalChangeInput {
+  const anchorDate = item.startDate || rental.startDate;
+  const operationDate = today() < anchorDate ? anchorDate : today();
   return {
     rentalId: item.rentalId,
     itemId: item.id,
-    eventDate: today(),
+    eventDate: effectiveBillingPeriod(anchorDate, operationDate).start,
     reason: "",
     feeAdjustment: 0,
     giftDays: 0,
@@ -7304,14 +7309,14 @@ function ChangeForm({
   if (!first) return <p>暂无可变更设备</p>;
   const value =
     rows[activeId] ??
-    itemToChange(available.find((item) => item.id === activeId) ?? first);
+    itemToChange(available.find((item) => item.id === activeId) ?? first, rental);
   const selected = Object.values(rows);
   const allSelected = selected.length === available.length;
   const toggleItem = (item: Item) =>
     setRows((current) => {
       const next = { ...current };
       if (next[item.id]) delete next[item.id];
-      else next[item.id] = itemToChange(item);
+      else next[item.id] = itemToChange(item, rental);
       setActiveId(item.id);
       return next;
     });
@@ -7320,23 +7325,24 @@ function ChangeForm({
       allSelected
         ? {}
         : Object.fromEntries(
-            available.map((item) => [item.id, itemToChange(item)]),
+            available.map((item) => [item.id, itemToChange(item, rental)]),
           ),
     );
   const selectedItem = available.find((item) => item.id === activeId) ?? first;
   const currentEndDate = selectedItem.endDate || rental.endDate;
-  const pricePeriodFor = (item: Item, effectiveDate: string) => {
-    let periodStart = item.startDate || rental.startDate,
-      periodEnd = addMonths(periodStart, 1);
-    while (periodEnd <= effectiveDate) {
-      periodStart = periodEnd;
-      periodEnd = addMonths(periodStart, 1);
-    }
-    return { periodStart, periodEnd };
-  };
-  const currentPricePeriod = pricePeriodFor(selectedItem, value.eventDate);
+  const selectedAnchorDate = selectedItem.startDate || rental.startDate;
+  const periodOptions = billingPeriodOptions({
+    anchorDate: selectedAnchorDate,
+    operationDate: today() < selectedAnchorDate ? selectedAnchorDate : today(),
+    endDate: currentEndDate,
+  });
+  const currentPricePeriod = billingPeriod(
+    selectedAnchorDate,
+    periodNumberAt(selectedAnchorDate, value.eventDate),
+  );
   const currentPriceAdjustment = priceChangeAdjustment({
-    ...currentPricePeriod,
+    periodStart: currentPricePeriod.start,
+    periodEnd: currentPricePeriod.endExclusive,
     effectiveDate: value.eventDate,
     oldMonthlyRent: selectedItem.monthlyRent,
     newMonthlyRent: String(value.monthlyRent),
@@ -7346,14 +7352,13 @@ function ChangeForm({
       selectedItem.returnedQuantity -
       selectedItem.lostQuantity,
   });
-  const remainingDays = currentPriceAdjustment.newPriceDays;
   const calculatedAdjustment = currentPriceAdjustment.adjustmentCents / 100;
   const adjustedEndDate = addDays(currentEndDate, Number(value.giftDays || 0));
   const update = (key: keyof RentalChangeInput, next: string | number) =>
     setRows((current) => ({
       ...current,
       [activeId]: {
-        ...(current[activeId] ?? itemToChange(selectedItem)),
+        ...(current[activeId] ?? itemToChange(selectedItem, rental)),
         [key]: next,
       },
     }));
@@ -7365,10 +7370,15 @@ function ChangeForm({
       item.boughtOutQuantity -
       item.returnedQuantity -
       item.lostQuantity;
-    const period = pricePeriodFor(item, row.eventDate);
+    const anchorDate = item.startDate || rental.startDate;
+    const period = billingPeriod(
+      anchorDate,
+      periodNumberAt(anchorDate, row.eventDate),
+    );
     const feeAdjustment =
       priceChangeAdjustment({
-        ...period,
+        periodStart: period.start,
+        periodEnd: period.endExclusive,
         effectiveDate: row.eventDate,
         oldMonthlyRent: item.monthlyRent,
         newMonthlyRent: String(row.monthlyRent),
@@ -7438,12 +7448,23 @@ function ChangeForm({
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="新租金生效日期"
-          type="date"
-          value={value.eventDate}
-          onChange={(next) => update("eventDate", next)}
-        />
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          新租金生效账期
+          <select
+            className="h-10 rounded-lg border bg-background px-3"
+            value={value.eventDate}
+            onChange={(event) => update("eventDate", event.target.value)}
+          >
+            {periodOptions.map((period) => (
+              <option key={period.periodNo} value={period.start}>
+                {billingPeriodLabel(period)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs font-normal leading-5 text-muted-foreground">
+            只能选择完整账期，不能从账期中间按天改价。
+          </span>
+        </label>
         <Field
           label="变更原因"
           value={value.reason}
@@ -7524,10 +7545,10 @@ function ChangeForm({
         <Info l="本次配置补差" v={money(calculatedAdjustment)} />
         <Info l="调整后到期日" v={adjustedEndDate} />
         <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">
-          生效日前保持旧价；生效日起至本账期结束共 {remainingDays} 天按 30
-          天拆分差额，后续账期全部使用新租金。赠送 {Number(value.giftDays || 0)}{" "}
-          天不计费，当前账期结束日为 {currentPricePeriod.periodEnd}
-          ，调整后到期日为 {adjustedEndDate}。
+          旧租金使用至 {addDays(currentPricePeriod.start, -1)}；新租金从
+          {" "}{currentPricePeriod.start} 至 {currentPricePeriod.displayEnd} 这一完整账期开始生效，
+          本期差额按整期计算，不再按天拆分。赠送 {Number(value.giftDays || 0)}{" "}
+          天不计费，调整后到期日为 {adjustedEndDate}。
         </p>
       </section>
       <label className="flex flex-col gap-2 text-sm font-medium">

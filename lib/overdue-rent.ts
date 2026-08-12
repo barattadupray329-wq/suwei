@@ -27,10 +27,12 @@ export function returnRentDecision(input: { startDate: string; endDate: string; 
 }
 
 export function priceChangeAdjustment(input: { periodStart: string; periodEnd: string; effectiveDate: string; oldMonthlyRent: string; newMonthlyRent: string; quantity: number }) {
-  if (input.effectiveDate < input.periodStart || input.effectiveDate >= input.periodEnd) return { newPriceDays: 0, adjustmentCents: 0 }
-  const newPriceDays = Math.max(1, Math.min(30, daysBetween(input.effectiveDate, input.periodEnd)))
-  const adjustmentCents = Math.round((toCents(input.newMonthlyRent) - toCents(input.oldMonthlyRent)) * input.quantity * newPriceDays / 30)
-  return { newPriceDays, adjustmentCents }
+  if (input.effectiveDate !== input.periodStart) {
+    throw new Error(`租金只能从完整账期开始调整，请选择 ${input.periodStart}`)
+  }
+  const adjustmentCents =
+    (toCents(input.newMonthlyRent) - toCents(input.oldMonthlyRent)) * input.quantity
+  return { periodStart: input.periodStart, periodEnd: input.periodEnd, adjustmentCents }
 }
 
 export function overdueRentPeriods(endDate: string, today: string) {

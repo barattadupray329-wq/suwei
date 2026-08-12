@@ -10,6 +10,7 @@ import { addCalendarMonths, assertDateOrder, dateOnly, fromCents, inclusiveDays,
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { priceChangeAdjustment } from '@/lib/overdue-rent'
 import { availableQuantity } from '@/lib/rental-lifecycle'
+import { billingPeriod, periodNumberAt } from '@/lib/billing-periods'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -35,7 +36,6 @@ export type RepairInput = z.infer<typeof repairSchema>
 const snapshotKeys = ['deviceName','deviceType','deviceCode','deviceConfig','quantity','monthlyRent','totalRent','cpu','motherboard','memory','storage','graphicsCard','powerSupply','caseModel','monitorInfo','screenSize','screenResolution','refreshRate','panelType','ports','batteryInfo','adapterInfo','accessories','colorGamut'] as const
 function snapshot(item: Record<string, unknown>) { return Object.fromEntries(snapshotKeys.map(key => [key, item[key]])) }
 function addDays(date: string, days: number) { const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }
-function pricePeriod(startDate: string, effectiveDate: string) { let periodStart=startDate,periodEnd=addCalendarMonths(startDate,1);while(periodEnd<=effectiveDate){periodStart=periodEnd;periodEnd=addCalendarMonths(periodStart,1)}return{periodStart,periodEnd} }
 
 export async function changeRentalItem(input: RentalChangeInput) {
   const { userId, actorId, name } = await actor()
@@ -55,8 +55,9 @@ export async function changeRentalItem(input: RentalChangeInput) {
   if (value.eventDate > oldEndDate) throw new Error('配置变更日期不能晚于当前到期日')
   const adjustedEndDate = value.giftDays > 0 ? addDays(oldEndDate, value.giftDays) : oldEndDate
   const available = availableQuantity(item)
-  const { periodStart, periodEnd } = pricePeriod(item.startDate ?? rental.startDate, value.eventDate)
-  const { newPriceDays: remainingDays, adjustmentCents } = priceChangeAdjustment({periodStart,periodEnd,effectiveDate:value.eventDate,oldMonthlyRent:item.monthlyRent,newMonthlyRent:String(value.monthlyRent),quantity:available})
+  const anchorDate = item.startDate ?? rental.startDate
+  const effectivePeriod = billingPeriod(anchorDate, periodNumberAt(anchorDate, value.eventDate))
+  const { periodStart, periodEnd: periodEnd, adjustmentCents } = priceChangeAdjustment({periodStart:effectivePeriod.start,periodEnd:effectivePeriod.endExclusive,effectiveDate:value.eventDate,oldMonthlyRent:item.monthlyRent,newMonthlyRent:String(value.monthlyRent),quantity:available})
   const calculatedFeeAdjustment = Number(fromCents(adjustmentCents))
   if (toCents(value.feeAdjustment) !== toCents(calculatedFeeAdjustment)) throw new Error(`配置补差应为 ${calculatedFeeAdjustment.toFixed(2)} 元，请刷新后重试`)
   const lineTotal = Number(fromCents(toCents(value.monthlyRent) * item.quantity))
@@ -72,9 +73,9 @@ export async function changeRentalItem(input: RentalChangeInput) {
     db.update(rentalItems).set({ ...after, endDate: adjustedEndDate, monthlyRent: fromCents(toCents(value.monthlyRent)), totalRent: fromCents(toCents(lineTotal)), updatedAt:new Date() }).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,item.id))),
     db.update(rentals).set({ deviceName:nextItems.map(current=>current.deviceName).join('、'),deviceType:nextItems.length===1?nextItems[0].deviceType:'多设备',quantity,monthlyRent:fromCents(monthlyRentCents),totalRent:fromCents(totalRentCents),endDate:nextItems.map(current=>current.endDate ?? rental.endDate).sort().at(-1) ?? rental.endDate,paymentStatus,updatedAt:new Date() }).where(and(eq(rentals.userId,userId),eq(rentals.id,value.rentalId))),
     db.insert(rentalEvents).values({id:eventId,userId,rentalId:value.rentalId,itemId:value.itemId,eventType:'配置变更',eventDate:value.eventDate,beforeSnapshot:{...snapshot(item),endDate:oldEndDate},afterSnapshot:after,reason:value.reason,feeAdjustment:fromCents(toCents(calculatedFeeAdjustment)),operatorName:name,notes:[value.notes,value.giftDays ? `赠送 ${value.giftDays} 天，到期日顺延至 ${adjustedEndDate}` : ''].filter(Boolean).join('；')}),
-    db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'配置变更',resourceType:'租赁合同',resourceId:String(value.rentalId),summary:`${rental.contractNo} 配置变更，月租 ${Number(item.monthlyRent).toFixed(2)} 元调整为 ${value.monthlyRent.toFixed(2)} 元${value.giftDays ? `，赠送 ${value.giftDays} 天` : ''}`,metadata:{itemId:item.id,eventDate:value.eventDate,oldMonthlyRent:Number(item.monthlyRent),newMonthlyRent:value.monthlyRent,remainingDays,feeAdjustment:calculatedFeeAdjustment,giftDays:value.giftDays,oldEndDate,adjustedEndDate}}),
+    db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'配置变更',resourceType:'租赁合同',resourceId:String(value.rentalId),summary:`${rental.contractNo} 配置变更，月租 ${Number(item.monthlyRent).toFixed(2)} 元从 ${periodStart} 账期起调整为 ${value.monthlyRent.toFixed(2)} 元${value.giftDays ? `，赠送 ${value.giftDays} 天` : ''}`,metadata:{itemId:item.id,effectivePeriodStart:periodStart,effectivePeriodEnd:periodEnd,oldMonthlyRent:Number(item.monthlyRent),newMonthlyRent:value.monthlyRent,feeAdjustment:calculatedFeeAdjustment,giftDays:value.giftDays,oldEndDate,adjustedEndDate}}),
   ]
-  if (toCents(calculatedFeeAdjustment) !== 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `CHANGE-${value.rentalId}-${eventId}`, periodStart: value.eventDate, periodEnd, dueDate: value.eventDate, billType: calculatedFeeAdjustment > 0 ? '配置变更补收' : '配置变更减免', amount: fromCents(toCents(calculatedFeeAdjustment)), paidAmount: '0.00', status: calculatedFeeAdjustment > 0 ? '待收' : '已减免', notes: `${value.reason}；生效日起至当前账期结束共 ${remainingDays} 天按 30 天折算，后续账期使用新租金` }))
+  if (toCents(calculatedFeeAdjustment) !== 0) statements.push(db.insert(receivableBills).values({ userId, rentalId: value.rentalId, billNo: `CHANGE-${value.rentalId}-${eventId}`, periodStart, periodEnd, dueDate: periodStart, billType: calculatedFeeAdjustment > 0 ? '配置变更补收' : '配置变更减免', amount: fromCents(toCents(calculatedFeeAdjustment)), paidAmount: '0.00', status: calculatedFeeAdjustment > 0 ? '待收' : '已减免', notes: `${value.reason}；从 ${periodStart} 至 ${periodEnd} 完整账期按新租金计算，不拆分日租` }))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
 }
@@ -100,12 +101,13 @@ export async function changeRentalItems(input: RentalChangeInput[]) {
     if ((item.startDate && value.eventDate < item.startDate) || value.eventDate > oldEndDate) throw new Error(`${item.deviceName} 的变更日期不在租期内`)
     if (value.quantity !== item.quantity) throw new Error('配置变更不能调整数量')
     const adjustedEndDate = value.giftDays > 0 ? addDays(oldEndDate, value.giftDays) : oldEndDate
-    const {periodStart,periodEnd}=pricePeriod(item.startDate??rental.startDate,value.eventDate)
-    const {newPriceDays:remainingDays,adjustmentCents:feeCents}=priceChangeAdjustment({periodStart,periodEnd,effectiveDate:value.eventDate,oldMonthlyRent:item.monthlyRent,newMonthlyRent:String(value.monthlyRent),quantity:availableQuantity(item)})
+    const anchorDate = item.startDate ?? rental.startDate
+    const effectivePeriod = billingPeriod(anchorDate, periodNumberAt(anchorDate, value.eventDate))
+    const {periodStart,periodEnd,adjustmentCents:feeCents}=priceChangeAdjustment({periodStart:effectivePeriod.start,periodEnd:effectivePeriod.endExclusive,effectiveDate:value.eventDate,oldMonthlyRent:item.monthlyRent,newMonthlyRent:String(value.monthlyRent),quantity:availableQuantity(item)})
     if (toCents(value.feeAdjustment) !== feeCents) throw new Error(`${item.deviceName} 的配置补差已变化，请刷新后重试`)
     const lineTotalCents = toCents(value.monthlyRent) * item.quantity
     const after = { ...snapshot(item), deviceName:value.deviceName, deviceType:value.deviceType, deviceCode:value.deviceCode||null, deviceConfig:value.deviceConfig||null, cpu:value.cpu||null, motherboard:value.motherboard||null, memory:value.memory||null, storage:value.storage||null, graphicsCard:value.graphicsCard||null, powerSupply:value.powerSupply||null, caseModel:value.caseModel||null, monitorInfo:value.monitorInfo||null, screenSize:value.screenSize||null, screenResolution:value.screenResolution||null, refreshRate:value.refreshRate||null, panelType:value.panelType||null, ports:value.ports||null, batteryInfo:value.batteryInfo||null, adapterInfo:value.adapterInfo||null, accessories:value.accessories||null, colorGamut:value.colorGamut||null, monthlyRent:fromCents(toCents(value.monthlyRent)), totalRent:fromCents(lineTotalCents), endDate:adjustedEndDate, giftDays:value.giftDays }
-    return { value, item, oldEndDate, adjustedEndDate, periodEnd, remainingDays, feeCents, lineTotalCents, after, eventId: Date.now() * 1000 + index }
+    return { value, item, oldEndDate, adjustedEndDate, periodStart, periodEnd, feeCents, lineTotalCents, after, eventId: Date.now() * 1000 + index }
   })
   const finalItems = items.map((item) => {
     const change = changes.find((entry) => entry.item.id === item.id)
@@ -120,9 +122,9 @@ export async function changeRentalItems(input: RentalChangeInput[]) {
     statements.push(
       db.update(rentalItems).set({ ...change.after, updatedAt: now }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, change.item.id))),
       db.insert(rentalEvents).values({ id:change.eventId,userId,rentalId,itemId:change.item.id,eventType:'配置变更',eventDate:change.value.eventDate,beforeSnapshot:{...snapshot(change.item),endDate:change.oldEndDate},afterSnapshot:change.after,reason:change.value.reason,feeAdjustment:fromCents(change.feeCents),operatorName:name,notes:[change.value.notes,change.value.giftDays ? `赠送 ${change.value.giftDays} 天，到期日顺延至 ${change.adjustedEndDate}` : ''].filter(Boolean).join('；') }),
-      db.insert(auditLogs).values({ userId,actorUserId:actorId,actorName:name,action:'配置变更',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 批量配置变更：${change.item.deviceName}`,metadata:{itemId:change.item.id,feeAdjustment:fromCents(change.feeCents)} }),
+      db.insert(auditLogs).values({ userId,actorUserId:actorId,actorName:name,action:'配置变更',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 批量配置变更：${change.item.deviceName}，新租金从 ${change.periodStart} 账期生效`,metadata:{itemId:change.item.id,effectivePeriodStart:change.periodStart,effectivePeriodEnd:change.periodEnd,feeAdjustment:fromCents(change.feeCents)} }),
     )
-    if (change.feeCents !== 0) statements.push(db.insert(receivableBills).values({ userId,rentalId,billNo:`CHANGE-${rentalId}-${change.eventId}`,periodStart:change.value.eventDate,periodEnd:change.periodEnd,dueDate:change.value.eventDate,billType:change.feeCents > 0 ? '配置变更补收' : '配置变更减免',amount:fromCents(change.feeCents),paidAmount:'0.00',status:change.feeCents > 0 ? '待收' : '已减免',notes:`${change.value.reason}；生效日起至当前账期结束共 ${change.remainingDays} 天按 30 天折算，后续账期使用新租金` }))
+    if (change.feeCents !== 0) statements.push(db.insert(receivableBills).values({ userId,rentalId,billNo:`CHANGE-${rentalId}-${change.eventId}`,periodStart:change.periodStart,periodEnd:change.periodEnd,dueDate:change.periodStart,billType:change.feeCents > 0 ? '配置变更补收' : '配置变更减免',amount:fromCents(change.feeCents),paidAmount:'0.00',status:change.feeCents > 0 ? '待收' : '已减免',notes:`${change.value.reason}；从 ${change.periodStart} 至 ${change.periodEnd} 完整账期按新租金计算，不拆分日租` }))
   }
   statements.push(db.update(rentals).set({ deviceName:finalItems.map((item)=>item.deviceName).join('、'),deviceType:finalItems.length===1?finalItems[0].deviceType:'多设备',quantity,monthlyRent:fromCents(monthlyRentCents),totalRent:fromCents(totalRentCents),endDate:finalItems.map((item)=>item.endDate ?? rental.endDate).sort().at(-1) ?? rental.endDate,paymentStatus:paymentStatusFromCents(totalRentCents,toCents(rental.paidAmount)),updatedAt:now }).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
