@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   OPERATION_DEFINITIONS,
+  OPERATION_ENTRIES,
+  OPERATION_GROUPS,
+  availableOperationEntries,
   availableOperationQuantity,
   defaultNotificationMode,
   operationIdempotencyKey,
@@ -14,6 +17,22 @@ describe('统一租赁业务中心', () => {
     expect(new Set(OPERATION_DEFINITIONS.map((item) => item.type)).size).toBe(OPERATION_DEFINITIONS.length)
     expect(OPERATION_DEFINITIONS.map((item) => item.type)).toEqual(expect.arrayContaining(['return', 'exchange', 'loss', 'repair', 'renewal', 'pricing_change', 'term_change', 'customer_change', 'buyout', 'deposit_refund']))
     expect(OPERATION_DEFINITIONS.find((item) => item.type === 'deposit_refund')).toMatchObject({ requiresDevice: false, group: '结算处理' })
+  })
+
+  it('高频业务置顶并拆分配置与租金入口', () => {
+    expect(OPERATION_GROUPS).toEqual(['常用业务', '设备有变化', '合同与结算'])
+    expect(OPERATION_ENTRIES.slice(0, 4).map((item) => item.key)).toEqual(['renewal', 'return', 'pricing', 'buyout'])
+    expect(OPERATION_ENTRIES.filter((item) => item.type === 'pricing_change')).toMatchObject([
+      { key: 'pricing', intent: 'pricing', label: '调整后续租金' },
+      { key: 'configuration', intent: 'configuration', label: '调整设备配置' },
+    ])
+  })
+
+  it('不可办理业务保留入口并展示明确原因', () => {
+    const entries = availableOperationEntries({ availableItems: 0, refundableDeposit: 0 })
+    expect(entries.find((item) => item.key === 'renewal')).toMatchObject({ disabled: true, disabledReason: '当前无可办理设备' })
+    expect(entries.find((item) => item.key === 'deposit_refund')).toMatchObject({ disabled: true, disabledReason: '当前无可退押金' })
+    expect(entries.find((item) => item.key === 'customer_change')).toMatchObject({ disabled: false })
   })
 
   it('可操作数量统一扣除所有历史处置', () => {

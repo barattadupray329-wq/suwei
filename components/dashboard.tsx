@@ -85,7 +85,7 @@ import {
 } from "@/app/actions/rental-events";
 import { getDeviceConfigRows } from "@/lib/device-config";
 import { RentalOperationWizard } from "@/components/rental-operation-wizard";
-import type { RentalOperationType } from "@/lib/rental-operation-hub";
+import type { OperationIntent, RentalOperationType } from "@/lib/rental-operation-hub";
 import {
   depositFinanceSummary,
   isDepositLedgerEntry,
@@ -743,6 +743,7 @@ export function Dashboard({
   const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(
     null,
   );
+  const [operationIntent, setOperationIntent] = useState<OperationIntent>("configuration");
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(
     null,
   );
@@ -1750,7 +1751,10 @@ export function Dashboard({
             onHistory={() => setDialog("history")}
             onReturn={() => setDialog("return")}
             onLoss={() => setDialog("loss")}
-            onChange={() => setDialog("change")}
+            onChange={(intent = "configuration") => {
+  setOperationIntent(intent);
+  setDialog("change");
+  }}
             onRepair={() => setDialog("repair")}
             onDeposit={() => setDialog("deposit")}
             onExchange={() => setDialog("exchange")}
@@ -2170,14 +2174,16 @@ submit={(value) =>
       </Dialog>
       <Dialog
         open={dialog === "change"}
-        title="变更配置与租金"
+        title={operationIntent === "pricing" ? "调整后续租金" : "调整设备配置"}
         wide
         onClose={() => setDialog("detail")}
       >
         {selected && (
-          <ChangeForm
-            rental={selected}
-            pending={pending}
+  <ChangeForm
+  rental={selected}
+  initialIntent={operationIntent}
+  pending={pending}
+
             submit={(values) =>
               runInDetail(
                 () =>
@@ -3579,7 +3585,7 @@ type DetailProps = {
   onHistory: () => void;
   onReturn: () => void;
   onLoss: () => void;
-  onChange: () => void;
+  onChange: (intent?: OperationIntent) => void;
   onRepair: () => void;
   onDeposit: () => void;
   onExchange: () => void;
@@ -3892,8 +3898,8 @@ function Detail(props: DetailProps) {
         <RentalOperationWizard
           contractNo={rental.contractNo}
           customerName={rental.customerName}
-          customerPhone={rental.customerPhone}
           endDate={rental.endDate}
+          outstandingAmount={outstandingCents / 100}
           refundableDeposit={refundableDeposit}
           items={rental.items.map((item) => ({
             id: item.id,
@@ -3906,7 +3912,7 @@ function Detail(props: DetailProps) {
             monthlyRent: Number(item.monthlyRent),
           }))}
           onClose={() => setWizardOpen(false)}
-          onStart={(type: RentalOperationType) => {
+          onStart={(type: RentalOperationType, intent?: OperationIntent) => {
             setWizardOpen(false);
             if (type === "renewal") onRenew();
             else if (type === "return") onReturn();
@@ -3914,7 +3920,7 @@ function Detail(props: DetailProps) {
             else if (type === "loss") onLoss();
             else if (type === "exchange") onExchange();
             else if (type === "repair") onRepair();
-            else if (type === "pricing_change") onChange();
+            else if (type === "pricing_change") onChange(intent);
             else if (type === "deposit_refund") onDeposit();
             else if (type === "term_change") onRentalChange("租期调整");
             else if (type === "customer_change") onRentalChange("客户资料变更");
@@ -4895,7 +4901,7 @@ function LegacyDetail({
   onHistory: () => void;
   onReturn: () => void;
   onLoss: () => void;
-  onChange: () => void;
+  onChange: (intent?: OperationIntent) => void;
   onRepair: () => void;
   onDeposit: () => void;
   onExchange: () => void;
@@ -7288,10 +7294,12 @@ function itemToChange(item: Item, rental: Rental): RentalChangeInput {
 }
 function ChangeForm({
   rental,
+  initialIntent,
   submit,
   pending,
 }: {
   rental: Rental;
+  initialIntent: OperationIntent;
   submit: (values: RentalChangeInput[]) => void;
   pending: boolean;
 }) {
@@ -7304,7 +7312,11 @@ function ChangeForm({
       0,
   );
   const first = available[0];
-  const [rows, setRows] = useState<Record<number, RentalChangeInput>>({});
+  const [rows, setRows] = useState<Record<number, RentalChangeInput>>(() =>
+    initialIntent === "pricing"
+      ? Object.fromEntries(available.map((item) => [item.id, itemToChange(item, rental)]))
+      : {},
+  );
   const [activeId, setActiveId] = useState(first?.id || 0);
   if (!first) return <p>暂无可变更设备</p>;
   const value =
@@ -7398,6 +7410,14 @@ function ChangeForm({
       }}
       className="flex flex-col gap-4"
     >
+      <section className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
+        <strong>{initialIntent === "pricing" ? "调整后续租金" : "调整设备配置"}</strong>
+        <p className="mt-1 text-muted-foreground">
+          {initialIntent === "pricing"
+            ? "新租金只能从下一完整账期生效，当前账期仍按原租金计算。已为您选中全部在租设备，可按需取消。"
+            : "先选择需要变更的设备，再修改 CPU、内存、硬盘等配置；如租金不变，请保持原金额。"}
+        </p>
+      </section>
       <section className="flex flex-col gap-3" aria-label="选择配置变更设备">
         <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
           <span className="text-sm text-muted-foreground">
