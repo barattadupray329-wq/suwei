@@ -37,9 +37,8 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.rentalId === contract.id && bill.periodStart < periodEnd && bill.periodEnd > periodStart)
     if (existing.has(billNo) || overlapsExistingOverdue) return []
     const amountCents = (itemsByRental.get(contract.id) ?? []).reduce((sum, item) => {
-      const anchorDate = item.startDate ?? contract.startDate
       let periodNo: number
-      try { periodNo = periodNumberAt(anchorDate, periodStart) } catch { return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals) }
+      try { periodNo = periodNumberAt(contract.startDate, periodStart) } catch { return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals) }
       const unitPrice = priceAtPeriod(periodsByItem.get(item.id) ?? [], periodNo, item.monthlyRent)
       return sum + toCents(unitPrice) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals)
     }, 0)

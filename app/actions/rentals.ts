@@ -466,8 +466,9 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.id, value.rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
       if (!item) throw new Error('设备明细不存在')
       const startDate = item.startDate ?? rental.startDate
+      const periodAnchorDate = rental.startDate
       const storedEndDate = item.endDate ?? rental.endDate
-      const oldEndDate = value.billingUnit === 'month' && value.startPeriod ? billingPeriod(startDate, value.startPeriod).start : storedEndDate
+      const oldEndDate = value.billingUnit === 'month' && value.startPeriod ? billingPeriod(periodAnchorDate, value.startPeriod).start : storedEndDate
       if (value.newEndDate <= oldEndDate) throw new Error(`${item.deviceName} 的新到期日必须晚于续租生效日`)
       const available = availableQuantity(item)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
@@ -489,7 +490,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
         renewedItemId = split.id
       }
       const renewalDate = new Date().toISOString().slice(0, 10)
-      const firstPeriodNo = value.billingUnit === 'month' ? periodNumberAt(startDate, oldEndDate) : 1
+      const firstPeriodNo = value.billingUnit === 'month' ? periodNumberAt(periodAnchorDate, oldEndDate) : 1
       if (value.billingUnit === 'month' && firstPeriodNo > 1) {
         const [existingPricePeriod] = await tx.select({ id: rentalPricePeriods.id }).from(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, userId), eq(rentalPricePeriods.rentalItemId, renewedItemId))).limit(1)
         if (!existingPricePeriod) await tx.insert(rentalPricePeriods).values({ userId, rentalId, rentalItemId: renewedItemId, startPeriod: 1, endPeriod: firstPeriodNo - 1, effectiveStart: startDate, effectiveEndExclusive: oldEndDate, quantity: value.quantity, unitPrice: item.monthlyRent, source: 'contract', notes: '续租前原合同价格' })

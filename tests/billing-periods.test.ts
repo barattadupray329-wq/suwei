@@ -69,6 +69,19 @@ describe('billing periods', () => {
     expect(periods[4]).toEqual({ periodNo: 5, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
   })
 
+  it('keeps late-added devices on the contract billing sequence', () => {
+    const bills = [
+      { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06' },
+      { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07' },
+      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07' },
+    ]
+
+    const period = billingPeriodFromBills('2026-05-07', 4, bills)
+    expect(period.start).toBe('2026-08-07')
+    expect(period.endExclusive).toBe('2026-09-08')
+    expect(periodNumberAt('2026-05-07', '2026-08-07')).toBe(4)
+  })
+
   it('locks paid periods but keeps the unpaid fourth period editable', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', paidAmount: '1200', status: '已结清' },

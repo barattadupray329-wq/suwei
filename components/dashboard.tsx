@@ -1732,7 +1732,7 @@ export function Dashboard({
             onSendNotice={() =>
               start(async () => {
                 const result = await sendRentalCreatedNotice(selected.id);
-                if (result.ok) toast.success("初始租赁通���已发送");
+                if (result.ok) toast.success("初始租���通���已发送");
                 else toast.error(result.message);
               })
             }
@@ -5553,7 +5553,7 @@ function RenewalForm({
   const inferredStartPeriod = (item: Item) => {
     try {
       return periodNumberAt(
-        item.startDate || rental.startDate,
+        rental.startDate,
         item.endDate || rental.endDate,
       );
     } catch {
@@ -5679,8 +5679,8 @@ function RenewalForm({
             item.boughtOutQuantity -
             item.returnedQuantity -
             item.lostQuantity;
-          const anchorDate = item.startDate || rental.startDate;
-          const storedBoundary = item.endDate || rental.endDate;
+      const anchorDate = rental.startDate;
+      const storedBoundary = item.endDate || rental.endDate;
           let firstPeriodNo: number | null = null;
           try {
             firstPeriodNo = periodNumberAt(anchorDate, storedBoundary);
@@ -6916,7 +6916,7 @@ function OperationForm({
             className="mt-0.5 size-4 accent-primary"
           />
           <span>
-            <strong>我已核对本次退租结算</strong>
+            <strong>我已核对本次��租结算</strong>
             <span className="mt-1 block text-xs leading-5 text-muted-foreground">
               已确认租金应补/应退、押金退款和损坏扣款三项金额无误。
             </span>
@@ -7292,7 +7292,8 @@ function PeriodRentForm({
   const [rows, setRows] = useState<Record<number, PeriodRentChangeInput>>({});
   const activeItem = available.find((item) => item.id === activeId) ?? available[0];
   if (!activeItem) return <p className="text-sm text-muted-foreground">暂无可调价设备</p>;
-  const anchorDate = activeItem.startDate || rental.startDate;
+  // 调租期号属于合同账期，不因某台设备晚于合同起租日加入而重新从第 1 期编号。
+  const anchorDate = rental.startDate;
   const itemPeriods = rental.pricePeriods.filter((period) => period.rentalItemId === activeItem.id);
   const rentBills = rental.bills.filter(
     (bill) => bill.billType === "租金" || bill.billType === "续租费" || bill.billType.includes("逾期"),
@@ -7922,7 +7923,7 @@ function RepairForm({
           onChange={(repairCost) => update({ repairCost: Number(repairCost) })}
         />
         <Field
-          label="客户承担金���（元）"
+          label="���户承担金���（元）"
           type="number"
           value={value.customerCharge}
           onChange={(customerCharge) =>

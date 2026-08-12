@@ -45,7 +45,8 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   const changes = values.map((value) => {
     const item = itemById.get(value.itemId)
     if (!item || availableQuantity(item) <= 0) throw new Error('包含不存在或已处置的设备')
-    const anchorDate = item.startDate ?? rental.startDate
+    // 价格节点、账单与锁定状态都使用合同级期号；设备加入日期只影响可计费数量，不重置期号。
+    const anchorDate = rental.startDate
     const operationDate = now.toISOString().slice(0, 10)
     const itemRentBills = bills.filter((bill) => rentBill(bill.billType))
     const effective = billingPeriodFromBills(anchorDate, value.startPeriod, itemRentBills)
