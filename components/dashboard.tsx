@@ -110,6 +110,7 @@ import {
 } from "@/lib/rental-form-rules";
 import { userErrorMessage } from "@/lib/errors";
 import { handleAuthExpired } from "@/lib/session-expiry";
+import { isSettledReturnedRental } from "@/lib/rental-completion";
 import {
   isContractExpired,
   rentalDisplayStatus,
@@ -3652,6 +3653,11 @@ function Detail(props: DetailProps) {
       ),
     0,
   );
+  const settledReturn = isSettledReturnedRental({
+    status: currentStatus,
+    outstandingCents,
+    remainingDevices,
+  });
   const openRepairs = rental.events.filter(
     (event) =>
       event.eventType === "维修" &&
@@ -3737,6 +3743,14 @@ function Detail(props: DetailProps) {
                     ? "测试"
                     : "正式合同"}
               </span>
+              {settledReturn ? (
+                <span
+                  aria-label="该订单已结清并退回"
+                  className="inline-flex -rotate-6 rounded border-2 border-destructive px-3 py-1 text-xs font-bold tracking-widest text-destructive"
+                >
+                  已结清退回
+                </span>
+              ) : null}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {rental.contractNo} · {rental.customerName} ·{" "}

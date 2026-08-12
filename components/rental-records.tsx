@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTransition, type FormEvent, type MouseEvent } from 'react'
 import { ChevronLeft, ChevronRight, Download, LoaderCircle, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { isSettledReturnedRental } from '@/lib/rental-completion'
 
 type Row = { id: number; orderType: string; lifecycleStatus: string; deletedAt: Date | null; contractNo: string; customerCompany: string | null; customerName: string; customerPhone: string; deviceName: string; quantity: number; deviceSummary: Array<{ label: string; quantity: number }>; startDate: string; endDate: string; periodCount: number; paidPeriodCount: number; unpaidPeriodCount: number; billingUnit: string; totalRent: string; paidAmount: string; overdueAmount: number; paymentStatus: string; status: string; assigneeName: string | null }
 type Filters = { query: string; status: string; startDate: string; endDate: string; assignee: string; orderType: string; lifecycleStatus: string; sort: string; receivable: string; page: number }
@@ -41,7 +42,7 @@ const overdueDays = (row: Row) => {
 }
 const outstanding = (row: Row) => Math.max(0, Number(row.totalRent) - Number(row.paidAmount))
 const isSettledReturn = (row: Row) =>
-  row.status === '已退租' && row.paymentStatus === '已结清' && outstanding(row) === 0
+  isSettledReturnedRental({ status: row.status, outstandingCents: Math.round(outstanding(row) * 100) })
 
 export function RentalRecords({ rows, total, initialRentOutstanding, expectedReceivable, overdueReceivable, page, pageCount, filters, assignees }: { rows: Row[]; total: number; initialRentOutstanding: string; expectedReceivable: string; overdueReceivable: string; page: number; pageCount: number; filters: Filters; assignees: Assignee[] }) {
   const router = useRouter()
