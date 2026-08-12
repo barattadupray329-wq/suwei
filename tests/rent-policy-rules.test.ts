@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { priceChangeAdjustment, recalculateBillsAfterReturn, returnRentDecision, returnTiming } from '../lib/overdue-rent'
+import { priceChangeAdjustment, recalculateBillsAfterDispositions, recalculateBillsAfterReturn, returnRentDecision, returnTiming } from '../lib/overdue-rent'
 
 describe('退租时点与人工租金规则', () => {
   it('区分提前、正常和延迟退租', () => {
@@ -36,6 +36,20 @@ describe('退租时点与人工租金规则', () => {
     })
     expect(result).toEqual([
       { id: 1, previousAmountCents: 12000, nextAmountCents: 0, reductionCents: 12000 },
+    ])
+  })
+
+  it('买断所在账期不收对应设备租金', () => {
+    const result = recalculateBillsAfterDispositions({
+      bills: [
+        { id: 1, periodStart: '2026-07-22', periodEnd: '2026-08-22', amount: '240', paidAmount: '0', billType: '逾期续租租金' },
+      ],
+      dispositions: [
+        { monthlyRent: '120', quantity: 2, date: '2026-07-26', currentAdjustmentCents: 24000 },
+      ],
+    })
+    expect(result).toEqual([
+      { id: 1, previousAmountCents: 24000, nextAmountCents: 0, reductionCents: 24000 },
     ])
   })
 

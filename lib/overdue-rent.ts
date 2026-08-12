@@ -116,3 +116,44 @@ export function recalculateBillsAfterReturn(input: {
     })
     .filter((bill) => bill.reductionCents > 0)
 }
+
+export function recalculateBillsAfterDispositions(input: {
+  bills: ReturnBill[]
+  dispositions: Array<{
+    monthlyRent: string
+    quantity: number
+    date: string
+    currentAdjustmentCents: number
+  }>
+}) {
+  const requestedByBill = new Map<number, number>()
+  for (const disposition of input.dispositions) {
+    for (const adjustment of recalculateBillsAfterReturn({
+      bills: input.bills,
+      monthlyRent: disposition.monthlyRent,
+      returnedQuantity: disposition.quantity,
+      returnDate: disposition.date,
+      currentAdjustmentCents: disposition.currentAdjustmentCents,
+    })) {
+      requestedByBill.set(
+        adjustment.id,
+        (requestedByBill.get(adjustment.id) ?? 0) + adjustment.reductionCents,
+      )
+    }
+  }
+
+  return input.bills.flatMap((bill) => {
+    const requestedCents = requestedByBill.get(bill.id) ?? 0
+    const previousAmountCents = toCents(bill.amount)
+    const reducibleCents = Math.max(0, previousAmountCents - toCents(bill.paidAmount))
+    const reductionCents = Math.min(requestedCents, reducibleCents)
+    return reductionCents > 0
+      ? [{
+          id: bill.id,
+          previousAmountCents,
+          nextAmountCents: previousAmountCents - reductionCents,
+          reductionCents,
+        }]
+      : []
+  })
+}
