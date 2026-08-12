@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjustablePeriodLimit, billingPeriod, billingPeriodAt, billingPeriodOptions, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriod, billingPeriodAt, billingPeriodFromBills, billingPeriodOptions, billingPeriodsFromBills, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {
@@ -42,5 +42,30 @@ describe('billing periods', () => {
 
   it('also keeps a later generated bill visible for adjustment', () => {
     expect(adjustablePeriodLimit('2026-05-07', '2026-08-12', ['2026-10-07'])).toBe(6)
+  })
+
+  it('uses an actual single-period bill instead of rebuilding the fifth period from the contract anchor', () => {
+    const bills = [
+      { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', dueDate: '2026-05-07' },
+      { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', dueDate: '2026-07-08' },
+      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', dueDate: '2026-08-07' },
+    ]
+
+    expect(billingPeriodFromBills('2026-05-07', 5, bills)).toEqual({
+      periodNo: 5,
+      start: '2026-08-07',
+      endExclusive: '2026-09-08',
+      displayEnd: '2026-09-07',
+    })
+  })
+
+  it('continues future periods from the last actual bill boundary', () => {
+    const periods = billingPeriodsFromBills('2026-05-07', [
+      { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06' },
+      { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07' },
+      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07' },
+    ], 6)
+
+    expect(periods[5]).toEqual({ periodNo: 6, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
   })
 })

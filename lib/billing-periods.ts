@@ -1,3 +1,5 @@
+import { billPeriodRanges } from './rental-calculations'
+
 export type BillingPeriod = {
   periodNo: number
   start: string
@@ -49,6 +51,57 @@ export function periodNumberAt(anchorDate: string, boundaryDate: string) {
 
 export function billingPeriodLabel(period: BillingPeriod) {
   return `第 ${period.periodNo} 期：${period.start} 至 ${period.displayEnd}（含）`
+}
+
+type BillingPeriodBill = {
+  id: number
+  periodStart: string
+  periodEnd: string
+  dueDate?: string
+}
+
+function billEndExclusive(bill: BillingPeriodBill) {
+  // receivable_bills.periodEnd 在账务页统一按“含当日”展示，下一天才是不含边界。
+  return addCalendarDays(bill.periodEnd, 1)
+}
+
+/**
+ * 账单是已经发生的业务事实，优先级高于按起租日重新推算的自然月。
+ * 历史合并账单仍沿用自然月拆分；能够明确对应单期的账单则覆盖该期，
+ * 后续尚未出账的期数从最后一个真实账单边界继续顺延。
+ */
+export function billingPeriodsFromBills(anchorDate: string, bills: BillingPeriodBill[], lastPeriod: number) {
+  const periods = Array.from({ length: lastPeriod }, (_, index) => billingPeriod(anchorDate, index + 1))
+  if (!bills.length) return periods
+
+  const { ranges } = billPeriodRanges(bills, { anchorDate, unit: 'monthly' })
+  const exact = new Map<number, BillingPeriod>()
+  for (const bill of bills) {
+    const range = ranges.get(bill.id)
+    if (!range || range.span !== 1 || range.start > lastPeriod) continue
+    const endExclusive = billEndExclusive(bill)
+    exact.set(range.start, {
+      periodNo: range.start,
+      start: bill.periodStart,
+      endExclusive,
+      displayEnd: addCalendarDays(endExclusive, -1),
+    })
+  }
+
+  for (const [periodNo, period] of exact) periods[periodNo - 1] = period
+  const lastExact = Math.max(0, ...exact.keys())
+  for (let periodNo = lastExact + 1; periodNo <= lastPeriod; periodNo += 1) {
+    const previous = periods[periodNo - 2]
+    if (!previous) continue
+    const start = previous.endExclusive
+    const endExclusive = addCalendarMonths(start, 1)
+    periods[periodNo - 1] = { periodNo, start, endExclusive, displayEnd: addCalendarDays(endExclusive, -1) }
+  }
+  return periods
+}
+
+export function billingPeriodFromBills(anchorDate: string, periodNo: number, bills: BillingPeriodBill[]) {
+  return billingPeriodsFromBills(anchorDate, bills, periodNo)[periodNo - 1]
 }
 
 export function adjustablePeriodLimit(anchorDate: string, operationDate: string, billPeriodStarts: string[] = []) {

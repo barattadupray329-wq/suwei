@@ -36,6 +36,7 @@ import {
   billingPeriodAt,
   billingPeriodLabel,
   billingPeriodOptions,
+  billingPeriodsFromBills,
   effectiveBillingPeriod,
   periodNumberAt,
 } from "@/lib/billing-periods";
@@ -1796,7 +1797,7 @@ export function Dashboard({
               <div className="flex items-start gap-3">
                 <ClipboardPenLine className="mt-0.5 size-5 shrink-0 text-primary" />
                 <div>
-                  <p className="font-semibold">请在转正前完成最后核对</p>
+                  <p className="font-semibold">请在转正���完成最后核对</p>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     这项操作会将草稿纳入正式经营和财务数据，转正后不能删除。
                   </p>
@@ -2408,7 +2409,7 @@ const configTemplates: Record<
     {
       name: "办公显示器",
       values: {
-        deviceName: "办公显示器",
+        deviceName: "���公显示器",
         screenSize: "24 英寸",
         screenResolution: "1920 × 1080",
         refreshRate: "75Hz",
@@ -7300,7 +7301,7 @@ function PeriodRentForm({
     today(),
     rentBills.map((bill) => bill.periodStart),
   );
-  const periods = Array.from({ length: lastVisiblePeriod }, (_, index) => billingPeriod(anchorDate, index + 1));
+  const periods = billingPeriodsFromBills(anchorDate, rentBills, lastVisiblePeriod);
   const isLocked = (period: (typeof periods)[number]) =>
     rental.bills.some(
       (bill) =>
@@ -7343,7 +7344,7 @@ function PeriodRentForm({
       <section className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
         <strong>按期调整租金</strong>
         <p className="mt-1 text-muted-foreground">
-          选择一期设置新租金，该价格会从本期持续沿用，直到下一次调价。已有收款的账期不能修改。
+          账期优先采用合同的实际账单边界；选择一期设置新租金后，价格会持续沿用至下一次调价。已有收款的账期仅供查看，不能修改。
         </p>
       </section>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -7388,7 +7389,7 @@ function PeriodRentForm({
                 const price = priceAtPeriod(itemPeriods, period.periodNo, activeItem.monthlyRent);
                 return (
                   <option key={period.periodNo} value={period.periodNo} disabled={locked}>
-                    第 {period.periodNo} 期 · {period.start} 至 {period.displayEnd} · {money(price)}{locked ? " · 已收款，禁止修改" : ""}
+                    第 {period.periodNo} 期 · {period.start} 至 {period.endExclusive}（不含） · {money(price)}{locked ? " · 已收款，禁止修改" : ""}
                   </option>
                 );
               })}
@@ -7412,7 +7413,7 @@ function PeriodRentForm({
             <Info l="原租金" v={money(oldPrice)} />
             <Info l="新租金" v={money(current?.unitPrice ?? oldPrice)} />
             <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">
-              {selectedPeriod?.start} 起，{activeItem.deviceName} {availableCount} 台按新价格计费，并持续沿用至下一次调价；系统不会改动任何已收款账期。
+              第 {selectedPeriod?.periodNo} 期账期为 {selectedPeriod?.start} 至 {selectedPeriod?.endExclusive}（不含）。{activeItem.deviceName} {availableCount} 台从该期起按新价格计费，并持续沿用至下一次调价；系统不会改动任何已收款账期。
             </p>
           </section>
           <label className="flex flex-col gap-2 text-sm font-medium">

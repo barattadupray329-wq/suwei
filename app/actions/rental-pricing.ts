@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
-import { adjustablePeriodLimit, billingPeriod, periodNumberAt } from '@/lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriodFromBills, periodNumberAt } from '@/lib/billing-periods'
 import { db } from '@/lib/db'
 import { auditLogs, receivableBills, rentalEvents, rentalItems, rentalPricePeriods, rentals } from '@/lib/db/schema'
 import { fromCents, toCents } from '@/lib/rental-calculations'
@@ -46,9 +46,9 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
     const item = itemById.get(value.itemId)
     if (!item || availableQuantity(item) <= 0) throw new Error('包含不存在或已处置的设备')
     const anchorDate = item.startDate ?? rental.startDate
-    const effective = billingPeriod(anchorDate, value.startPeriod)
     const operationDate = now.toISOString().slice(0, 10)
     const itemRentBills = bills.filter((bill) => rentBill(bill.billType))
+    const effective = billingPeriodFromBills(anchorDate, value.startPeriod, itemRentBills)
     const lastAdjustablePeriod = adjustablePeriodLimit(anchorDate, operationDate, itemRentBills.map((bill) => bill.periodStart))
     if (value.startPeriod > lastAdjustablePeriod) throw new Error(`${item.deviceName} 暂时只能调整到第 ${lastAdjustablePeriod} 期（下一账期）`)
     const lockedBill = bills.find((bill) => rentBill(bill.billType) && bill.periodStart < effective.endExclusive && bill.periodEnd >= effective.start && (toCents(bill.paidAmount) > 0 || settledStatuses.has(bill.status)))
@@ -68,8 +68,9 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   for (const change of changes) {
     statements.push(db.delete(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, access.userId), eq(rentalPricePeriods.rentalItemId, change.item.id))))
     for (const range of change.ranges) {
-      const start = billingPeriod(change.anchorDate, range.startPeriod).start
-      const endExclusive = billingPeriod(change.anchorDate, range.endPeriod).endExclusive
+      const itemRentBills = bills.filter((bill) => rentBill(bill.billType))
+      const start = billingPeriodFromBills(change.anchorDate, range.startPeriod, itemRentBills).start
+      const endExclusive = billingPeriodFromBills(change.anchorDate, range.endPeriod, itemRentBills).endExclusive
       statements.push(db.insert(rentalPricePeriods).values({ userId: access.userId, rentalId, rentalItemId: change.item.id, startPeriod: range.startPeriod, endPeriod: range.endPeriod, effectiveStart: start, effectiveEndExclusive: endExclusive, quantity: availableQuantity(change.item), unitPrice: fromCents(toCents(range.unitPrice)), source: range.startPeriod === change.value.startPeriod ? 'period_adjustment' : 'price_history', notes: change.value.notes }))
     }
     const finalPrice = change.ranges.at(-1)!.unitPrice
