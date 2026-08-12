@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjustablePeriodLimit, billingPeriod, billingPeriodAt, billingPeriodFromBills, billingPeriodOptions, billingPeriodsFromBills, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriod, billingPeriodAt, billingPeriodFromBills, billingPeriodOptions, billingPeriodsFromBills, effectiveBillingPeriod, isBillingPeriodLocked, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {
@@ -67,5 +67,16 @@ describe('billing periods', () => {
     ], 6)
 
     expect(periods[5]).toEqual({ periodNo: 6, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
+  })
+
+  it('does not lock an unpaid fifth period when an earlier paid bill overlaps its dates', () => {
+    const bills = [
+      { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', paidAmount: '1200', status: '已结清' },
+      { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', paidAmount: '500', status: '已结清' },
+      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', paidAmount: '0', status: '逾期' },
+    ]
+
+    expect(isBillingPeriodLocked('2026-05-07', 4, bills)).toBe(true)
+    expect(isBillingPeriodLocked('2026-05-07', 5, bills)).toBe(false)
   })
 })

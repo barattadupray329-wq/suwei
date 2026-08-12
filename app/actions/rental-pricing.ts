@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
-import { adjustablePeriodLimit, billingPeriodFromBills, periodNumberAt } from '@/lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriodFromBills, isBillingPeriodLocked, periodNumberAt } from '@/lib/billing-periods'
 import { db } from '@/lib/db'
 import { auditLogs, receivableBills, rentalEvents, rentalItems, rentalPricePeriods, rentals } from '@/lib/db/schema'
 import { fromCents, toCents } from '@/lib/rental-calculations'
@@ -51,8 +51,9 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
     const effective = billingPeriodFromBills(anchorDate, value.startPeriod, itemRentBills)
     const lastAdjustablePeriod = adjustablePeriodLimit(anchorDate, operationDate, itemRentBills.map((bill) => bill.periodStart))
     if (value.startPeriod > lastAdjustablePeriod) throw new Error(`${item.deviceName} 暂时只能调整到第 ${lastAdjustablePeriod} 期（下一账期）`)
-    const lockedBill = bills.find((bill) => rentBill(bill.billType) && bill.periodStart < effective.endExclusive && bill.periodEnd >= effective.start && (toCents(bill.paidAmount) > 0 || settledStatuses.has(bill.status)))
-    if (lockedBill) throw new Error(`${item.deviceName} 第 ${value.startPeriod} 期已有收款，禁止修改租金`)
+    if (isBillingPeriodLocked(anchorDate, value.startPeriod, itemRentBills)) {
+      throw new Error(`${item.deviceName} 第 ${value.startPeriod} 期已有收款，禁止修改租金`)
+    }
     const current = storedPeriods.filter((period) => period.rentalItemId === item.id)
     const oldUnitPrice = priceAtPeriod(current, value.startPeriod, item.monthlyRent)
     if (toCents(oldUnitPrice) === toCents(value.unitPrice)) throw new Error(`${item.deviceName} 第 ${value.startPeriod} 期的新租金与当前价格相同`)

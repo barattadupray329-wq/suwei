@@ -60,6 +60,23 @@ type BillingPeriodBill = {
   dueDate?: string
 }
 
+type BillSettlement = BillingPeriodBill & {
+  paidAmount: string | number
+  status: string
+}
+
+const settledBillStatuses = new Set(['已结清', '已收款', '部分收款'])
+
+/** 仅按账单对应的期号锁定，避免异常/重叠日期把尚未收款的下一期误锁。 */
+export function isBillingPeriodLocked(anchorDate: string, periodNo: number, bills: BillSettlement[]) {
+  const { ranges } = billPeriodRanges(bills, { anchorDate, unit: 'monthly' })
+  return bills.some((bill) => {
+    const range = ranges.get(bill.id)
+    const settled = Number(bill.paidAmount) > 0 || settledBillStatuses.has(bill.status)
+    return settled && Boolean(range && range.start <= periodNo && periodNo <= range.end)
+  })
+}
+
 function billEndExclusive(bill: BillingPeriodBill) {
   // receivable_bills.periodEnd 在账务页统一按“含当日”展示，下一天才是不含边界。
   return addCalendarDays(bill.periodEnd, 1)

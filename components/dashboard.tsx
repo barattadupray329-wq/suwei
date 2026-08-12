@@ -38,6 +38,7 @@ import {
   billingPeriodOptions,
   billingPeriodsFromBills,
   effectiveBillingPeriod,
+  isBillingPeriodLocked,
   periodNumberAt,
 } from "@/lib/billing-periods";
 import {
@@ -6485,7 +6486,7 @@ function OperationForm({
           ),
     );
   const [date, setDate] = useState(today());
-  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">(
+  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损���">(
     "完好",
   );
   const [amount, setAmount] = useState(0);
@@ -7303,13 +7304,7 @@ function PeriodRentForm({
   );
   const periods = billingPeriodsFromBills(anchorDate, rentBills, lastVisiblePeriod);
   const isLocked = (period: (typeof periods)[number]) =>
-    rental.bills.some(
-      (bill) =>
-        (bill.billType === "租金" || bill.billType === "续租费" || bill.billType.includes("逾期")) &&
-        bill.periodStart < period.endExclusive &&
-        bill.periodEnd >= period.start &&
-        (Number(bill.paidAmount) > 0 || ["已结清", "已收款", "部分收款"].includes(bill.status)),
-    );
+    isBillingPeriodLocked(anchorDate, period.periodNo, rentBills);
   const selectable = periods.filter((period) => !isLocked(period));
   const current = rows[activeItem.id];
   const selectedPeriod = periods.find((period) => period.periodNo === current?.startPeriod) ?? selectable[0];
