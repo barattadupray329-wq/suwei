@@ -133,15 +133,17 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
       end = previousRange.end
     } else if (anchorDate) {
       try {
-        // 期号一律相对起租日推算，续租账单落在哪个自然月就是第几期；
-        // cursor 用于兜底历史数据里账期首尾相接（重叠一天）导致的期号回退。
-        start = Math.max(cursor + 1, elapsedUnits(anchorDate, bill.periodStart, unit) + 1)
-        // 月租账单存在两种历史边界：月末日期为含当日，同日起止（如 07-12 至 08-12）则结束日为不含。
-        // 两者都只代表一个月，设备数量不参与期数计算。
+        // 每笔账单按自身覆盖时长计算跨度，再按业务发生顺序连续编号。
+        // 不能用合同起租日直接计算结束期号，否则历史数据中的一天间隔或重叠
+        // 会把一张仅覆盖一个月的续租账单错误扩成两期，并污染所有后续期号。
+        start = cursor + 1
+        // 月租账单存在两种历史边界：同日起止（如 07-12 至 08-12）结束日为不含；
+        // 其他旧账单的 periodEnd 为含当日，因此加一天得到不含边界。
         const endExclusive = unit === 'monthly' && bill.periodStart.slice(8) === bill.periodEnd.slice(8)
           ? bill.periodEnd
           : addCalendarDays(bill.periodEnd, 1)
-        end = Math.max(start, coveredUnits(anchorDate, endExclusive, unit))
+        const span = coveredUnits(bill.periodStart, endExclusive, unit)
+        end = start + span - 1
       } catch {
         start = cursor + 1
         end = start

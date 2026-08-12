@@ -4,10 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
-import { adjustablePeriodLimit, billingPeriodFromBills, isBillingPeriodLocked, periodNumberAt } from '@/lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriodFromBills, isBillingPeriodLocked } from '@/lib/billing-periods'
 import { db } from '@/lib/db'
 import { auditLogs, receivableBills, rentalEvents, rentalItems, rentalPricePeriods, rentals } from '@/lib/db/schema'
-import { fromCents, toCents } from '@/lib/rental-calculations'
+import { billPeriodRanges, fromCents, toCents } from '@/lib/rental-calculations'
 import { availableQuantity } from '@/lib/rental-lifecycle'
 import { priceAtPeriod, setPriceNode, type RentalPricePeriod } from '@/lib/rental-price-periods'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
@@ -83,17 +83,24 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   }
 
   let billDifferenceCents = 0
-  for (const bill of bills.filter((entry) => rentBill(entry.billType) && toCents(entry.paidAmount) === 0 && !settledStatuses.has(entry.status))) {
-    const applicable = changes.some((change) => bill.periodStart >= change.effective.start)
-    if (!applicable || !bill.billType.includes('逾期')) continue
-    const amountCents = items.reduce((sum, item) => {
-      const anchor = item.startDate ?? rental.startDate
-      let periodNo: number
-      try { periodNo = periodNumberAt(anchor, bill.periodStart) } catch { return sum + toCents(item.monthlyRent) * availableQuantity(item) }
-      return sum + toCents(priceAtPeriod(nextByItem.get(item.id) ?? [], periodNo, item.monthlyRent)) * availableQuantity(item)
+  const rentBills = bills.filter((entry) => rentBill(entry.billType))
+  const { ranges: billRanges } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: 'monthly' })
+  for (const bill of rentBills.filter((entry) => toCents(entry.paidAmount) === 0 && !settledStatuses.has(entry.status))) {
+    const range = billRanges.get(bill.id)
+    if (!range || !changes.some((change) => change.value.startPeriod <= range.end)) continue
+    const amountCents = items.reduce((itemTotal, item) => {
+      const quantity = availableQuantity(item)
+      const periods = nextByItem.get(item.id) ?? []
+      let itemCents = 0
+      for (let periodNo = range.start; periodNo <= range.end; periodNo += 1) {
+        itemCents += toCents(priceAtPeriod(periods, periodNo, item.monthlyRent)) * quantity
+      }
+      return itemTotal + itemCents
     }, 0)
     billDifferenceCents += amountCents - toCents(bill.amount)
-    statements.push(db.update(receivableBills).set({ amount: fromCents(amountCents), notes: `${bill.notes ?? ''}；已按阶梯租金重算`, updatedAt: now }).where(and(eq(receivableBills.userId, access.userId), eq(receivableBills.id, bill.id))))
+    const recalculationNote = '已按分期租金重算'
+    const notes = bill.notes?.includes(recalculationNote) ? bill.notes : `${bill.notes ? `${bill.notes}；` : ''}${recalculationNote}`
+    statements.push(db.update(receivableBills).set({ amount: fromCents(amountCents), notes, updatedAt: now }).where(and(eq(receivableBills.userId, access.userId), eq(receivableBills.id, bill.id))))
   }
 
   const finalMonthlyCents = items.reduce((sum, item) => {

@@ -44,15 +44,15 @@ describe('billing periods', () => {
     expect(adjustablePeriodLimit('2026-05-07', '2026-08-12', ['2026-10-07'])).toBe(6)
   })
 
-  it('uses an actual single-period bill instead of rebuilding the fifth period from the contract anchor', () => {
+  it('uses the actual fourth-period bill instead of rebuilding its dates from the contract anchor', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', dueDate: '2026-05-07' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', dueDate: '2026-07-08' },
       { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', dueDate: '2026-08-07' },
     ]
 
-    expect(billingPeriodFromBills('2026-05-07', 5, bills)).toEqual({
-      periodNo: 5,
+    expect(billingPeriodFromBills('2026-05-07', 4, bills)).toEqual({
+      periodNo: 4,
       start: '2026-08-07',
       endExclusive: '2026-09-08',
       displayEnd: '2026-09-07',
@@ -64,19 +64,19 @@ describe('billing periods', () => {
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07' },
       { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07' },
-    ], 6)
+    ], 5)
 
-    expect(periods[5]).toEqual({ periodNo: 6, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
+    expect(periods[4]).toEqual({ periodNo: 5, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
   })
 
-  it('does not lock an unpaid fifth period when an earlier paid bill overlaps its dates', () => {
+  it('locks paid periods but keeps the unpaid fourth period editable', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', paidAmount: '1200', status: '已结清' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', paidAmount: '500', status: '已结清' },
       { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', paidAmount: '0', status: '逾期' },
     ]
 
-    expect(isBillingPeriodLocked('2026-05-07', 4, bills)).toBe(true)
-    expect(isBillingPeriodLocked('2026-05-07', 5, bills)).toBe(false)
+    expect(isBillingPeriodLocked('2026-05-07', 3, bills)).toBe(true)
+    expect(isBillingPeriodLocked('2026-05-07', 4, bills)).toBe(false)
   })
 })
