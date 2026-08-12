@@ -1016,7 +1016,7 @@ export function Dashboard({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = `租赁合同-${today()}.csv`;
+    link.download = `租���合同-${today()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success(`已导出 ${selectedRentals.length} 份合同`);
@@ -1732,7 +1732,7 @@ export function Dashboard({
             onSendNotice={() =>
               start(async () => {
                 const result = await sendRentalCreatedNotice(selected.id);
-                if (result.ok) toast.success("初始租赁通知已发送");
+                if (result.ok) toast.success("初始租赁通���已发送");
                 else toast.error(result.message);
               })
             }
@@ -5019,7 +5019,7 @@ function LegacyDetail({
         <Info l="联系电话" v={rental.customerPhone} />
         <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
         <Info l="状态" v={rental.status} />
-        <Info l="设备总数" v={`${rental.quantity} 台`} />
+        <Info l="设备总数" v={`${rental.quantity} ��`} />
         <Info l="租金总额" v={money(rental.totalRent)} />
         <Info l="已收租金" v={money(rental.paidAmount)} />
         <Info l="约定押金" v={money(rental.deposit)} />
@@ -5458,7 +5458,7 @@ function RenewalCorrectionForm({
           }
           className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
         >
-          {pending ? "正在更正…" : "确认差额更正"}
+          {pending ? "正在更正…" : "确认差额��正"}
         </button>
       </div>
     </form>
@@ -6486,7 +6486,7 @@ function OperationForm({
           ),
     );
   const [date, setDate] = useState(today());
-  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损���">(
+  const [condition, setCondition] = useState<"完好" | "轻微磨损" | "损坏">(
     "完好",
   );
   const [amount, setAmount] = useState(0);
@@ -7922,7 +7922,7 @@ function RepairForm({
           onChange={(repairCost) => update({ repairCost: Number(repairCost) })}
         />
         <Field
-          label="客户承担金额（元）"
+          label="客户承担金���（元）"
           type="number"
           value={value.customerCharge}
           onChange={(customerCharge) =>
