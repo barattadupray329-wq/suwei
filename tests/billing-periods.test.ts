@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { billingPeriod, billingPeriodAt, billingPeriodOptions, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
+import { adjustablePeriodLimit, billingPeriod, billingPeriodAt, billingPeriodOptions, effectiveBillingPeriod, periodNumberAt } from '../lib/billing-periods'
 
 describe('billing periods', () => {
   it('shows the fifth through the fourth as one calendar month', () => {
@@ -33,5 +33,14 @@ describe('billing periods', () => {
       '2026-09-22',
       '2026-10-22',
     ])
+  })
+
+  it('allows the current and next period after the original contract end', () => {
+    expect(adjustablePeriodLimit('2026-05-07', '2026-08-12')).toBe(5)
+    expect(adjustablePeriodLimit('2022-06-01', '2026-08-12')).toBe(52)
+  })
+
+  it('also keeps a later generated bill visible for adjustment', () => {
+    expect(adjustablePeriodLimit('2026-05-07', '2026-08-12', ['2026-10-07'])).toBe(6)
   })
 })

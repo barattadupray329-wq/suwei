@@ -51,6 +51,15 @@ export function billingPeriodLabel(period: BillingPeriod) {
   return `第 ${period.periodNo} 期：${period.start} 至 ${period.displayEnd}（含）`
 }
 
+export function adjustablePeriodLimit(anchorDate: string, operationDate: string, billPeriodStarts: string[] = []) {
+  const effectiveDate = operationDate < anchorDate ? anchorDate : operationDate
+  const currentPeriod = billingPeriodAt(anchorDate, effectiveDate).periodNo
+  const billPeriods = billPeriodStarts.flatMap((periodStart) => {
+    try { return [periodNumberAt(anchorDate, periodStart)] } catch { return [] }
+  })
+  return Math.max(currentPeriod + 1, ...billPeriods)
+}
+
 export function effectiveBillingPeriod(anchorDate: string, operationDate: string) {
   const current = billingPeriodAt(anchorDate, operationDate)
   return current.start === operationDate

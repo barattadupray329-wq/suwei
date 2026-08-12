@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  adjustablePeriodLimit,
   billingPeriod,
   billingPeriodAt,
   billingPeriodLabel,
@@ -2230,7 +2231,7 @@ submit={(value) =>
                   createRepairRecords(
                     validateBusinessBatch(values, (value) => value.itemId),
                   ),
-                "维修记录已保存",
+                "维修记录已���存",
               )
             }
           />
@@ -2662,7 +2663,7 @@ function RentalForm({
   };
   const validate = () => {
     if (step === 0 && form.customerName.trim().length < 2)
-      return "联系人姓名至少需要 2 个字";
+      return "联系人姓名至少需要 2 ��字";
     if (step === 0 && !/^1\d{10}$/.test(form.customerPhone.trim()))
       return "请输入正确的 11 位手机号";
     if (step === 1) {
@@ -4817,7 +4818,7 @@ function DetailManage({
           className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted"
         >
           <BellRing className="size-4 text-primary" />
-          发送初始租赁通知
+          发送初���租赁通知
         </button>
       </section>
       {!["在租", "买断"].includes(rental.status) && (
@@ -7290,11 +7291,16 @@ function PeriodRentForm({
   const activeItem = available.find((item) => item.id === activeId) ?? available[0];
   if (!activeItem) return <p className="text-sm text-muted-foreground">暂无可调价设备</p>;
   const anchorDate = activeItem.startDate || rental.startDate;
-  const endDate = activeItem.endDate || rental.endDate;
   const itemPeriods = rental.pricePeriods.filter((period) => period.rentalItemId === activeItem.id);
-  const periods = Array.from({ length: 120 }, (_, index) => billingPeriod(anchorDate, index + 1)).filter(
-    (period) => period.start <= endDate,
+  const rentBills = rental.bills.filter(
+    (bill) => bill.billType === "租金" || bill.billType === "续租费" || bill.billType.includes("逾期"),
   );
+  const lastVisiblePeriod = adjustablePeriodLimit(
+    anchorDate,
+    today(),
+    rentBills.map((bill) => bill.periodStart),
+  );
+  const periods = Array.from({ length: lastVisiblePeriod }, (_, index) => billingPeriod(anchorDate, index + 1));
   const isLocked = (period: (typeof periods)[number]) =>
     rental.bills.some(
       (bill) =>
@@ -7360,7 +7366,7 @@ function PeriodRentForm({
       </div>
       {!selectable.length ? (
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-          此设备当前租期内的账期均已有收款，不能调整。
+          截至下一账期，所有账期均已有收款，暂时不能调整。
         </p>
       ) : (
         <>
