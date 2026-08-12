@@ -23,7 +23,7 @@ describe('统一租赁业务中心', () => {
     expect(OPERATION_GROUPS).toEqual(['常用业务', '设备有变化', '合同与结算'])
     expect(OPERATION_ENTRIES.slice(0, 4).map((item) => item.key)).toEqual(['renewal', 'return', 'pricing', 'buyout'])
     expect(OPERATION_ENTRIES.filter((item) => item.type === 'pricing_change')).toMatchObject([
-      { key: 'pricing', intent: 'pricing', label: '调整后续租金' },
+      { key: 'pricing', intent: 'pricing', label: '按期调整租金' },
       { key: 'configuration', intent: 'configuration', label: '调整设备配置' },
     ])
   })

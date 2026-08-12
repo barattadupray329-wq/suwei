@@ -79,7 +79,7 @@ export const OPERATION_GROUPS: OperationGroup[] = ['常用业务', '设备有变
 export const OPERATION_ENTRIES: OperationEntry[] = [
   { key: 'renewal', type: 'renewal', label: '办理续租', description: '延长到期日，并生成后续账单', group: '常用业务', risk: 'financial', requiresDevice: true },
   { key: 'return', type: 'return', label: '办理退租', description: '退还部分或全部设备，并结算费用', group: '常用业务', risk: 'financial', requiresDevice: true },
-  { key: 'pricing', type: 'pricing_change', intent: 'pricing', label: '调整后续租金', description: '从下一完整账期开始使用新租金', group: '常用业务', risk: 'financial', requiresDevice: true },
+  { key: 'pricing', type: 'pricing_change', intent: 'pricing', label: '按期调整租金', description: '选择生效期，之后沿用至下次调价', group: '常用业务', risk: 'financial', requiresDevice: true },
   { key: 'buyout', type: 'buyout', label: '办理买断', description: '设备转为客户所有，并生成买断应收', group: '常用业务', risk: 'financial', requiresDevice: true },
   { key: 'exchange', type: 'exchange', label: '设备换机', description: '保留合同，替换整台租赁设备', group: '设备有变化', risk: 'normal', requiresDevice: true },
   { key: 'configuration', type: 'pricing_change', intent: 'configuration', label: '调整设备配置', description: '修改 CPU、内存、硬盘等设备配置', group: '设备有变化', risk: 'normal', requiresDevice: true },
@@ -111,7 +111,7 @@ export function recommendedOperation(input: { endDate: string; availableItems: n
 }
 
 export function operationPrinciple(entry: Pick<OperationEntry, 'type' | 'intent' | 'risk'>) {
-  if (entry.type === 'pricing_change' && entry.intent === 'pricing') return '新租金只能从下一完整账期生效，当前账期仍按原租金计算。'
+  if (entry.type === 'pricing_change' && entry.intent === 'pricing') return '可选择尚未收款的具体账期；新租金从该期持续沿用至下一次调价。'
   if (entry.type === 'pricing_change') return '设备配置与租金分别核对；若租金不变，请保持原金额。'
   if (entry.risk === 'destructive') return '此业务会改变在租数量，提交前请再次核对设备与赔偿金额。'
   return '原合同、历史账目和业务记录都会保留；提交前还会再次核对。'

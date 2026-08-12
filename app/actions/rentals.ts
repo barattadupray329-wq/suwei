@@ -90,8 +90,9 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const rows = limit ? await baseQuery.limit(Math.min(Math.max(limit, 1), 100)) : await baseQuery
   if (!rows.length) return []
   const ids = rows.map((row) => row.id)
-  const [items, buyouts, returns, renewals, renewalCorrections, payments, events, bills, allocations, ledger, discounts] = await Promise.all([
+  const [items, pricePeriods, buyouts, returns, renewals, renewalCorrections, payments, events, bills, allocations, ledger, discounts] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, ids))).orderBy(rentalItems.id),
+    db.select().from(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, userId), inArray(rentalPricePeriods.rentalId, ids))).orderBy(rentalPricePeriods.rentalItemId, rentalPricePeriods.startPeriod),
     db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, ids))).orderBy(desc(buyoutRecords.createdAt)),
     db.select().from(returnRecords).where(and(eq(returnRecords.userId, userId), inArray(returnRecords.rentalId, ids))).orderBy(desc(returnRecords.returnDate), desc(returnRecords.createdAt)),
     db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, userId), inArray(renewalRecords.rentalId, ids))).orderBy(desc(renewalRecords.createdAt)),
@@ -109,6 +110,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     return grouped
   }
   const itemMap = groupByRental(items)
+  const pricePeriodMap = groupByRental(pricePeriods)
   const itemById = new Map(items.map((item) => [item.id, item]))
   const buyoutMap = groupByRental(buyouts)
   const returnMap = groupByRental(
@@ -143,7 +145,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     const rentalLedger = ledgerMap.get(row.id) ?? []
     const reversedPaymentIds = rentalLedger.flatMap((entry) => entry.entryType === '收款冲正' && entry.paymentRecordId ? [entry.paymentRecordId] : [])
     const financeSnapshot = rentalFinancialSnapshot({ bills: rentalBills, payments: rentalPayments, allocations: allocationMap.get(row.id) ?? [], discounts: rentalDiscounts, reversedPaymentIds })
-    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], returnRecords: returnMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: rentalLedger, financeSnapshot }
+    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, pricePeriods: pricePeriodMap.get(row.id) ?? [], buyoutRecords: buyoutMap.get(row.id) ?? [], returnRecords: returnMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: rentalPayments, events: eventMap.get(row.id) ?? [], bills: rentalBills, ledger: rentalLedger, financeSnapshot }
   })
 }
 
@@ -488,6 +490,10 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       }
       const renewalDate = new Date().toISOString().slice(0, 10)
       const firstPeriodNo = value.billingUnit === 'month' ? periodNumberAt(startDate, oldEndDate) : 1
+      if (value.billingUnit === 'month' && firstPeriodNo > 1) {
+        const [existingPricePeriod] = await tx.select({ id: rentalPricePeriods.id }).from(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, userId), eq(rentalPricePeriods.rentalItemId, renewedItemId))).limit(1)
+        if (!existingPricePeriod) await tx.insert(rentalPricePeriods).values({ userId, rentalId, rentalItemId: renewedItemId, startPeriod: 1, endPeriod: firstPeriodNo - 1, effectiveStart: startDate, effectiveEndExclusive: oldEndDate, quantity: value.quantity, unitPrice: item.monthlyRent, source: 'contract', notes: '续租前原合同价格' })
+      }
       let segmentStart = oldEndDate
       let coveredPeriods = 0
       for (const segment of priceSegments) {
@@ -527,7 +533,7 @@ export type RenewalCorrectionInput = z.infer<typeof renewalCorrectionSchema>
 
 export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const access = await getAccessContext('租赁操作')
-  if (access.role !== 'admin') throw new Error('仅店铺管理员可以更正续租价格')
+  if (access.role !== 'admin') throw new Error('仅店铺管理员可��更正续租价格')
   const value = renewalCorrectionSchema.parse(input)
   const userId = access.userId
   const [renewal] = await db.select().from(renewalRecords).where(and(eq(renewalRecords.id, value.renewalRecordId), eq(renewalRecords.userId, userId))).limit(1)
@@ -809,7 +815,7 @@ export async function changeStatus(id: number, status: string) {
     db.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
     db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '变更状态', resourceType: '租赁合同', resourceId: String(id), summary: `合同状态变更为 ${status}`, metadata: { status } }),
   ]
-  if (status === '已关闭') statements.push(db.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' }))
+  if (status === '已关闭') statements.push(db.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已��成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' }))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
 }

@@ -75,7 +75,8 @@ import {
   sendRentalCreatedNotice,
   sendRentalReminders,
 } from "@/app/actions/sms-reminders";
-import {
+  import { changePeriodRents, type PeriodRentChangeInput } from "@/app/actions/rental-pricing";
+  import {
   changeRentalContract,
   changeRentalItems,
   createRepairRecords,
@@ -105,7 +106,8 @@ import {
   calculateReturnRent,
   returnPeriodSettlement,
 } from "@/lib/return-settlement";
-import { priceChangeAdjustment, returnTiming } from "@/lib/overdue-rent";
+  import { priceChangeAdjustment, returnTiming } from "@/lib/overdue-rent";
+  import { priceAtPeriod } from "@/lib/rental-price-periods";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
 import {
   START_DATE_REASONS,
@@ -271,6 +273,14 @@ type Ledger = {
   operatorName: string;
   notes: string | null;
 };
+type RentalPricePeriod = {
+  id: number;
+  rentalItemId: number;
+  startPeriod: number;
+  endPeriod: number;
+  unitPrice: string;
+  source: string;
+};
 type Rental = {
   id: number;
   orderType: string;
@@ -300,6 +310,7 @@ type Rental = {
   status: string;
   notes: string | null;
   items: Item[];
+  pricePeriods: RentalPricePeriod[];
   buyoutRecords: Buyout[];
   returnRecords: ReturnRecord[];
   renewalRecords: Renewal[];
@@ -1543,7 +1554,7 @@ export function Dashboard({
                       <th className="p-3">设备明细</th>
                       <th className="p-3">数量</th>
                       <th className="p-3">租期</th>
-                      <th className="p-3">租金总额</th>
+                      <th className="p-3">租��总额</th>
                       <th className="p-3">状态</th>
                     </tr>
                   </thead>
@@ -1806,7 +1817,7 @@ export function Dashboard({
             </dl>
 
             <div className="flex flex-col gap-3">
-              <p className="text-sm font-semibold">确认后系统将自动完成</p>
+              <p className="text-sm font-semibold">确认���系统将自动完成</p>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
                   <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -2174,27 +2185,34 @@ submit={(value) =>
       </Dialog>
       <Dialog
         open={dialog === "change"}
-        title={operationIntent === "pricing" ? "调整后续租金" : "调整设备配置"}
+        title={operationIntent === "pricing" ? "按期调整租金" : "调整设备配置"}
         wide
         onClose={() => setDialog("detail")}
       >
-        {selected && (
+  {selected && operationIntent === "pricing" ? (
+  <PeriodRentForm
+  rental={selected}
+  pending={pending}
+  submit={(values) =>
+  runInDetail(
+  () => changePeriodRents(validateBusinessBatch(values, (value) => value.itemId)),
+  "按期租金已更新",
+  )
+  }
+  />
+  ) : selected ? (
   <ChangeForm
   rental={selected}
   initialIntent={operationIntent}
   pending={pending}
-
-            submit={(values) =>
-              runInDetail(
-                () =>
-                  changeRentalItems(
-                    validateBusinessBatch(values, (value) => value.itemId),
-                  ),
-                "配置与应收已更新",
-              )
-            }
-          />
-        )}
+  submit={(values) =>
+  runInDetail(
+  () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
+  "配置与应收已更新",
+  )
+  }
+  />
+  ) : null}
       </Dialog>
       <Dialog
         open={dialog === "repair"}
@@ -7166,7 +7184,7 @@ function ExchangeForm({
       </section>
       {!selected.length && (
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-          请先选择需要换机的设备，每台原设备可分别填写新设备信息。
+          请先选择需要换机的设备，每台原设备可分别填写新���备信息。
         </p>
       )}
       {rows[activeId] && (
@@ -7255,6 +7273,162 @@ function ExchangeForm({
     </form>
   );
 }
+function PeriodRentForm({
+  rental,
+  submit,
+  pending,
+}: {
+  rental: Rental;
+  submit: (values: PeriodRentChangeInput[]) => void;
+  pending: boolean;
+}) {
+  const available = rental.items.filter((item) =>
+    item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0,
+  );
+  const [activeId, setActiveId] = useState(available[0]?.id ?? 0);
+  const [rows, setRows] = useState<Record<number, PeriodRentChangeInput>>({});
+  const activeItem = available.find((item) => item.id === activeId) ?? available[0];
+  if (!activeItem) return <p className="text-sm text-muted-foreground">暂无可调价设备</p>;
+  const anchorDate = activeItem.startDate || rental.startDate;
+  const endDate = activeItem.endDate || rental.endDate;
+  const itemPeriods = rental.pricePeriods.filter((period) => period.rentalItemId === activeItem.id);
+  const periods = Array.from({ length: 120 }, (_, index) => billingPeriod(anchorDate, index + 1)).filter(
+    (period) => period.start <= endDate,
+  );
+  const isLocked = (period: (typeof periods)[number]) =>
+    rental.bills.some(
+      (bill) =>
+        (bill.billType === "租金" || bill.billType === "续租费" || bill.billType.includes("逾期")) &&
+        bill.periodStart < period.endExclusive &&
+        bill.periodEnd >= period.start &&
+        (Number(bill.paidAmount) > 0 || ["已结清", "已收款", "部分收款"].includes(bill.status)),
+    );
+  const selectable = periods.filter((period) => !isLocked(period));
+  const current = rows[activeItem.id];
+  const selectedPeriod = periods.find((period) => period.periodNo === current?.startPeriod) ?? selectable[0];
+  const oldPrice = selectedPeriod
+    ? priceAtPeriod(itemPeriods, selectedPeriod.periodNo, activeItem.monthlyRent)
+    : activeItem.monthlyRent;
+  const availableCount = activeItem.quantity - activeItem.boughtOutQuantity - activeItem.returnedQuantity - activeItem.lostQuantity;
+  const update = (changes: Partial<PeriodRentChangeInput>) =>
+    setRows((state) => ({
+      ...state,
+      [activeItem.id]: {
+        ...(state[activeItem.id] ?? {
+          rentalId: rental.id,
+          itemId: activeItem.id,
+          startPeriod: selectable[0]?.periodNo ?? 1,
+          unitPrice: Number(oldPrice),
+          reason: "",
+          notes: "",
+        }),
+        ...changes,
+      },
+    }));
+  const selectedRows = Object.values(rows);
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(selectedRows);
+      }}
+    >
+      <section className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
+        <strong>按期调整租金</strong>
+        <p className="mt-1 text-muted-foreground">
+          选择一期设置新租金，该价格会从本期持续沿用，直到下一次调价。已有收款的账期不能修改。
+        </p>
+      </section>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {available.map((item) => {
+          const configured = rows[item.id];
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveId(item.id)}
+              className={`rounded-xl border p-3 text-left ${item.id === activeItem.id ? "border-primary bg-primary/5" : "hover:bg-muted"}`}
+            >
+              <strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong>
+              <span className="block truncate text-xs text-muted-foreground">
+                {configured ? `已设置：第 ${configured.startPeriod} 期起 ${money(configured.unitPrice)}` : `当前展示租金 ${money(item.monthlyRent)}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {!selectable.length ? (
+        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          此设备当前租期内的账期均已有收款，不能调整。
+        </p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            生效账期
+            <select
+              className="h-10 rounded-lg border bg-background px-3"
+              value={current?.startPeriod ?? selectable[0].periodNo}
+              onChange={(event) => {
+                const startPeriod = Number(event.target.value);
+                update({
+                  startPeriod,
+                  unitPrice: Number(priceAtPeriod(itemPeriods, startPeriod, activeItem.monthlyRent)),
+                });
+              }}
+            >
+              {periods.map((period) => {
+                const locked = isLocked(period);
+                const price = priceAtPeriod(itemPeriods, period.periodNo, activeItem.monthlyRent);
+                return (
+                  <option key={period.periodNo} value={period.periodNo} disabled={locked}>
+                    第 {period.periodNo} 期 · {period.start} 至 {period.displayEnd} · {money(price)}{locked ? " · 已收款，禁止修改" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="新租金（元 / 台 / 期）"
+              type="number"
+              value={current?.unitPrice ?? Number(oldPrice)}
+              onChange={(value) => update({ unitPrice: Number(value) })}
+            />
+            <Field
+              label="调价原因"
+              value={current?.reason ?? ""}
+              onChange={(reason) => update({ reason })}
+            />
+          </div>
+          <section className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3" aria-label="按期调价预览">
+            <Info l="生效期" v={`第 ${current?.startPeriod ?? selectable[0].periodNo} 期`} />
+            <Info l="原租金" v={money(oldPrice)} />
+            <Info l="新租金" v={money(current?.unitPrice ?? oldPrice)} />
+            <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">
+              {selectedPeriod?.start} 起，{activeItem.deviceName} {availableCount} 台按新价格计费，并持续沿用至下一次调价；系统不会改动任何已收款账期。
+            </p>
+          </section>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            备注
+            <textarea
+              className="min-h-20 rounded-lg border bg-background p-3"
+              value={current?.notes ?? ""}
+              onChange={(event) => update({ notes: event.target.value })}
+            />
+          </label>
+        </>
+      )}
+      <button
+        disabled={pending || !selectedRows.length || selectedRows.some((row) => row.unitPrice <= 0 || row.reason.trim().length < 2)}
+        className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
+      >
+        {pending ? "处理中" : `确认按期调价 ${selectedRows.length} 项`}
+      </button>
+    </form>
+  );
+}
+
 function itemToChange(item: Item, rental: Rental): RentalChangeInput {
   const anchorDate = item.startDate || rental.startDate;
   const operationDate = today() < anchorDate ? anchorDate : today();

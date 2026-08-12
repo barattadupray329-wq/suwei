@@ -1,21 +1,24 @@
 import { and, eq, inArray, lte, notInArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { buyoutRecords, lossRecords, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { buyoutRecords, lossRecords, receivableBills, rentalItems, rentalPricePeriods, rentals, returnRecords } from '@/lib/db/schema'
 import { addCalendarDays, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
+import { periodNumberAt } from '@/lib/billing-periods'
+import { priceAtPeriod } from '@/lib/rental-price-periods'
 
 export async function ensureOverdueRentBills(userId: string, today = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date())) {
-  const contracts = await db.select({ id: rentals.id, contractNo: rentals.contractNo, endDate: rentals.endDate, paidAmount: rentals.paidAmount })
+  const contracts = await db.select({ id: rentals.id, contractNo: rentals.contractNo, startDate: rentals.startDate, endDate: rentals.endDate, paidAmount: rentals.paidAmount })
     .from(rentals)
     .where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), eq(rentals.billingType, 'monthly'), notInArray(rentals.status, ['已关闭', '已完成']), lte(rentals.endDate, addCalendarDays(today, -1))))
   if (!contracts.length) return { created: 0, amount: '0.00' }
 
   const rentalIds = contracts.map((contract) => contract.id)
-  const [items, buyouts, returns, losses, existingBills] = await Promise.all([
+  const [items, pricePeriods, buyouts, returns, losses, existingBills] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rentalIds))),
+    db.select().from(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, userId), inArray(rentalPricePeriods.rentalId, rentalIds))),
     db.select({ rentalItemId: buyoutRecords.rentalItemId, quantity: buyoutRecords.quantity, date: buyoutRecords.buyoutDate }).from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: returnRecords.rentalItemId, quantity: returnRecords.quantity, date: returnRecords.returnDate }).from(returnRecords).where(and(eq(returnRecords.userId, userId), inArray(returnRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: lossRecords.rentalItemId, quantity: lossRecords.quantity, date: lossRecords.lossDate }).from(lossRecords).where(and(eq(lossRecords.userId, userId), inArray(lossRecords.rentalId, rentalIds))),
@@ -25,14 +28,20 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   const existingOverduePeriods = existingBills.filter((bill) => bill.billType.includes('逾期'))
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   const itemsByRental = new Map<number, typeof items>()
+  const periodsByItem = new Map<number, typeof pricePeriods>()
   for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
+  for (const period of pricePeriods) periodsByItem.set(period.rentalItemId, [...(periodsByItem.get(period.rentalItemId) ?? []), period])
 
   const bills = contracts.flatMap((contract) => overdueRentPeriods(contract.endDate, today).flatMap(({ periodStart, periodEnd }) => {
     const billNo = `OVERDUE-${contract.id}-${periodStart}`
     const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.rentalId === contract.id && bill.periodStart < periodEnd && bill.periodEnd > periodStart)
     if (existing.has(billNo) || overlapsExistingOverdue) return []
     const amountCents = (itemsByRental.get(contract.id) ?? []).reduce((sum, item) => {
-      return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals)
+      const anchorDate = item.startDate ?? contract.startDate
+      let periodNo: number
+      try { periodNo = periodNumberAt(anchorDate, periodStart) } catch { return sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals) }
+      const unitPrice = priceAtPeriod(periodsByItem.get(item.id) ?? [], periodNo, item.monthlyRent)
+      return sum + toCents(unitPrice) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals)
     }, 0)
     if (amountCents <= 0) return []
     return [{
