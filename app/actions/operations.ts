@@ -206,6 +206,7 @@ export async function returnRentalItems(input: ReturnInput[]) {
           monthlyRent: row.item.monthlyRent,
           returnedQuantity: row.value.quantity,
           returnDate: row.value.date,
+          currentAdjustmentCents: row.billing.adjustmentCents,
         }),
       )
       .reduce((grouped, bill) => {
@@ -229,16 +230,12 @@ export async function returnRentalItems(input: ReturnInput[]) {
       }, new Map<number, { id: number; previousAmountCents: number; nextAmountCents: number; reductionCents: number }>)
       .values(),
   );
-  const futureBillReductionCents = billRecalculations.reduce(
+  const billReductionCents = billRecalculations.reduce(
     (sum, bill) => sum + bill.reductionCents,
     0,
   );
   const deductionCents = rows.reduce(
       (sum, row) => sum + toCents(row.value.deductionAmount),
-      0,
-    ),
-    billingAdjustmentCents = rows.reduce(
-      (sum, row) => sum + row.billing.adjustmentCents,
       0,
     ),
     lateChargeCents = 0,
@@ -251,10 +248,7 @@ export async function returnRentalItems(input: ReturnInput[]) {
       0,
     );
   const adjustedRentCents =
-    toCents(rental.totalRent) -
-    billingAdjustmentCents -
-    futureBillReductionCents +
-    lateChargeCents;
+    toCents(rental.totalRent) - billReductionCents + lateChargeCents;
   // 已收账期不退款；只有尚未收取的退租当期可以减少应收。
   const rentRefundCents = 0;
   const totalCents = adjustedRentCents + deductionCents,
@@ -494,28 +488,6 @@ export async function returnRentalItems(input: ReturnInput[]) {
             eq(receivableBills.id, bill.id),
           ),
         ),
-    );
-  }
-  for (const row of rows) {
-    if (!row.currentPeriod || row.billing.adjustmentCents <= 0) continue;
-    const modeLabel =
-      row.value.billingMode === "daily"
-        ? `第 ${row.periodSettlement.currentPeriod.periodNo} 期按天收：固定按 30 天折算，归还当天计费，共 ${row.billing.usedDays} 天`
-        : `第 ${row.periodSettlement.currentPeriod.periodNo} 期不收`;
-    statements.push(
-      db.insert(receivableBills).values({
-        userId,
-        rentalId,
-        billNo: `RETURN-BILLING-${rentalId}-${row.id}`,
-        periodStart: row.currentPeriod.periodStart,
-        periodEnd: row.currentPeriod.periodEnd,
-        dueDate: row.value.date,
-        billType: "退租当期租金调整",
-        amount: fromCents(-row.billing.adjustmentCents),
-        paidAmount: "0.00",
-        status: "已调整",
-          notes: `${row.item.deviceName} ${row.value.quantity} 台；${modeLabel}`,
-      }),
     );
   }
   if (rentRefundCents > 0) {

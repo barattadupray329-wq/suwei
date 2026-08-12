@@ -78,13 +78,35 @@ export function recalculateBillsAfterReturn(input: {
   monthlyRent: string
   returnedQuantity: number
   returnDate: string
+  currentAdjustmentCents?: number
 }) {
-  const reductionCents = toCents(input.monthlyRent) * input.returnedQuantity
+  const futureReductionCents = toCents(input.monthlyRent) * input.returnedQuantity
+  const currentBill = input.bills
+    .filter(
+      (bill) =>
+        (bill.billType === '租金' || bill.billType === '逾期续租租金') &&
+        bill.periodStart <= input.returnDate &&
+        bill.periodEnd >= input.returnDate &&
+        toCents(bill.amount) > toCents(bill.paidAmount),
+    )
+    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))[0]
+
   return input.bills
-    .filter((bill) => (bill.billType === '租金' || bill.billType === '逾期续租租金') && bill.periodStart > input.returnDate)
+    .filter(
+      (bill) =>
+        (bill.billType === '租金' || bill.billType === '逾期续租租金') &&
+        (bill.id === currentBill?.id || bill.periodStart > input.returnDate),
+    )
     .map((bill) => {
       const previousAmountCents = toCents(bill.amount)
-      const nextAmountCents = Math.max(toCents(bill.paidAmount), previousAmountCents - reductionCents)
+      const reductionCents =
+        bill.id === currentBill?.id
+          ? Math.max(0, input.currentAdjustmentCents ?? 0)
+          : futureReductionCents
+      const nextAmountCents = Math.max(
+        toCents(bill.paidAmount),
+        previousAmountCents - reductionCents,
+      )
       return {
         id: bill.id,
         previousAmountCents,

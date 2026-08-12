@@ -24,6 +24,21 @@ describe('退租时点与人工租金规则', () => {
     expect(returnRentDecision({...base,mode:'late_waive'}).chargeCents).toBe(0)
   })
 
+  it('到期次日退回最后设备时直接核减重叠的未收续租账单', () => {
+    const result = recalculateBillsAfterReturn({
+      monthlyRent: '120',
+      returnedQuantity: 1,
+      returnDate: '2026-06-04',
+      currentAdjustmentCents: 12000,
+      bills: [
+        { id: 1, periodStart: '2026-06-03', periodEnd: '2026-07-03', amount: '120', paidAmount: '0', billType: '逾期续租租金' },
+      ],
+    })
+    expect(result).toEqual([
+      { id: 1, previousAmountCents: 12000, nextAmountCents: 0, reductionCents: 12000 },
+    ])
+  })
+
   it('20 台退 5 台时当期不减租，下一账期只按剩余 15 台', () => {
     const result = recalculateBillsAfterReturn({monthlyRent:'110',returnedQuantity:5,returnDate:'2026-06-18',bills:[
       {id:1,periodStart:'2026-05-28',periodEnd:'2026-06-27',amount:'2200',paidAmount:'0',billType:'租金'},
