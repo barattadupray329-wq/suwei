@@ -111,6 +111,11 @@ function coveredUnits(anchorDate: string, endExclusive: string, unit: BillingUni
 
 export type BillPeriodRange = { start: number; end: number; span: number }
 
+/** 所有参与合同租金期号的账单类型，供账务、调租、续租和结算统一使用。 */
+export function isRentChargeBillType(billType: string) {
+  return billType === '起租预收' || billType === '续租费' || billType.includes('租金')
+}
+
 export function billPeriodRanges<T extends { id: number; periodStart: string; periodEnd: string; dueDate?: string }>(
   bills: T[],
   options: { anchorDate?: string | null; unit?: BillingUnit } = {},

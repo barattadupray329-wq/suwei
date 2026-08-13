@@ -7,7 +7,7 @@ import { getAccessContext } from '@/lib/access'
 import { adjustablePeriodLimit, billingPeriodFromBills, isBillingPeriodLocked } from '@/lib/billing-periods'
 import { db } from '@/lib/db'
 import { auditLogs, receivableBills, rentalEvents, rentalItems, rentalPricePeriods, rentals } from '@/lib/db/schema'
-import { billPeriodRanges, fromCents, toCents } from '@/lib/rental-calculations'
+import { billPeriodRanges, fromCents, isRentChargeBillType, toCents } from '@/lib/rental-calculations'
 import { availableQuantity } from '@/lib/rental-lifecycle'
 import { priceAtPeriod, setPriceNode, type RentalPricePeriod } from '@/lib/rental-price-periods'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
@@ -23,7 +23,6 @@ const inputSchema = z.object({
 export type PeriodRentChangeInput = z.infer<typeof inputSchema>
 
 const settledStatuses = new Set(['已结清', '已收款', '部分收款'])
-const rentBill = (billType: string) => billType === '租金' || billType === '续租费' || billType.includes('逾期')
 
 export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   const access = await getAccessContext('租赁操作')
@@ -48,7 +47,7 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
     // 价格节点、账单与锁定状态都使用合同级期号；设备加入日期只影响可计费数量，不重置期号。
     const anchorDate = rental.startDate
     const operationDate = now.toISOString().slice(0, 10)
-    const itemRentBills = bills.filter((bill) => rentBill(bill.billType))
+    const itemRentBills = bills.filter((bill) => toCents(bill.amount) > 0 && isRentChargeBillType(bill.billType))
     const effective = billingPeriodFromBills(anchorDate, value.startPeriod, itemRentBills)
     const lastAdjustablePeriod = adjustablePeriodLimit(anchorDate, operationDate, itemRentBills.map((bill) => bill.periodStart))
     if (value.startPeriod > lastAdjustablePeriod) throw new Error(`${item.deviceName} 暂时只能调整到第 ${lastAdjustablePeriod} 期（下一账期）`)
@@ -70,7 +69,7 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   for (const change of changes) {
     statements.push(db.delete(rentalPricePeriods).where(and(eq(rentalPricePeriods.userId, access.userId), eq(rentalPricePeriods.rentalItemId, change.item.id))))
     for (const range of change.ranges) {
-      const itemRentBills = bills.filter((bill) => rentBill(bill.billType))
+      const itemRentBills = bills.filter((bill) => toCents(bill.amount) > 0 && isRentChargeBillType(bill.billType))
       const start = billingPeriodFromBills(change.anchorDate, range.startPeriod, itemRentBills).start
       const endExclusive = billingPeriodFromBills(change.anchorDate, range.endPeriod, itemRentBills).endExclusive
       statements.push(db.insert(rentalPricePeriods).values({ userId: access.userId, rentalId, rentalItemId: change.item.id, startPeriod: range.startPeriod, endPeriod: range.endPeriod, effectiveStart: start, effectiveEndExclusive: endExclusive, quantity: availableQuantity(change.item), unitPrice: fromCents(toCents(range.unitPrice)), source: range.startPeriod === change.value.startPeriod ? 'period_adjustment' : 'price_history', notes: change.value.notes }))
@@ -84,7 +83,7 @@ export async function changePeriodRents(input: PeriodRentChangeInput[]) {
   }
 
   let billDifferenceCents = 0
-  const rentBills = bills.filter((entry) => rentBill(entry.billType))
+  const rentBills = bills.filter((entry) => toCents(entry.amount) > 0 && isRentChargeBillType(entry.billType))
   const { ranges: billRanges } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: 'monthly' })
   for (const bill of rentBills.filter((entry) => toCents(entry.paidAmount) === 0 && !settledStatuses.has(entry.status))) {
     const range = billRanges.get(bill.id)

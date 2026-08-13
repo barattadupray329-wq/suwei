@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billPaymentPeriodSummary, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, billCoverageLabel, billPaymentPeriodSummary, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, isRentChargeBillType, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -52,6 +52,13 @@ describe('预收与续租账单', () => {
 })
 
 describe('期数按自然月累计', () => {
+  it('起租预收、续租费和逾期租金都参与合同期号，非租金费用不参与', () => {
+    expect(isRentChargeBillType('起租预收')).toBe(true)
+    expect(isRentChargeBillType('续租费')).toBe(true)
+    expect(isRentChargeBillType('逾期续租租金')).toBe(true)
+    expect(isRentChargeBillType('押金')).toBe(false)
+    expect(isRentChargeBillType('维修费')).toBe(false)
+  })
   const bill = (id: number, periodStart: string, periodEnd: string) => ({ id, periodStart, periodEnd, dueDate: periodStart })
   it('一期等于一个自然月', () => {
     expect(periodUnitsBetween('2026-03-01', '2026-04-01')).toBe(1)

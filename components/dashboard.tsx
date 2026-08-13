@@ -101,6 +101,7 @@ import {
   billPeriodLabel,
   billPeriodRanges,
   billState,
+  isRentChargeBillType,
   nextOpenBill,
   normalizeBillingUnit,
 } from "@/lib/rental-calculations";
@@ -1732,7 +1733,7 @@ export function Dashboard({
             onSendNotice={() =>
               start(async () => {
                 const result = await sendRentalCreatedNotice(selected.id);
-                if (result.ok) toast.success("初始租���通���已发送");
+                if (result.ok) toast.success("初始租�����通���已发送");
                 else toast.error(result.message);
               })
             }
@@ -7295,9 +7296,15 @@ function PeriodRentForm({
   // 调租期号属于合同账期，不因某台设备晚于合同起租日加入而重新从第 1 期编号。
   const anchorDate = rental.startDate;
   const itemPeriods = rental.pricePeriods.filter((period) => period.rentalItemId === activeItem.id);
-  const rentBills = rental.bills.filter(
-    (bill) => bill.billType === "租金" || bill.billType === "续租费" || bill.billType.includes("逾期"),
-  );
+  const rentBills = rental.bills
+    .filter((bill) => Number(bill.amount) > 0 && isRentChargeBillType(bill.billType))
+    .sort(
+      (left, right) =>
+        left.periodStart.localeCompare(right.periodStart) ||
+        left.periodEnd.localeCompare(right.periodEnd) ||
+        left.dueDate.localeCompare(right.dueDate) ||
+        left.id - right.id,
+    );
   const lastVisiblePeriod = adjustablePeriodLimit(
     anchorDate,
     today(),
