@@ -392,7 +392,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     const depositPaymentId = rentalId + 11
     const paidRent = collectRent ? totalRent : 0
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: String(paidRent), paymentStatus: collectRent ? '已结清' : '待收款', status: '在租' }),
+      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: String(paidRent), paymentStatus: collectRent ? '已结���' : '待收款', status: '在租' }),
       ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
@@ -468,6 +468,14 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
   if (!rental) throw new Error('租赁合同不存在')
   assertOfficialRental(rental)
+  const operationDate = new Date().toISOString().slice(0, 10)
+  const priorOpenRentBills = (await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId))))
+    .filter((bill) => bill.billType !== '押金' && toCents(bill.amount) > toCents(bill.paidAmount))
+    .sort((left, right) => left.periodStart.localeCompare(right.periodStart) || left.id - right.id)
+  if (priorOpenRentBills.length) {
+    const earliest = priorOpenRentBills[0]
+    throw new Error(`请先处理 ${earliest.periodStart} 至 ${earliest.periodEnd} 的未收租金，再办理后续续租`)
+  }
   let addedRent = 0
     for (const value of values) {
       const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.id, value.rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))
@@ -476,6 +484,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const periodAnchorDate = rental.startDate
       const storedEndDate = item.endDate ?? rental.endDate
       const oldEndDate = value.billingUnit === 'month' && value.startPeriod ? billingPeriod(periodAnchorDate, value.startPeriod).start : storedEndDate
+      if (oldEndDate > operationDate) throw new Error(`${item.deviceName} 的续租账期从 ${oldEndDate} 开始，尚未生效，不能提前生成账单或收款`)
       if (value.newEndDate <= oldEndDate) throw new Error(`${item.deviceName} 的新到期日必须晚于续租生效日`)
       const available = availableQuantity(item)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
