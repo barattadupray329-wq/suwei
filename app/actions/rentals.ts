@@ -329,18 +329,25 @@ function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[]
   return buildChunkedInserts(receivableBills, bills.map((bill) => ({ ...bill, userId })))
 }
 
-function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, duration: number) {
-  return [{
-    rentalId,
-    billNo: `${contractNo}-001`,
-    periodStart: startDate,
-    periodEnd: endDate,
-    dueDate: startDate,
-    amount: totalRent.toFixed(2),
-    billType: '起租预收',
-    status: '待收',
-    notes: `起租 ${duration} 个月一次预收`,
-  }]
+function buildPrepaidRentBills(rentalId: number, contractNo: string, startDate: string, totalRent: number, duration: number) {
+  const totalCents = toCents(totalRent)
+  const baseCents = Math.floor(totalCents / duration)
+  const remainder = totalCents % duration
+  return Array.from({ length: duration }, (_, index) => {
+    const periodStart = addCalendarMonths(startDate, index)
+    const periodEnd = addCalendarDays(addCalendarMonths(startDate, index + 1), -1)
+    return {
+      rentalId,
+      billNo: `${contractNo}-${String(index + 1).padStart(3, '0')}`,
+      periodStart,
+      periodEnd,
+      dueDate: periodStart,
+      amount: fromCents(baseCents + (index < remainder ? 1 : 0)),
+      billType: '起租预收',
+      status: '待收',
+      notes: `起租第 ${index + 1} 期，共 ${duration} 期`,
+    }
+  })
 }
 
 async function createRentalOperation(input: RentalInput, orderType: RentalOrderType, initialCollection?: InitialCollectionInput) {
@@ -373,13 +380,13 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     // D1 不支持交互式事务；预先生成有序且低碰撞的安全整数 ID，随后用 batch 原子提交全部关联记录。
     const bills = value.billingType === 'daily'
       ? [{ rentalId, billNo: `${contractNo}-001`, periodStart: value.startDate, periodEnd: value.endDate, dueDate: value.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
-      : buildPrepaidRentBill(rentalId, contractNo, value.startDate, value.endDate, totalRent, value.duration)
+      : buildPrepaidRentBills(rentalId, contractNo, value.startDate, totalRent, value.duration)
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
     const billBaseId = rentalId + 100
     const identifiedBills = allBills.map((bill, index) => ({ ...bill, id: billBaseId + index }))
-    const rentBill = identifiedBills.find((bill) => bill.billType !== '押金')
+    const rentBills = identifiedBills.filter((bill) => bill.billType !== '押金')
     const depositBill = identifiedBills.find((bill) => bill.billType === '押金')
-    const collectRent = Boolean(collection?.collectRent && rentBill)
+    const collectRent = Boolean(collection?.collectRent && rentBills.length)
     const collectDeposit = Boolean(collection?.collectDeposit && depositBill)
     const rentPaymentId = rentalId + 10
     const depositPaymentId = rentalId + 11
@@ -389,9 +396,9 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
-    if (collectRent && rentBill && collection) statements.push(
-      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: rentBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
-      db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: rentBill.id, amount: rentBill.amount }),
+    if (collectRent && collection) statements.push(
+      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
+      ...buildChunkedInserts(paymentAllocations, rentBills.map((bill) => ({ userId, rentalId, paymentRecordId: rentPaymentId, billId: bill.id, amount: bill.amount }))),
     )
     if (collectDeposit && depositBill && collection) statements.push(
       db.insert(paymentRecords).values({ id: depositPaymentId, userId, rentalId, amount: depositBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '押金', operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
@@ -896,7 +903,7 @@ export async function restoreRental(id: number) {
 
 export async function permanentlyDeleteRental(id: number) {
   const access = await getAccessContext('租赁操作')
-  if (access.role === 'employee') throw new Error('只有管理员可以彻底删除订单')
+  if (access.role === 'employee') throw new Error('只有��理员可以彻底删除订单')
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'trash')))
   if (!rental || rental.orderType === 'official') throw new Error('仅回收站中的草稿或测试合同可彻底删除')
   const related = await Promise.all([
@@ -935,7 +942,7 @@ async function confirmDraftOperation(id: number, access: Awaited<ReturnType<type
   const isDaily = rental.billingType ? rental.billingType === 'daily' : (rental.notes || '').includes('日租')
   const bills = isDaily
     ? [{ rentalId: id, billNo: `${numbers.contractNo}-001`, periodStart: rental.startDate, periodEnd: rental.endDate, dueDate: rental.startDate, amount: totalRent.toFixed(2), billType: '日租租金', status: '待收' }]
-    : buildPrepaidRentBill(id, numbers.contractNo, rental.startDate, rental.endDate, totalRent, rental.duration)
+    : buildPrepaidRentBills(id, numbers.contractNo, rental.startDate, totalRent, rental.duration)
   const deposit = Number(rental.deposit)
   const allBills = deposit > 0 ? [...bills, { rentalId: id, billNo: `${numbers.contractNo}-DEP`, periodStart: rental.startDate, periodEnd: rental.startDate, dueDate: rental.startDate, amount: deposit.toFixed(2), billType: '押金', status: '待收' }] : bills
   try {

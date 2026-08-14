@@ -1,4 +1,4 @@
-import { addCalendarMonths, toCents } from './rental-calculations'
+import { addCalendarDays, addCalendarMonths, toCents } from './rental-calculations'
 
 export type RentalDisposal = { rentalItemId: number; quantity: number; date: string }
 export type ReturnBillingMode = 'full_month' | 'daily' | 'waive' | 'late_daily' | 'late_monthly' | 'late_waive'
@@ -37,11 +37,12 @@ export function priceChangeAdjustment(input: { periodStart: string; periodEnd: s
 
 export function overdueRentPeriods(endDate: string, today: string) {
   const periods: Array<{ periodStart: string; periodEnd: string }> = []
-  let periodStart = endDate
-  while (periodStart < today) {
-    const periodEnd = addCalendarMonths(periodStart, 1)
-    periods.push({ periodStart, periodEnd })
-    periodStart = periodEnd
+  // 合同 endDate 为含当日；下一期必须从次日开始，不能与上一期重叠。
+  let periodStart = addCalendarDays(endDate, 1)
+  while (periodStart <= today) {
+    const nextPeriodStart = addCalendarMonths(periodStart, 1)
+    periods.push({ periodStart, periodEnd: addCalendarDays(nextPeriodStart, -1) })
+    periodStart = nextPeriodStart
   }
   return periods
 }

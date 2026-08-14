@@ -1471,7 +1471,7 @@ export function Dashboard({
                 ))}
                 {!overdueCustomers.length && (
                   <p className="p-10 text-center text-sm text-muted-foreground">
-                    暂无逾期客户
+                    暂无��期客户
                   </p>
                 )}
               </div>
@@ -4163,7 +4163,6 @@ function DetailFinance({
     rentBills,
     { anchorDate: rental.startDate, unit: billingUnit },
   );
-  const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
   const receivedAt = (value: Date | string) =>
     new Intl.DateTimeFormat("zh-CN", {
       year: "numeric",
@@ -4290,8 +4289,7 @@ function DetailFinance({
                           )}
                         </strong>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          共 {totalPeriods} {periodUnitLabel} · 第 {index + 1}{" "}
-                          笔账单
+                        共 {totalPeriods} 期 · 第 {index + 1} 笔账单
                         </p>
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -4640,7 +4638,7 @@ function DetailRecords({
       <div className="mb-4">
         <h3 className="font-semibold">业务时间轴</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          按发生时间统一查看续租、退租、买断、换机、维修和费用调整
+          按发生时间统一查看续租、退租、买断、换机、���修和费用调整
         </p>
       </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">

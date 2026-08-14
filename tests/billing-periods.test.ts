@@ -44,16 +44,16 @@ describe('billing periods', () => {
     expect(adjustablePeriodLimit('2026-05-07', '2026-08-12', ['2026-10-07'])).toBe(6)
   })
 
-  it('uses the actual fourth-period bill instead of rebuilding its dates from the contract anchor', () => {
+  it('uses each actual bill as one period', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', dueDate: '2026-05-07' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', dueDate: '2026-07-08' },
-      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', dueDate: '2026-08-07' },
+      { id: 3, periodStart: '2026-08-08', periodEnd: '2026-09-07', dueDate: '2026-08-08' },
     ]
 
-    expect(billingPeriodFromBills('2026-05-07', 4, bills)).toEqual({
-      periodNo: 4,
-      start: '2026-08-07',
+    expect(billingPeriodFromBills('2026-05-07', 3, bills)).toEqual({
+      periodNo: 3,
+      start: '2026-08-08',
       endExclusive: '2026-09-08',
       displayEnd: '2026-09-07',
     })
@@ -63,33 +63,32 @@ describe('billing periods', () => {
     const periods = billingPeriodsFromBills('2026-05-07', [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07' },
-      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07' },
-    ], 5)
+      { id: 3, periodStart: '2026-08-08', periodEnd: '2026-09-07' },
+    ], 4)
 
-    expect(periods[4]).toEqual({ periodNo: 5, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
+    expect(periods[3]).toEqual({ periodNo: 4, start: '2026-09-08', endExclusive: '2026-10-08', displayEnd: '2026-10-07' })
   })
 
   it('keeps late-added devices on the contract billing sequence', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07' },
-      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07' },
+      { id: 3, periodStart: '2026-08-08', periodEnd: '2026-09-07' },
     ]
 
-    const period = billingPeriodFromBills('2026-05-07', 4, bills)
-    expect(period.start).toBe('2026-08-07')
+    const period = billingPeriodFromBills('2026-05-07', 3, bills)
+    expect(period.start).toBe('2026-08-08')
     expect(period.endExclusive).toBe('2026-09-08')
-    expect(periodNumberAt('2026-05-07', '2026-08-07')).toBe(4)
   })
 
   it('locks paid periods but keeps the unpaid fourth period editable', () => {
     const bills = [
       { id: 1, periodStart: '2026-05-07', periodEnd: '2026-07-06', paidAmount: '1200', status: '已结清' },
       { id: 2, periodStart: '2026-07-08', periodEnd: '2026-08-07', paidAmount: '500', status: '已结清' },
-      { id: 3, periodStart: '2026-08-07', periodEnd: '2026-09-07', paidAmount: '0', status: '逾期' },
+      { id: 3, periodStart: '2026-08-08', periodEnd: '2026-09-07', paidAmount: '0', status: '逾期' },
     ]
 
-    expect(isBillingPeriodLocked('2026-05-07', 3, bills)).toBe(true)
-    expect(isBillingPeriodLocked('2026-05-07', 4, bills)).toBe(false)
+    expect(isBillingPeriodLocked('2026-05-07', 2, bills)).toBe(true)
+    expect(isBillingPeriodLocked('2026-05-07', 3, bills)).toBe(false)
   })
 })

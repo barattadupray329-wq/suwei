@@ -46,7 +46,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     return [{
       userId, rentalId: contract.id, billNo, periodStart, periodEnd, dueDate: periodStart,
       billType: '逾期续租租金', amount: fromCents(amountCents), paidAmount: '0.00', status: '待收',
-      notes: `合同到期后继续使用，${periodStart} 至 ${periodEnd} 月租（周期结束日不含）`,
+      notes: `合同到期后继续使用，${periodStart} 至 ${periodEnd}（含），按一期计费`,
     }]
   }))
   if (!bills.length) return { created: 0, amount: '0.00' }

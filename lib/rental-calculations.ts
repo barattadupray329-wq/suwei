@@ -93,22 +93,6 @@ export function periodUnitsBetween(startDate: string, endExclusive: string, unit
   return addCalendarMonths(startDate, months) < endExclusive ? months + 1 : Math.max(1, months)
 }
 
-// 已完整走过的期数（向下取整）：锚点 05-01 到 07-31 只走满 2 个月
-function elapsedUnits(anchorDate: string, date: string, unit: BillingUnit) {
-  if (date <= anchorDate) return 0
-  if (unit === 'daily') return Math.max(0, Math.floor((dateOnly(date).getTime() - dateOnly(anchorDate).getTime()) / DAY_MS))
-  let months = 0
-  while (months < 1200 && addCalendarMonths(anchorDate, months + 1) <= date) months += 1
-  return months
-}
-
-// 覆盖到该日期（不含）所需的期数（向上取整）：锚点 05-01 到 09-01 需要 4 期
-function coveredUnits(anchorDate: string, endExclusive: string, unit: BillingUnit) {
-  const elapsed = elapsedUnits(anchorDate, endExclusive, unit)
-  if (unit === 'daily') return Math.max(1, elapsed)
-  return Math.max(1, addCalendarMonths(anchorDate, elapsed) < endExclusive ? elapsed + 1 : elapsed)
-}
-
 export type BillPeriodRange = { start: number; end: number; span: number }
 
 /** 所有参与合同租金期号的账单类型，供账务、调租、续租和结算统一使用。 */
@@ -136,23 +120,11 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
       // 同一账期可能按设备拆成多笔账单，它们共享期号，不应被误算成后续期数。
       start = previousRange.start
       end = previousRange.end
-    } else if (anchorDate) {
-      try {
-        // 每笔账单按自身覆盖时长计算跨度，再按业务发生顺序连续编号。
-        // 不能用合同起租日直接计算结束期号，否则历史数据中的一天间隔或重叠
-        // 会把一张仅覆盖一个月的续租账单错误扩成两期，并污染所有后续期号。
-        start = cursor + 1
-        // 月租账单存在两种历史边界：同日起止（如 07-12 至 08-12）结束日为不含；
-        // 其他旧账单的 periodEnd 为含当日，因此加一天得到不含边界。
-        const endExclusive = unit === 'monthly' && bill.periodStart.slice(8) === bill.periodEnd.slice(8)
-          ? bill.periodEnd
-          : addCalendarDays(bill.periodEnd, 1)
-        const span = coveredUnits(bill.periodStart, endExclusive, unit)
-        end = start + span - 1
-      } catch {
-        start = cursor + 1
-        end = start
-      }
+    } else {
+      // 业务规则：一张租金账单就是一期。无论该期是整月还是特殊的若干天，
+      // 都不能按日期跨度合并成多期；只有同一账期按设备拆单时共享同一期号。
+      start = cursor + 1
+      end = start
     }
     const range = { start, end, span: end - start + 1 }
     ranges.set(bill.id, range)
@@ -164,10 +136,9 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
   return { ranges, total, unit }
 }
 
-export function billPeriodLabel(range: BillPeriodRange | undefined, unit: BillingUnit = 'monthly') {
-  if (!range) return unit === 'daily' ? '第 1 天' : '第 1 期'
-  const suffix = unit === 'daily' ? '天' : '期'
-  return range.span > 1 ? `第 ${range.start}-${range.end} ${suffix}` : `第 ${range.start} ${suffix}`
+export function billPeriodLabel(range: BillPeriodRange | undefined, _unit: BillingUnit = 'monthly') {
+  if (!range) return '第 1 期'
+  return range.span > 1 ? `第 ${range.start}-${range.end} 期` : `第 ${range.start} 期`
 }
 
 export function billPaymentPeriodSummary<T extends { id: number; periodStart: string; periodEnd: string; dueDate?: string; amount: string | number; paidAmount: string | number }>(
