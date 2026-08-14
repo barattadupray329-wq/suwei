@@ -9,14 +9,24 @@ if (!accountId || !token) throw new Error('缺少 Cloudflare 环境变量')
 
 const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`
 async function query(sql, params = []) {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sql, params }),
-  })
-  const body = await response.json()
-  if (!response.ok || !body.success) throw new Error(JSON.stringify(body.errors || body))
-  return body.result[0]?.results || []
+  let lastError
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql, params }),
+      })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error(JSON.stringify(body.errors || body))
+      return body.result[0]?.results || []
+    } catch (error) {
+      lastError = error
+      if (attempt === 6) break
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1500))
+    }
+  }
+  throw lastError
 }
 const cents = (value) => Math.round(Number(value || 0) * 100)
 const money = (value) => (value / 100).toFixed(2)

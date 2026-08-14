@@ -1,0 +1,13 @@
+{
+  "mode": "dry-run",
+  "today": "2026-08-14",
+  "backupPath": "backups/history-repair/rental-billing-2026-08-14T08-35-53-764Z.json",
+  "statementCount": 0,
+  "changes": {
+    "splitBills": [],
+    "normalizedPeriods": [],
+    "futureBills": [],
+    "deletedPayments": [],
+    "warnings": []
+  }
+}
