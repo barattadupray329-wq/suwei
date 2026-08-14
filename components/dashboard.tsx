@@ -5545,48 +5545,45 @@ function RenewalForm({
         item.lostQuantity >
       0,
   );
-  const [rows, setRows] = useState<Record<number, RenewalInput>>({});
+  const inferredStartPeriod = (item: Item) => {
+    try {
+      return periodNumberAt(rental.startDate, item.endDate || rental.endDate);
+    } catch {
+      return Math.max(1, rental.duration + 1);
+    }
+  };
+  const createRenewalRow = (item: Item): RenewalInput => {
+    const startPeriod = inferredStartPeriod(item);
+    const boundary = billingPeriod(rental.startDate, startPeriod).start;
+    return {
+      rentalItemId: item.id,
+      quantity:
+        item.quantity -
+        item.boughtOutQuantity -
+        item.returnedQuantity -
+        item.lostQuantity,
+      startPeriod,
+      billingUnit: "month",
+      duration: 1,
+      unitPrice: Number(item.monthlyRent),
+      newEndDate: addMonths(boundary, 1),
+      pricePeriods: [{ periods: 1, unitPrice: Number(item.monthlyRent) }],
+      notes: "",
+    };
+  };
+  const [rows, setRows] = useState<Record<number, RenewalInput>>(() =>
+    available.length === 1 ? { [available[0].id]: createRenewalRow(available[0]) } : {},
+  );
   const [settlement, setSettlement] = useState<SettlementInput>({
     timing: "now",
     date: today(),
     method: "微信",
   });
-  const inferredStartPeriod = (item: Item) => {
-    try {
-      return periodNumberAt(
-        rental.startDate,
-        item.endDate || rental.endDate,
-      );
-    } catch {
-      return Math.max(1, rental.duration + 1);
-    }
-  };
   const toggle = (item: Item) =>
     setRows((current) => {
       const next = { ...current };
       if (next[item.id]) delete next[item.id];
-      else {
-        const startPeriod = inferredStartPeriod(item);
-        const boundary = billingPeriod(
-          item.startDate || rental.startDate,
-          startPeriod,
-        ).start;
-        next[item.id] = {
-          rentalItemId: item.id,
-          quantity:
-            item.quantity -
-            item.boughtOutQuantity -
-            item.returnedQuantity -
-            item.lostQuantity,
-          startPeriod,
-          billingUnit: "month",
-          duration: 1,
-          unitPrice: Number(item.monthlyRent),
-          newEndDate: addMonths(boundary, 1),
-          pricePeriods: [{ periods: 1, unitPrice: Number(item.monthlyRent) }],
-          notes: "",
-        };
-      }
+      else next[item.id] = createRenewalRow(item);
       return next;
     });
   const update = (
@@ -5606,33 +5603,7 @@ function RenewalForm({
       allSelected
         ? {}
         : Object.fromEntries(
-            available.map((item) => {
-              const startPeriod = inferredStartPeriod(item);
-              const boundary = billingPeriod(
-                item.startDate || rental.startDate,
-                startPeriod,
-              ).start;
-              return [
-                item.id,
-                {
-                  rentalItemId: item.id,
-                  quantity:
-                    item.quantity -
-                    item.boughtOutQuantity -
-                    item.returnedQuantity -
-                    item.lostQuantity,
-                  startPeriod,
-                  billingUnit: "month" as const,
-                  duration: 1,
-                  unitPrice: Number(item.monthlyRent),
-                  newEndDate: addMonths(boundary, 1),
-                  pricePeriods: [
-                    { periods: 1, unitPrice: Number(item.monthlyRent) },
-                  ],
-                  notes: "",
-                },
-              ];
-            }),
+            available.map((item) => [item.id, createRenewalRow(item)]),
           ),
     );
   const totalQty = selected.reduce((sum, row) => sum + row.quantity, 0);
@@ -5646,6 +5617,12 @@ function RenewalForm({
         ) ?? row.unitPrice * row.duration),
     0,
   );
+  const newEndDates = selected.map((row) => row.newEndDate).sort();
+  const newEndDateSummary = newEndDates.length
+    ? newEndDates[0] === newEndDates.at(-1)
+      ? newEndDates[0]
+      : `${newEndDates[0]} 至 ${newEndDates.at(-1)}`
+    : "—";
   return (
     <form
       onSubmit={(e) => {
@@ -5654,10 +5631,8 @@ function RenewalForm({
       }}
       className="flex flex-col gap-4"
     >
-      <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-        账期按起租日对日计算：例如 5 日起租，每期显示为本月 5 日至次月 4
-        日（含），下一期从次月 5 日当天生效。可用多个价格区间明确设置“第 4 期 90
-        元、第 5–6 期 80 元”，系统不会再把 8 月 1 日错误顺延到 8 月 2 日。
+      <div className="rounded-xl bg-muted p-4 text-sm leading-6 text-muted-foreground">
+        选择设备后，只需填写续租数量、续租月数和月租单价。系统会自动接续当前到期日，并计算新到期日与应收金额。
       </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
         <span className="text-sm text-muted-foreground">
@@ -5714,67 +5689,15 @@ function RenewalForm({
               </label>
               {row && (
                 <>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <Field
                       label="续租数量"
                       type="number"
                       value={row.quantity}
                       onChange={(v) => update(item.id, "quantity", Number(v))}
                     />
-                    <Field
-                      label="从第几期生效"
-                      type="number"
-                      value={row.startPeriod ?? firstPeriodNo ?? 1}
-                      onChange={(v) => {
-                        const startPeriod = Math.max(1, Math.floor(Number(v)));
-                        const boundary = billingPeriod(
-                          anchorDate,
-                          startPeriod,
-                        ).start;
-                        setRows((current) => ({
-                          ...current,
-                          [item.id]: {
-                            ...current[item.id],
-                            startPeriod,
-                            newEndDate: addMonths(
-                              boundary,
-                              current[item.id].duration,
-                            ),
-                          },
-                        }));
-                      }}
-                    />
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      计费方式
-                      <select
-                        className="h-10 rounded-lg border bg-background px-3"
-                        value={row.billingUnit}
-                        onChange={(e) => {
-                          const unit = e.target.value as "month" | "day";
-                          setRows((current) => ({
-                            ...current,
-                            [item.id]: {
-                              ...current[item.id],
-                              billingUnit: unit,
-                              duration: 1,
-                              unitPrice:
-                                unit === "month"
-                                  ? Number(item.monthlyRent)
-                                  : Math.round(
-                                      (Number(item.monthlyRent) / 30) * 100,
-                                    ) / 100,
-                              newEndDate:
-                                unit === "month"
-                                  ? addMonths(currentBoundary, 1)
-                                  : addDays(item.endDate || rental.endDate, 1),
-                            },
-                          }));
-                        }}
-                      >
-                        <option value="month">按月</option>
-                        <option value="day">按天</option>
-                      </select>
-                    </label>
+
+
                     <Field
                       label={`续租${row.billingUnit === "month" ? "月数" : "天数"}`}
                       type="number"
@@ -5832,7 +5755,7 @@ function RenewalForm({
                       }}
                     />
                     <div className="rounded-lg border bg-muted/50 px-3 py-2">
-                      <p className="text-sm font-medium">本次付款与覆盖</p>
+                      <p className="text-sm font-medium">续租结果</p>
                       <p className="mt-1 font-semibold">
                         {money(
                           row.quantity *
@@ -5851,8 +5774,37 @@ function RenewalForm({
                       </p>
                     </div>
                   </div>
-                  {row.billingUnit === "month" && (
-                    <section className="mt-4 rounded-xl border bg-background p-4">
+                  <details className="mt-4 rounded-xl border bg-background">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
+                      高级设置：按天续租或分段调价
+                    </summary>
+                    <div className="flex flex-col gap-4 border-t p-4">
+                      <label className="flex max-w-xs flex-col gap-2 text-sm font-medium">
+                        计费方式
+                        <select
+                          className="h-10 rounded-lg border bg-background px-3"
+                          value={row.billingUnit}
+                          onChange={(e) => {
+                            const unit = e.target.value as "month" | "day";
+                            setRows((current) => ({
+                              ...current,
+                              [item.id]: {
+                                ...current[item.id],
+                                billingUnit: unit,
+                                duration: 1,
+                                unitPrice: unit === "month" ? Number(item.monthlyRent) : Math.round((Number(item.monthlyRent) / 30) * 100) / 100,
+                                newEndDate: unit === "month" ? addMonths(currentBoundary, 1) : addDays(currentBoundary, 1),
+                                pricePeriods: unit === "month" ? [{ periods: 1, unitPrice: Number(item.monthlyRent) }] : [],
+                              },
+                            }));
+                          }}
+                        >
+                          <option value="month">按月续租</option>
+                          <option value="day">按天续租</option>
+                        </select>
+                      </label>
+                      {row.billingUnit === "month" && (
+                    <section className="rounded-xl border bg-muted/20 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <h4 className="font-semibold">分期价格计划</h4>
@@ -6044,7 +5996,9 @@ function RenewalForm({
                         })}
                       </div>
                     </section>
-                  )}
+                      )}
+                    </div>
+                  </details>
                 </>
               )}
               {row && row.quantity > max && (
@@ -6066,9 +6020,10 @@ function RenewalForm({
         value={settlement}
         onChange={setSettlement}
       />
-      <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4">
-        <Info l="本次续租" v={`${totalQty} 台`} />
-        <Info l="续租金额" v={money(renewalTotal)} />
+      <div className="grid gap-3 rounded-xl bg-muted p-4 sm:grid-cols-3">
+        <Info l="续租设备" v={`${selected.length} 项 · ${totalQty} 台`} />
+        <Info l="新到期日" v={newEndDateSummary} />
+        <Info l="续租应收" v={money(renewalTotal)} />
       </div>
       <button
         disabled={
@@ -6093,7 +6048,11 @@ function RenewalForm({
         }
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
-        {pending ? "处理中" : "确认续租"}
+        {pending
+          ? "处理中"
+          : settlement.timing === "now"
+            ? `确认续租并收款 ${money(renewalTotal)}`
+            : `确认续租，生成待收 ${money(renewalTotal)}`}
       </button>
     </form>
   );
@@ -6677,7 +6636,7 @@ function OperationForm({
               {selected && (
                 <div className="mt-2 flex flex-col gap-2">
                   <label className="flex items-center gap-2 text-sm font-medium">
-                    本次数量
+                    本次数���
                     <input
                       type="number"
                       min={1}
@@ -6917,7 +6876,7 @@ function OperationForm({
             className="mt-0.5 size-4 accent-primary"
           />
           <span>
-            <strong>我已核对本次��租结算</strong>
+            <strong>我已核对本次��租���算</strong>
             <span className="mt-1 block text-xs leading-5 text-muted-foreground">
               已确认租金应补/应退、押金退款和损坏扣款三项金额无误。
             </span>
