@@ -90,7 +90,7 @@ export function AuthForm({ mode, accessError = '' }: { mode: 'sign-in' | 'sign-u
         <p className="text-sm opacity-70">短信验证码 5 分钟有效 · 全程加密传输</p>
       </aside>
       <div className="flex w-full flex-col overflow-y-auto p-6 sm:p-8 md:w-2/5 md:p-10 lg:p-12">
-        <div className="flex flex-col gap-2"><p className="text-sm font-semibold text-primary">SUWEI WEB</p><h1 className="text-balance text-3xl font-semibold">{mode === 'sign-up' ? '申请或登录速维租赁' : '登录速维租赁'}</h1><p className="text-sm text-muted-foreground">请选择适合您的登录方式</p></div>
+        <div className="flex flex-col gap-2"><p className="text-sm font-semibold text-primary">SUWEI WEB</p><h1 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">{mode === 'sign-up' ? '申请或登录速维租赁' : '登录速维租赁'}</h1><p className="text-sm text-muted-foreground">请选择适合您的登录方式</p></div>
         {!showApplication ? <>
           <div className="mt-6 flex rounded-xl bg-muted p-1" role="tablist" aria-label="登录方式">
             <button type="button" role="tab" aria-selected={method === 'phone'} onClick={() => { setMethod('phone'); setError('') }} className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium ${method === 'phone' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}><MessageSquareText className="size-4" />客户服务</button>

@@ -119,7 +119,7 @@ export function CustomerPhoneLogin({ embedded = false }: { embedded?: boolean })
           </label>
           <label className="flex flex-col gap-2 text-sm font-medium">
             短信验证码
-            <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setMessage('') }} className="h-12 rounded-xl border bg-background px-4 text-center text-lg tracking-[0.4em] outline-none focus:ring-2 focus:ring-ring" placeholder="请输入 6 位验证码" />
+            <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setMessage('') }} className="h-12 rounded-xl border bg-background px-4 text-center text-base tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring sm:text-lg sm:tracking-[0.4em]" placeholder="请输入 6 位验证码" />
             <span className="text-xs font-normal text-muted-foreground">验证码 5 分钟内有效。未收到时请在倒计时结束后重新获取。</span>
           </label>
           <div className="rounded-xl bg-muted p-4 text-sm">
