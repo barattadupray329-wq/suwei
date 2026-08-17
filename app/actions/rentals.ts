@@ -177,7 +177,10 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const terminalStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '丢失']
   const businessToday = sql<string>`date('now', '+8 hours')`
   const isExpired = sql<boolean>`${rentals.endDate} < ${businessToday} and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
-  const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
+  // 列表财务金额必须以逐期账单为准，不能使用可能包含已冲正历史收款的合同缓存字段。
+  const rentBillTotal = sql<number>`coalesce((select sum(cast(b.amount as real)) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType != '押金' and cast(b.amount as real) > 0), 0)`
+  const rentBillPaid = sql<number>`coalesce((select sum(min(cast(b.amount as real), max(0, cast(b.paidAmount as real)))) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType != '押金' and cast(b.amount as real) > 0), 0)`
+  const hasOutstanding = sql<boolean>`${rentBillPaid} < ${rentBillTotal}`
   const overdueBillAmount = sql<number>`coalesce((select sum(max(0, cast(b.amount as real) - cast(b.paidAmount as real))) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType != '押金' and cast(b.amount as real) > 0 and b.dueDate < ${businessToday}), 0)`
   const hasOverdueBills = sql<boolean>`${overdueBillAmount} > 0`
   if (value.status === '逾期') filters.push(hasOverdueBills)
@@ -192,8 +195,8 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
-  const outstandingAmount = sql<number>`cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real)`
-  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
+  const outstandingAmount = sql<number>`${rentBillTotal} - ${rentBillPaid}`
+  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(rentBillTotal) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
@@ -206,8 +209,8 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
-      initialRentOutstanding: sql<string>`coalesce(sum(max(0, (select coalesce(sum(cast(b.amount as real)), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType = '租金') - cast(${rentals.paidAmount} as real))), 0)`,
-      expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
+      initialRentOutstanding: sql<string>`coalesce(sum((select coalesce(sum(max(0, cast(b.amount as real) - cast(b.paidAmount as real))), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType in ('租金', '起租预收'))), 0)`,
+      expectedReceivable: sql<string>`coalesce(sum(max(0, ${rentBillTotal} - ${rentBillPaid})), 0)`,
       overdueReceivable: sql<string>`coalesce(sum(${overdueBillAmount}), 0)`,
     }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, deviceType: rentals.deviceType, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, overdueAmount: overdueBillAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
@@ -258,8 +261,12 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     // 期数按自然月（日租按天）累计；同账期拆单只计一次，整期全部结清才计入已付。
     const billingUnit = normalizeBillingUnit(row.billingType)
     const periodSummary = billPaymentPeriodSummary(bills, { anchorDate: row.startDate, unit: billingUnit })
+    const totalRent = bills.reduce((sum, bill) => sum + Math.max(0, Number(bill.amount)), 0)
+    const paidAmount = bills.reduce((sum, bill) => sum + Math.min(Math.max(0, Number(bill.amount)), Math.max(0, Number(bill.paidAmount))), 0)
     return {
       ...row,
+      totalRent: totalRent.toFixed(2),
+      paidAmount: paidAmount.toFixed(2),
       quantity,
       deviceSummary,
       deviceDisposition,
