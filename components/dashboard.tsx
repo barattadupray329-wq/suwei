@@ -46,6 +46,7 @@ import {
   changeStatus,
   collectPayment,
   confirmDraftsAsOfficial,
+  correctOriginalRentPrice,
   correctRenewalPrice,
   createRental,
   deleteTestRental,
@@ -730,8 +731,9 @@ export function Dashboard({
     | "new"
     | "detail"
     | "renew"
-    | "correct-renewal"
-    | "payment"
+  | "correct-renewal"
+  | "correct-original-rent"
+  | "payment"
     | "buyout"
     | "history"
     | "return"
@@ -755,6 +757,7 @@ export function Dashboard({
     setSelected((current) => current?.id === selectedId && current !== refreshedRental ? refreshedRental : current);
   }, [rentals, selectedId]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
+const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(null);
   const [changeScenario, setChangeScenario] = useState<ChangeScenario | null>(
     null,
   );
@@ -1762,6 +1765,10 @@ export function Dashboard({
               setSelectedRenewal(record);
               setDialog("correct-renewal");
             }}
+            onCorrectOriginalRent={(item) => {
+              setSelectedOriginalItem(item);
+              setDialog("correct-original-rent");
+            }}
             onBuyout={() => setDialog("buyout")}
             onHistory={() => setDialog("history")}
             onReturn={() => setDialog("return")}
@@ -2123,6 +2130,29 @@ submit={(value) =>
                     reason,
                   }),
                 "续租价格已更正",
+              )
+            }
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "correct-original-rent"}
+        title="更正原始租金"
+        onClose={() => !pending && setDialog("detail")}
+      >
+        {selectedOriginalItem && (
+          <OriginalRentCorrectionForm
+            item={selectedOriginalItem}
+            billingType={selected?.billingType ?? "monthly"}
+            pending={pending}
+            submit={(correctedUnitPrice, reason) =>
+              runInDetail(
+                () => correctOriginalRentPrice({
+                  rentalItemId: selectedOriginalItem.id,
+                  correctedUnitPrice,
+                  reason,
+                }),
+                "原始租金已更正",
               )
             }
           />
@@ -3603,6 +3633,7 @@ type DetailProps = {
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
+  onCorrectOriginalRent: (item: Item) => void;
   onBuyout: () => void;
   onHistory: () => void;
   onReturn: () => void;
@@ -3632,6 +3663,7 @@ function Detail(props: DetailProps) {
     onPayment,
     onRenew,
     onCorrectRenewal,
+    onCorrectOriginalRent,
     onBuyout,
     onHistory,
     onReturn,
@@ -3884,12 +3916,13 @@ function Detail(props: DetailProps) {
           />
         )}
         {tab === "manage" && (
-          <DetailManage
-            rental={rental}
-            role={role}
-            assignees={assignees}
-            canManageContracts={canManageContracts}
-            onSendNotice={onSendNotice}
+<DetailManage
+  rental={rental}
+  role={role}
+  assignees={assignees}
+  canManageContracts={canManageContracts}
+  onCorrectOriginalRent={onCorrectOriginalRent}
+  onSendNotice={onSendNotice}
             onAssignee={onAssignee}
             onHistory={onHistory}
             onDelete={onDelete}
@@ -4779,6 +4812,7 @@ function DetailManage({
   role,
   assignees,
   canManageContracts,
+  onCorrectOriginalRent,
   onSendNotice,
   onAssignee,
   onHistory,
@@ -4789,6 +4823,7 @@ function DetailManage({
   role: "super_admin" | "admin" | "employee";
   assignees: RentalAssignee[];
   canManageContracts: boolean;
+  onCorrectOriginalRent: (item: Item) => void;
   onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
   onHistory: () => void;
@@ -4797,6 +4832,29 @@ function DetailManage({
 }) {
   return (
     <>
+      {role === "admin" && rental.orderType === "official" && (
+        <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+          <div>
+            <h3 className="font-semibold">更正原始租金</h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              仅用于修正录入错误。原收款不会修改，系统会自动生成补差或减免账单。
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {rental.items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3">
+                <div className="min-w-0 text-sm">
+                  <p className="truncate font-medium">{item.deviceName} · {item.quantity} 台</p>
+                  <p className="text-xs text-muted-foreground">当前{rental.billingType === "daily" ? "日租" : "月租"} {money(item.monthlyRent)} · 原合同金额 {money(item.totalRent)}</p>
+                </div>
+                <button type="button" onClick={() => onCorrectOriginalRent(item)} className="shrink-0 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">
+                  更正单价
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="grid gap-2 sm:grid-cols-2">
         <Link
           href={`/contracts/${rental.id}`}
@@ -5374,6 +5432,55 @@ function addDays(date: string, days = 1) {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
+function OriginalRentCorrectionForm({
+  item,
+  billingType,
+  pending,
+  submit,
+}: {
+  item: Item;
+  billingType: string;
+  pending: boolean;
+  submit: (correctedUnitPrice: number, reason: string) => void;
+}) {
+  const currentUnitPrice = Number(item.monthlyRent);
+  const currentAmount = Number(item.totalRent);
+  const [correctedUnitPrice, setCorrectedUnitPrice] = useState(String(currentUnitPrice));
+  const [reason, setReason] = useState("");
+  const correctedAmount = currentUnitPrice > 0
+    ? Math.round((currentAmount * Number(correctedUnitPrice || 0) / currentUnitPrice) * 100) / 100
+    : 0;
+  const difference = Math.round((correctedAmount - currentAmount) * 100) / 100;
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(Number(correctedUnitPrice), reason);
+      }}
+      className="flex flex-col gap-5"
+    >
+      <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-4 text-sm">
+        <Info l="设备" v={item.deviceName} />
+        <Info l="数量" v={`${item.quantity} 台`} />
+        <Info l={`当前${billingType === "daily" ? "日" : "月"}租`} v={money(currentUnitPrice)} />
+        <Info l="原合同金额" v={money(currentAmount)} />
+      </div>
+      <Field label={`正确${billingType === "daily" ? "日" : "月"}租单价`} type="number" value={correctedUnitPrice} onChange={setCorrectedUnitPrice} />
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        更正原因
+        <textarea required minLength={2} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：录入时误将 100 元写成 80 元" className="min-h-24 rounded-lg border bg-background p-3 font-normal" />
+      </label>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
+        更正后设备合同金额 <strong>{money(correctedAmount)}</strong>，
+        {difference > 0 ? "将新增待收补差" : difference < 0 ? "将生成减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原收款流水不会被修改。
+      </div>
+      <button type="submit" disabled={pending || !reason.trim() || Number(correctedUnitPrice) <= 0 || difference === 0} className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+        {pending ? "正在更正…" : "确认更正原始租金"}
+      </button>
+    </form>
+  );
+}
+
 function RenewalCorrectionForm({
   record,
   pending,

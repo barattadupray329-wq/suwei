@@ -550,6 +550,53 @@ assertNoOutstandingRentBills(existingBills)
 const renewalCorrectionSchema = z.object({ renewalRecordId: z.number().int().positive(), correctedUnitPrice: z.number().positive(), reason: z.string().trim().min(2, '请填写至少 2 个字的更正原因').max(200) })
 export type RenewalCorrectionInput = z.infer<typeof renewalCorrectionSchema>
 
+const originalRentCorrectionSchema = z.object({
+  rentalItemId: z.number().int().positive(),
+  correctedUnitPrice: z.number().positive(),
+  reason: z.string().trim().min(2, '请填写至少 2 个字的更正原因').max(200),
+})
+export type OriginalRentCorrectionInput = z.infer<typeof originalRentCorrectionSchema>
+
+export async function correctOriginalRentPrice(input: OriginalRentCorrectionInput) {
+  const access = await getAccessContext('租赁操作')
+  if (access.role !== 'admin') throw new Error('仅店铺管理员可更正原始租金')
+  const value = originalRentCorrectionSchema.parse(input)
+  const userId = access.userId
+  const [item] = await db.select().from(rentalItems).where(and(eq(rentalItems.id, value.rentalItemId), eq(rentalItems.userId, userId))).limit(1)
+  if (!item) throw new Error('设备明细不存在或不属于当前店铺')
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, item.rentalId), eq(rentals.userId, userId))).limit(1)
+  if (!rental) throw new Error('合同不存在或不属于当前店铺')
+  assertOfficialRental(rental)
+
+  const previousUnitCents = toCents(Number(item.monthlyRent))
+  const correctedUnitCents = toCents(value.correctedUnitPrice)
+  if (previousUnitCents === correctedUnitCents) throw new Error('正确价格与当前价格相同，无需更正')
+  const previousAmountCents = toCents(Number(item.totalRent))
+  if (previousUnitCents <= 0 || previousAmountCents < 0) throw new Error('原设备金额异常，请先联系管理员核对')
+  const correctedAmountCents = Math.round(previousAmountCents * correctedUnitCents / previousUnitCents)
+  const differenceCents = correctedAmountCents - previousAmountCents
+  const newTotalCents = toCents(Number(rental.totalRent)) + differenceCents
+  if (newTotalCents < 0) throw new Error('更正后合同总额不能小于 0')
+  const monthlyDifferenceCents = (correctedUnitCents - previousUnitCents) * item.quantity
+  const newMonthlyCents = toCents(Number(rental.monthlyRent)) + monthlyDifferenceCents
+  const paidCents = toCents(Number(rental.paidAmount))
+  const paymentStatus = paymentStatusFromCents(newTotalCents, paidCents)
+  const correctionDate = new Date().toISOString().slice(0, 10)
+  const differenceAmount = fromCents(differenceCents)
+
+  await db.batch([
+    db.update(rentalItems).set({ monthlyRent: fromCents(correctedUnitCents), totalRent: fromCents(correctedAmountCents), updatedAt: new Date() }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId))),
+    db.insert(receivableBills).values({ userId, rentalId: rental.id, billNo: `ORIGINAL-ADJ-${item.id}-${Date.now()}`, periodStart: item.startDate ?? rental.startDate, periodEnd: item.endDate ?? rental.endDate, dueDate: correctionDate, billType: differenceCents > 0 ? '原租金补差' : '原租金减免', amount: differenceAmount, paidAmount: '0', status: differenceCents > 0 ? '待收' : '已调整', notes: `${item.deviceName} 原始租金更正：${value.reason}` }),
+    db.insert(rentalEvents).values({ userId, rentalId: rental.id, itemId: item.id, eventType: '原始租金更正', status: '已完成', eventDate: correctionDate, beforeSnapshot: { unitPrice: fromCents(previousUnitCents), amount: fromCents(previousAmountCents) }, afterSnapshot: { unitPrice: fromCents(correctedUnitCents), amount: fromCents(correctedAmountCents) }, reason: value.reason, feeAdjustment: differenceAmount, operatorName: access.actorName, notes: differenceCents > 0 ? '生成原租金补差应收' : '生成原租金减免调整' }),
+    db.update(rentals).set({ monthlyRent: fromCents(newMonthlyCents), totalRent: fromCents(newTotalCents), paymentStatus, updatedAt: new Date() }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId))),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '更正原始租金', resourceType: '租赁设备', resourceId: String(item.id), summary: `${rental.contractNo} ${item.deviceName} 原始单价 ${fromCents(previousUnitCents)} 元更正为 ${fromCents(correctedUnitCents)} 元，差额 ${differenceAmount} 元`, metadata: { rentalId: rental.id, itemId: item.id, previousUnitPrice: fromCents(previousUnitCents), correctedUnitPrice: fromCents(correctedUnitCents), previousAmount: fromCents(previousAmountCents), correctedAmount: fromCents(correctedAmountCents), differenceAmount, reason: value.reason } }),
+  ])
+  revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/audit-logs')
+  return { ok: true }
+}
+
 export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const access = await getAccessContext('租赁操作')
   if (access.role !== 'admin') throw new Error('仅店铺管理员可更正续租价格')
