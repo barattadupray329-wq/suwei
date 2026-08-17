@@ -10,6 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { RentalWorkspaceTabs } from "@/components/rental-workspace-tabs";
 import {
   BellRing,
   CheckSquare,
@@ -689,6 +690,38 @@ export function BusinessOverview({
   );
 }
 
+type WorkspaceDialog =
+  | "new"
+  | "detail"
+  | "renew"
+  | "correct-renewal"
+  | "correct-original-rent"
+  | "payment"
+  | "buyout"
+  | "history"
+  | "return"
+  | "loss"
+  | "change"
+  | "repair"
+  | "deposit"
+  | "exchange"
+  | "change-guide"
+  | "delete-confirm"
+  | "confirm-draft"
+  | "reverse-payment"
+  | null;
+
+type RentalWorkspace = {
+  rentalId: number;
+  dialog: Exclude<WorkspaceDialog, "new" | null>;
+  dirty: boolean;
+};
+
+type WorkspaceFieldSnapshot = Array<{
+  value: string;
+  checked?: boolean;
+}>;
+
 export function Dashboard({
   role,
   permissions,
@@ -727,28 +760,18 @@ export function Dashboard({
   const [sort, setSort] = useState<"newest" | "due" | "amount">("newest");
   const [checked, setChecked] = useState<number[]>([]);
   const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState<
-    | "new"
-    | "detail"
-    | "renew"
-  | "correct-renewal"
-  | "correct-original-rent"
-  | "payment"
-    | "buyout"
-    | "history"
-    | "return"
-    | "loss"
-    | "change"
-    | "repair"
-    | "deposit"
-    | "exchange"
-    | "change-guide"
-    | "delete-confirm"
-    | "confirm-draft"
-    | "reverse-payment"
-    | null
-  >(initialNew ? "new" : linkedRental ? "detail" : null);
+  const [dialog, setDialog] = useState<WorkspaceDialog>(
+    initialNew ? "new" : linkedRental ? "detail" : null,
+  );
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
+  const [workspaces, setWorkspaces] = useState<RentalWorkspace[]>(
+    linkedRental ? [{ rentalId: linkedRental.id, dialog: "detail", dirty: false }] : [],
+  );
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(
+    linkedRental?.id ?? null,
+  );
+  const workspaceSnapshots = useRef(new Map<number, WorkspaceFieldSnapshot>());
+  const listScrollPosition = useRef(0);
   const selectedId = selected?.id ?? null;
   useEffect(() => {
     if (selectedId === null) return;
@@ -770,6 +793,14 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
   const [deleteReason, setDeleteReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
+  useEffect(() => {
+    if (activeWorkspaceId === null || dialog === null || dialog === "new") return;
+    setWorkspaces((current) => current.map((workspace) => workspace.rentalId === activeWorkspaceId ? { ...workspace, dialog } : workspace));
+    if (dialog === "detail") {
+      workspaceSnapshots.current.delete(activeWorkspaceId);
+      setWorkspaces((current) => current.map((workspace) => workspace.rentalId === activeWorkspaceId ? { ...workspace, dirty: false } : workspace));
+    }
+  }, [activeWorkspaceId, dialog]);
   const todayValue = today();
   const overdueAmount = (r: Rental) => rentalOverdueAmount(r, todayValue);
   const isRentalOverdue = (r: Rental) =>
@@ -886,6 +917,89 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
     (effectivePage - 1) * pageSize,
     effectivePage * pageSize,
   );
+  const captureWorkspace = (rentalId: number | null) => {
+    if (rentalId === null || dialog === "detail" || dialog === "history" || dialog === null) return;
+    const modal = document.querySelector<HTMLElement>('[role="dialog"]');
+    if (!modal) return;
+    const fields = Array.from(modal.querySelectorAll('input, select, textarea')) as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+    if (!fields.length) return;
+    workspaceSnapshots.current.set(
+      rentalId,
+      fields.map((field) => ({
+        value: field.value,
+        ...(field instanceof HTMLInputElement && (field.type === "checkbox" || field.type === "radio")
+          ? { checked: field.checked }
+          : {}),
+      })),
+    );
+    setWorkspaces((current) => current.map((workspace) => workspace.rentalId === rentalId ? { ...workspace, dialog: (dialog ?? "detail") as RentalWorkspace["dialog"], dirty: true } : workspace));
+  };
+  const restoreWorkspace = (rentalId: number) => {
+    const snapshot = workspaceSnapshots.current.get(rentalId);
+    if (!snapshot) return;
+    window.requestAnimationFrame(() => {
+      const modal = document.querySelector<HTMLElement>('[role="dialog"]');
+      const fields = modal ? Array.from(modal.querySelectorAll('input, select, textarea')) as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> : [];
+      fields.forEach((field, index) => {
+        const saved = snapshot[index];
+        if (!saved) return;
+        const valueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
+        valueSetter?.call(field, saved.value);
+        if (field instanceof HTMLInputElement && saved.checked !== undefined) field.checked = saved.checked;
+        field.dispatchEvent(new Event(field instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+      });
+    });
+  };
+  const syncWorkspaceUrl = (rentalId: number | null) => {
+    const url = new URL(window.location.href);
+    if (rentalId === null) url.searchParams.delete("rental");
+    else url.searchParams.set("rental", String(rentalId));
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  };
+  const activateWorkspace = (rentalId: number | null) => {
+    captureWorkspace(activeWorkspaceId);
+    if (rentalId === null) {
+      setActiveWorkspaceId(null);
+      setSelected(null);
+      setDialog(null);
+      syncWorkspaceUrl(null);
+      window.requestAnimationFrame(() => window.scrollTo({ top: listScrollPosition.current }));
+      return;
+    }
+    const workspace = workspaces.find((item) => item.rentalId === rentalId);
+    const rental = rentals.find((item) => item.id === rentalId);
+    if (!workspace || !rental) return;
+    setActiveWorkspaceId(rentalId);
+    setSelected(rental);
+    setDialog(workspace.dialog);
+    syncWorkspaceUrl(rentalId);
+    restoreWorkspace(rentalId);
+  };
+  const closeWorkspace = (rentalId: number) => {
+    const workspace = workspaces.find((item) => item.rentalId === rentalId);
+    const hasOpenForm = activeWorkspaceId === rentalId && dialog !== null && !["detail", "history"].includes(dialog);
+    if (pending) return toast.error("操作正在提交，请稍后关闭窗口");
+    if ((workspace?.dirty || hasOpenForm) && !window.confirm("该窗口有未提交内容，确认关闭并放弃吗？")) return;
+    workspaceSnapshots.current.delete(rentalId);
+    const next = workspaces.filter((item) => item.rentalId !== rentalId);
+    setWorkspaces(next);
+    if (activeWorkspaceId === rentalId) {
+      const fallback = next.at(-1)?.rentalId ?? null;
+      if (fallback === null) {
+        setActiveWorkspaceId(null);
+        setSelected(null);
+        setDialog(null);
+        syncWorkspaceUrl(null);
+      } else {
+        const rental = rentals.find((item) => item.id === fallback) ?? null;
+        setActiveWorkspaceId(fallback);
+        setSelected(rental);
+        setDialog(next.at(-1)?.dialog ?? "detail");
+        syncWorkspaceUrl(fallback);
+        restoreWorkspace(fallback);
+      }
+    }
+  };
   const run = (
     fn: () => Promise<void | { ok: boolean; message?: string }>,
     message: string,
@@ -900,6 +1014,10 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
           return;
         }
         toast.success(message);
+        if (activeWorkspaceId !== null) {
+          workspaceSnapshots.current.delete(activeWorkspaceId);
+          setWorkspaces((current) => current.map((workspace) => workspace.rentalId === activeWorkspaceId ? { ...workspace, dialog: successDialog === "detail" ? "detail" : workspace.dialog, dirty: false } : workspace));
+        }
         setDialog(successDialog);
         router.refresh();
       } catch (error) {
@@ -916,16 +1034,26 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
       router.push(`/rentals?rental=${r.id}`);
       return;
     }
+    captureWorkspace(activeWorkspaceId);
+    if (!workspaces.some((workspace) => workspace.rentalId === r.id)) {
+      if (workspaces.length >= 8) {
+        toast.error("最多同时打开 8 个订单，请先关闭不需要的窗口");
+        return;
+      }
+      setWorkspaces((current) => [...current, { rentalId: r.id, dialog: "detail", dirty: false }]);
+    }
+    listScrollPosition.current = window.scrollY;
+    setActiveWorkspaceId(r.id);
     setSelected(r);
     setDialog("detail");
+    syncWorkspaceUrl(r.id);
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
       window.location.assign(returnHref);
       return;
     }
-    setDialog(null);
-    setSelected(null);
+    activateWorkspace(null);
   };
   const confirmSelectedDraft = () => {
     if (!selected || selected.orderType !== "draft") return;
@@ -1223,6 +1351,41 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
                 </strong>
               </span>
             </section>
+          )}
+          {mode === "management" && selected && (
+            <RentalWorkspaceTabs activeRental={{ id: selected.id, contractNo: selected.contractNo, customerName: selected.customerCompany || selected.customerName }} listHref={returnHref} />
+          )}
+          {mode === "management" && false && (
+            <nav aria-label="订单工作区" className="flex items-center gap-2 overflow-x-auto rounded-xl border bg-card p-2">
+              <button
+                type="button"
+                onClick={() => activateWorkspace(null)}
+                className={`h-11 shrink-0 rounded-lg px-4 text-sm font-semibold transition-colors ${activeWorkspaceId === null ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-border"}`}
+              >
+                租赁列表
+              </button>
+              {workspaces.map((workspace) => {
+                const rental = rentals.find((item) => item.id === workspace.rentalId);
+                if (!rental) return null;
+                const active = workspace.rentalId === activeWorkspaceId;
+                const currentDialog = active ? dialog : workspace.dialog;
+                const operationLabel = currentDialog && !["detail", "history"].includes(currentDialog)
+                  ? ({ renew: "续租中", payment: "收款中", return: "退租中", buyout: "买断中", repair: "维修中", exchange: "换机中", loss: "丢失登记", deposit: "押金办理", change: "调整中", "change-guide": "变更中", "correct-renewal": "价格更正", "correct-original-rent": "原租金更正", "reverse-payment": "冲正中", "delete-confirm": "撤销确认", "confirm-draft": "转正确认" } as Record<string, string>)[currentDialog] ?? "办理中"
+                  : "订单详情";
+                return (
+                  <div key={workspace.rentalId} className={`flex h-11 shrink-0 items-center rounded-lg border transition-colors ${active ? "border-primary bg-primary/10" : "bg-background hover:bg-muted"}`}>
+                    <button type="button" onClick={() => activateWorkspace(workspace.rentalId)} className="flex h-full min-w-0 items-center gap-2 px-3 text-left">
+                      {workspace.dirty && <span className="size-2 shrink-0 rounded-full bg-destructive" aria-label="有未提交内容" />}
+                      <span className="max-w-40 truncate text-sm font-semibold">{rental.contractNo}</span>
+                      <span className="max-w-24 truncate text-xs text-muted-foreground">{operationLabel}</span>
+                    </button>
+                    <button type="button" aria-label={`关闭 ${rental.contractNo}`} onClick={() => closeWorkspace(workspace.rentalId)} className="mr-1 rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-foreground">
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </nav>
           )}
           <div
             className="flex gap-2 overflow-x-auto pb-1"
