@@ -56,12 +56,32 @@ function deviceStatus(items: Row[]): Row[] {
   })
 }
 
+function deviceTypeSummary(items: Row[]) {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    if (item.renting <= 0) continue
+    const type = item.deviceType === '主机' ? '台式机' : (item.deviceType || '其他设备')
+    counts.set(type, (counts.get(type) || 0) + item.renting)
+  }
+  const order = ['台式机', '笔记本', '显示器', '一体机']
+  return Array.from(counts.entries()).sort(([left], [right]) => {
+    const leftIndex = order.indexOf(left)
+    const rightIndex = order.indexOf(right)
+    return (leftIndex < 0 ? order.length : leftIndex) - (rightIndex < 0 ? order.length : rightIndex) || left.localeCompare(right, 'zh-CN')
+  })
+}
+
 export function PortalDashboard({ token, data, preview = false }: { token?: string; data: Row; preview?: boolean }) {
   const contracts: Row[] = [...data.contracts].sort((a, b) => contractRank(a) - contractRank(b) || a.endDate.localeCompare(b.endDate))
   const active = contracts.filter((contract) => ACTIVE_STATUS.includes(contract.status))
   const ended = contracts.filter((contract) => !ACTIVE_STATUS.includes(contract.status)).sort((a, b) => (b.updatedAt || '').toString().localeCompare((a.updatedAt || '').toString()))
   const allDevices = deviceStatus(data.items)
-  const rentingTotal = allDevices.reduce((sum, item) => sum + (ACTIVE_STATUS.includes(contracts.find((c) => c.id === item.rentalId)?.status) ? item.renting : 0), 0)
+  const activeContractIds = new Set(active.map((contract) => contract.id))
+  const activeDevices = allDevices.filter((item) => activeContractIds.has(item.rentalId))
+  const rentingTotal = activeDevices.reduce((sum, item) => sum + item.renting, 0)
+  const rentingByType = deviceTypeSummary(activeDevices)
+  const rentingTypeCounts = new Map(rentingByType)
+  const rentingTypeDetail = ['台式机', '笔记本', '显示器', '一体机'].map((type) => `${type} ${rentingTypeCounts.get(type) || 0} 台`).join(' · ')
   const currentDueTotal = billing(data.bills).currentDue
   const deposit = data.ledger.reduce((sum: number, entry: Row) => sum + (entry.entryType === '押金收取' ? num(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(num(entry.amount)) : 0), 0)
   const levelLabels: Record<string, string> = { silver: '银牌', gold: '金牌', diamond: '钻石', king: '王者' }
@@ -72,7 +92,7 @@ export function PortalDashboard({ token, data, preview = false }: { token?: stri
 
     <div className="mx-auto -mt-6 flex max-w-3xl flex-col gap-5 px-4">
       <section className="grid grid-cols-2 gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-4">
-        <Summary icon={<Monitor/>} label="在租设备" value={`${rentingTotal} 台`}/>
+        <Summary icon={<Monitor/>} label="在租设备" value={`${rentingTotal} 台`} detail={rentingTypeDetail}/>
         <Summary icon={<CalendarClock/>} label="进行中合同" value={`${active.length} 份`}/>
         <Summary icon={<Banknote/>} label="当前待付" value={money(currentDueTotal)} highlight={currentDueTotal > 0}/>
         <Summary icon={<ShieldCheck/>} label="押金余额" value={money(deposit)}/>
@@ -95,13 +115,7 @@ function ContractCard({ contract, data, devices, archived }: { contract: Row; da
   const soon = ACTIVE_STATUS.includes(contract.status) && remaining >= 0 && remaining <= 30
   const bill = billing(rowsBy(data.bills, contract.id))
   const rentingCount = devices.reduce((sum, item) => sum + item.renting, 0)
-  const typeCounts = new Map<string, number>()
-  for (const item of devices) {
-    if (item.renting <= 0) continue
-    const type = item.deviceType === '台式机' ? '主机' : (item.deviceType || '其他设备')
-    typeCounts.set(type, (typeCounts.get(type) || 0) + item.renting)
-  }
-  const rentingByType = Array.from(typeCounts.entries())
+  const rentingByType = deviceTypeSummary(devices)
   return <details className="group rounded-2xl border bg-card shadow-sm open:ring-1 open:ring-border" open={!archived && (overdue || soon)}>
     <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap items-center gap-2 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{rentingByType.map(([type, count]) => <span key={type} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{type} ×{count}</span>)}{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">已付覆盖至 {day(bill.paidThrough)}（不含）</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
     <div className="flex flex-col gap-5 border-t p-4">
@@ -114,8 +128,8 @@ function ContractCard({ contract, data, devices, archived }: { contract: Row; da
   </details>
 }
 
-function Summary({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: string; highlight?: boolean }) {
-  return <div className={`rounded-xl p-3 ${highlight ? 'bg-destructive/10' : 'bg-muted'}`}><span className={highlight ? 'text-destructive [&>svg]:size-5' : 'text-primary [&>svg]:size-5'}>{icon}</span><p className="mt-3 text-xs text-muted-foreground">{label}</p><p className={`mt-1 font-bold ${highlight ? 'text-destructive' : ''}`}>{value}</p></div>
+function Summary({ icon, label, value, detail, highlight }: { icon: React.ReactNode; label: string; value: string; detail?: string; highlight?: boolean }) {
+  return <div className={`rounded-xl p-3 ${highlight ? 'bg-destructive/10' : 'bg-muted'}`}><span className={highlight ? 'text-destructive [&>svg]:size-5' : 'text-primary [&>svg]:size-5'}>{icon}</span><p className="mt-3 text-xs text-muted-foreground">{label}</p><p className={`mt-1 font-bold ${highlight ? 'text-destructive' : ''}`}>{value}</p>{detail ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p> : null}</div>
 }
 function Block({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><span className="text-primary [&>svg]:size-4">{icon}</span>{title}</h3><div className="flex flex-col gap-2">{Array.isArray(children) && children.filter(Boolean).length === 0 ? <p className="text-sm text-muted-foreground">暂无记录</p> : (children || <p className="text-sm text-muted-foreground">暂无记录</p>)}</div></section>
