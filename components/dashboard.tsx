@@ -1017,7 +1017,7 @@ export function Dashboard({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = `租���合同-${today()}.csv`;
+    link.download = `租赁合同-${today()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success(`已导出 ${selectedRentals.length} 份合同`);
@@ -1471,7 +1471,7 @@ export function Dashboard({
                 ))}
                 {!overdueCustomers.length && (
                   <p className="p-10 text-center text-sm text-muted-foreground">
-                    暂无��期客户
+                    暂无逾期客户
                   </p>
                 )}
               </div>
@@ -1558,7 +1558,7 @@ export function Dashboard({
                       <th className="p-3">设备明细</th>
                       <th className="p-3">数量</th>
                       <th className="p-3">租期</th>
-                      <th className="p-3">租��总额</th>
+                      <th className="p-3">租金总额</th>
                       <th className="p-3">状态</th>
                     </tr>
                   </thead>
@@ -1733,7 +1733,7 @@ export function Dashboard({
             onSendNotice={() =>
               start(async () => {
                 const result = await sendRentalCreatedNotice(selected.id);
-                if (result.ok) toast.success("初始租�����通���已发送");
+                if (result.ok) toast.success("初始租赁通知已发送");
                 else toast.error(result.message);
               })
             }
@@ -1799,7 +1799,7 @@ export function Dashboard({
               <div className="flex items-start gap-3">
                 <ClipboardPenLine className="mt-0.5 size-5 shrink-0 text-primary" />
                 <div>
-                  <p className="font-semibold">请在转正���完成最后核对</p>
+                  <p className="font-semibold">请在转正前完成最后核对</p>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     这项操作会将草稿纳入正式经营和财务数据，转正后不能删除。
                   </p>
@@ -1821,7 +1821,7 @@ export function Dashboard({
             </dl>
 
             <div className="flex flex-col gap-3">
-              <p className="text-sm font-semibold">确认���系统将自动完成</p>
+              <p className="text-sm font-semibold">确认后系统将自动完成</p>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
                   <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -2234,7 +2234,7 @@ submit={(value) =>
                   createRepairRecords(
                     validateBusinessBatch(values, (value) => value.itemId),
                   ),
-                "维修记录已���存",
+                "维修记录已保存",
               )
             }
           />
@@ -2411,7 +2411,7 @@ const configTemplates: Record<
     {
       name: "办公显示器",
       values: {
-        deviceName: "���公显示器",
+        deviceName: "办公显示器",
         screenSize: "24 英寸",
         screenResolution: "1920 × 1080",
         refreshRate: "75Hz",
@@ -2666,7 +2666,7 @@ function RentalForm({
   };
   const validate = () => {
     if (step === 0 && form.customerName.trim().length < 2)
-      return "联系人姓名至少需要 2 ��字";
+      return "联系人姓名至少需要 2 个字";
     if (step === 0 && !/^1\d{10}$/.test(form.customerPhone.trim()))
       return "请输入正确的 11 位手机号";
     if (step === 1) {
@@ -4638,7 +4638,7 @@ function DetailRecords({
       <div className="mb-4">
         <h3 className="font-semibold">业务时间轴</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          按发生时间统一查看续租、退租、买断、换机、���修和费用调整
+          按发生时间统一查看续租、退租、买断、换机、维修和费用调整
         </p>
       </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">
@@ -4819,7 +4819,7 @@ function DetailManage({
           className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted"
         >
           <BellRing className="size-4 text-primary" />
-          发送初���租赁通知
+          发送初始租赁通知
         </button>
       </section>
       {!["在租", "买断"].includes(rental.status) && (
@@ -5018,7 +5018,7 @@ function LegacyDetail({
         <Info l="联系电话" v={rental.customerPhone} />
         <Info l="租期" v={`${rental.startDate} 至 ${rental.endDate}`} />
         <Info l="状态" v={rental.status} />
-        <Info l="设备总数" v={`${rental.quantity} ��`} />
+        <Info l="设备总数" v={`${rental.quantity} 台`} />
         <Info l="租金总额" v={money(rental.totalRent)} />
         <Info l="已收租金" v={money(rental.paidAmount)} />
         <Info l="约定押金" v={money(rental.deposit)} />
@@ -5457,7 +5457,7 @@ function RenewalCorrectionForm({
           }
           className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
         >
-          {pending ? "正在更正…" : "确认差额��正"}
+          {pending ? "正在更正…" : "确认差额更正"}
         </button>
       </div>
     </form>
@@ -6634,7 +6634,7 @@ function OperationForm({
               {selected && (
                 <div className="mt-2 flex flex-col gap-2">
                   <label className="flex items-center gap-2 text-sm font-medium">
-                    本次数���
+                    本次数量
                     <input
                       type="number"
                       min={1}
@@ -6874,7 +6874,7 @@ function OperationForm({
             className="mt-0.5 size-4 accent-primary"
           />
           <span>
-            <strong>我已核对本次��租���算</strong>
+            <strong>我已核对本次退租结算</strong>
             <span className="mt-1 block text-xs leading-5 text-muted-foreground">
               已确认租金应补/应退、押金退款和损坏扣款三项金额无误。
             </span>
@@ -7145,7 +7145,7 @@ function ExchangeForm({
       </section>
       {!selected.length && (
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-          请先选择需要换机的设备，每台原设备可分别填写新���备信息。
+          请先选择需要换机的设备，每台原设备可分别填写新设备信息。
         </p>
       )}
       {rows[activeId] && (
@@ -7887,7 +7887,7 @@ function RepairForm({
           onChange={(repairCost) => update({ repairCost: Number(repairCost) })}
         />
         <Field
-          label="���户承担金���（元）"
+          label="客户承担金额（元）"
           type="number"
           value={value.customerCharge}
           onChange={(customerCharge) =>

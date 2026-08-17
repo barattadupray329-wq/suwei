@@ -2,8 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const sourceRoots = ['app', 'components', 'lib']
-const sourceExtensions = new Set(['.ts', '.tsx'])
+const sourceRoots = ['app', 'components', 'lib', 'scripts']
+const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.mjs'])
 const suspiciousText = [/�/, /銆|鈥|鈴|闂|鏃|鍔|绠|鍚|姝|浜|杩|鏈|鐨|褰|鎴|璇|鍏|鍒/]
 
 function sourceFiles(directory: string): string[] {

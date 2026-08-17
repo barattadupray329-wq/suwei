@@ -399,7 +399,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     const depositPaymentId = rentalId + 11
     const paidRent = collectRent ? totalRent : 0
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: String(paidRent), paymentStatus: collectRent ? '已结���' : '待收款', status: '在租' }),
+      db.insert(rentals).values({ id: rentalId, userId, sourceUserId: access.actorId, sourceName: access.actorName, assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name, orderType, lifecycleStatus: 'active', confirmedAt: orderType === 'official' ? new Date() : null, confirmedBy: orderType === 'official' ? access.actorId : null, contractNo, customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress, startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes: [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n'), deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: normalizedItems[0].deviceCode, deviceConfig: first.deviceConfig, quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), paidAmount: String(paidRent), paymentStatus: collectRent ? '已结清' : '待收款', status: '在租' }),
       ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
@@ -557,7 +557,7 @@ export type RenewalCorrectionInput = z.infer<typeof renewalCorrectionSchema>
 
 export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const access = await getAccessContext('租赁操作')
-  if (access.role !== 'admin') throw new Error('仅店铺管理员可��更正续租价格')
+  if (access.role !== 'admin') throw new Error('仅店铺管理员可更正续租价格')
   const value = renewalCorrectionSchema.parse(input)
   const userId = access.userId
   const [renewal] = await db.select().from(renewalRecords).where(and(eq(renewalRecords.id, value.renewalRecordId), eq(renewalRecords.userId, userId))).limit(1)
@@ -839,7 +839,7 @@ export async function changeStatus(id: number, status: string) {
     db.update(rentals).set({ status, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
     db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '变更状态', resourceType: '租赁合同', resourceId: String(id), summary: `合同状态变更为 ${status}`, metadata: { status } }),
   ]
-  if (status === '已关闭') statements.push(db.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已��成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' }))
+  if (status === '已关闭') statements.push(db.insert(rentalEvents).values({ userId: access.userId, rentalId: id, eventType: '管理员关闭订单', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), operatorName: access.actorName, reason: '测试或无效订单关闭' }))
   await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
 }
@@ -919,7 +919,7 @@ export async function restoreRental(id: number) {
 
 export async function permanentlyDeleteRental(id: number) {
   const access = await getAccessContext('租赁操作')
-  if (access.role === 'employee') throw new Error('只有��理员可以彻底删除订单')
+  if (access.role === 'employee') throw new Error('只有管理员可以彻底删除订单')
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId), eq(rentals.lifecycleStatus, 'trash')))
   if (!rental || rental.orderType === 'official') throw new Error('仅回收站中的草稿或测试合同可彻底删除')
   const related = await Promise.all([
