@@ -60,6 +60,15 @@ export function renewalAdjustment(quantity: number, duration: number, currentAmo
   return { correctedAmount: fromCents(correctedAmountCents), differenceAmount: fromCents(differenceCents) }
 }
 
+export function assertNoOutstandingRentBills<T extends { id: number; billType: string; periodStart: string; periodEnd: string; amount: number | string; paidAmount: number | string }>(bills: T[]) {
+  const open = bills
+    .filter((bill) => bill.billType !== '押金' && toCents(bill.amount) > toCents(bill.paidAmount))
+    .sort((left, right) => left.periodStart.localeCompare(right.periodStart) || left.id - right.id)
+  if (!open.length) return
+  const earliest = open[0]
+  throw new Error(`请先处理 ${earliest.periodStart} 至 ${earliest.periodEnd} 的未收租金，再办理后续续租`)
+}
+
 export type BillState = '已结清' | '部分收款' | '逾期' | '即将到期' | '待付款'
 
 export function billState(amount: number | string, paidAmount: number | string, dueDate: string, currentDate: string, warningDays = 7): BillState {

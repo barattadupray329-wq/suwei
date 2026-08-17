@@ -9,7 +9,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentalPricePeriods, rentals, returnRecords, user } from '@/lib/db/schema'
 import { billingPeriod, periodNumberAt } from '@/lib/billing-periods'
-import { billPaymentPeriodSummary, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { assertNoOutstandingRentBills, billPaymentPeriodSummary, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -476,13 +476,8 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
   if (!rental) throw new Error('租赁合同不存在')
   assertOfficialRental(rental)
   const operationDate = new Date().toISOString().slice(0, 10)
-  const priorOpenRentBills = (await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId))))
-    .filter((bill) => bill.billType !== '押金' && toCents(bill.amount) > toCents(bill.paidAmount))
-    .sort((left, right) => left.periodStart.localeCompare(right.periodStart) || left.id - right.id)
-  if (priorOpenRentBills.length) {
-    const earliest = priorOpenRentBills[0]
-    throw new Error(`请先处理 ${earliest.periodStart} 至 ${earliest.periodEnd} 的未收租金，再办理后续续租`)
-  }
+const existingBills = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId)))
+assertNoOutstandingRentBills(existingBills)
   let addedRent = 0
     for (const value of values) {
       const [item] = await tx.select().from(rentalItems).where(and(eq(rentalItems.id, value.rentalItemId), eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId)))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCalendarMonths, billCoverageLabel, billPaymentPeriodSummary, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, isRentChargeBillType, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
+import { addCalendarMonths, assertNoOutstandingRentBills, billCoverageLabel, billPaymentPeriodSummary, billPeriodLabel, billPeriodRanges, billState, dueBillsAsOf, fromCents, isDueWithin, isRentChargeBillType, nextOpenBill, normalizeBillingUnit, periodUnitsBetween, renewalAdjustment, renewalAmount, rentalEndDate, toCents } from '../lib/rental-calculations'
 
 describe('租赁日期计算', () => {
   it('日租首尾日期均计费', () => expect(rentalEndDate('2026-07-22', 30, 'daily')).toBe('2026-08-20'))
@@ -41,6 +41,14 @@ describe('预收与续租账单', () => {
     expect(dueBillsAsOf([bill], '2026-08-05')).toEqual([bill])
     expect(billState('100', '0', '2026-08-05', '2026-08-05')).not.toBe('逾期')
     expect(billState('100', '0', '2026-08-05', '2026-08-06')).toBe('逾期')
+  })
+  it('存在未收租金时阻止生成后续续租账单，押金不阻断', () => {
+    const bills = [
+      { id: 2, billType: '逾期租金', periodStart: '2026-07-13', periodEnd: '2026-08-12', amount: '90', paidAmount: '0' },
+      { id: 1, billType: '押金', periodStart: '2026-03-13', periodEnd: '2026-03-13', amount: '500', paidAmount: '0' },
+    ]
+    expect(() => assertNoOutstandingRentBills(bills)).toThrow('请先处理 2026-07-13 至 2026-08-12 的未收租金')
+    expect(() => assertNoOutstandingRentBills([{ ...bills[0], paidAmount: '90' }, bills[1]])).not.toThrow()
   })
   it('按结清、部分收款、逾期、即将到期和待付款区分状态', () => {
     expect(billState('100', '100', '2026-06-01', '2026-06-10')).toBe('已结清')
@@ -137,7 +145,7 @@ describe('期数按自然月累计', () => {
     expect(ranges.get(3)).toEqual({ start: 3, end: 3, span: 1 })
     expect(billPaymentPeriodSummary(bills, { anchorDate: '2025-09-12' })).toEqual({ total: 3, paid: 2, unpaid: 1 })
   })
-  it('一天间隔和边界重叠不会把一个月续租账单扩成两期', () => {
+  it('一天间隔和边界重叠��会把一个月续租账单扩成两期', () => {
     const bills = [
       bill(1, '2026-05-07', '2026-07-06'),
       bill(2, '2026-07-08', '2026-08-07'),
