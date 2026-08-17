@@ -50,13 +50,11 @@ export async function authenticateCustomerPortal(token: string, phone: string, p
   await setPortalSession(portal.id, portal.sessionVersion)
 }
 
-export async function getCustomerPortalData(token: string) {
-  const portal = await sessionPortal()
-  if (!portal || portal.accessTokenHash !== digest(token)) return null
+async function loadCustomerPortalData(portal: typeof customerPortals.$inferSelect) {
   const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, portal.userId), eq(rentals.customerPhone, portal.phone)))
   const ids = contracts.map((contract) => contract.id)
   const empty = { items: [], bills: [], payments: [], discounts: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
-  if (!ids.length) return { portal, settings: null, contracts: [], ...empty }
+  if (!ids.length) return { portal, settings: null, manager: null, contracts: [], ...empty }
   const [items, bills, payments, discounts, ledger, renewals, buyouts, returns, events, [settings], [assignee]] = await Promise.all([
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, portal.userId), inArray(rentalItems.rentalId, ids))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, portal.userId), inArray(receivableBills.rentalId, ids))),
@@ -72,4 +70,18 @@ export async function getCustomerPortalData(token: string) {
   ])
   const manager = { name: assignee?.name || settings?.contactName || '门店客服', title: '客户经理', phone: assignee?.phone || settings?.phone || '' }
   return { portal, settings, manager, contracts, items, bills, payments, discounts, ledger, renewals, buyouts, returns, events }
+}
+
+export async function getCustomerPortalData(token: string) {
+  const portal = await sessionPortal()
+  if (!portal || portal.accessTokenHash !== digest(token)) return null
+  return loadCustomerPortalData(portal)
+}
+
+export async function getCustomerPortalPreviewData(ownerId: string, phone: string) {
+  const normalizedPhone = normalizePhone(phone)
+  if (!/^1\d{10}$/.test(normalizedPhone)) return null
+  const [portal] = await db.select().from(customerPortals).where(and(eq(customerPortals.userId, ownerId), eq(customerPortals.phone, normalizedPhone))).limit(1)
+  if (!portal) return null
+  return loadCustomerPortalData(portal)
 }

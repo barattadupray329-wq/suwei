@@ -1,7 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { useTransition, useState } from 'react'
-import { Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowLeft, Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone, ShieldCheck, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { loginCustomerPortal, logoutCustomerPortal } from '@/app/actions/portal-auth'
 import { userErrorMessage } from '@/lib/errors'
@@ -55,7 +56,7 @@ function deviceStatus(items: Row[]): Row[] {
   })
 }
 
-export function PortalDashboard({ token, data }: { token: string; data: Row }) {
+export function PortalDashboard({ token, data, preview = false }: { token?: string; data: Row; preview?: boolean }) {
   const contracts: Row[] = [...data.contracts].sort((a, b) => contractRank(a) - contractRank(b) || a.endDate.localeCompare(b.endDate))
   const active = contracts.filter((contract) => ACTIVE_STATUS.includes(contract.status))
   const ended = contracts.filter((contract) => !ACTIVE_STATUS.includes(contract.status)).sort((a, b) => (b.updatedAt || '').toString().localeCompare((a.updatedAt || '').toString()))
@@ -66,7 +67,8 @@ export function PortalDashboard({ token, data }: { token: string; data: Row }) {
   const levelLabels: Record<string, string> = { silver: '银牌', gold: '金牌', diamond: '钻石', king: '王者' }
 
   return <main className="min-h-svh bg-background pb-12">
-    <header className="bg-primary px-4 pb-10 pt-6 text-primary-foreground"><div className="mx-auto flex max-w-3xl items-start justify-between gap-4"><div><p className="text-sm opacity-80">{data.settings?.storeName || '速维租赁管理'}</p><h1 className="mt-1 text-2xl font-bold text-balance">你好，{data.portal.customerName}</h1><p className="mt-2 flex items-center gap-2 text-sm opacity-80"><span>手机号 {data.portal.phone.slice(0, 3)}****{data.portal.phone.slice(-4)}</span><span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs">{levelLabels[data.portal.customerLevel] || '银牌'}客户</span></p></div><form action={() => logoutCustomerPortal(token)}><button aria-label="退出登录" className="rounded-xl border border-primary-foreground/30 p-2"><LogOut className="size-5"/></button></form></div></header>
+    {preview ? <aside className="sticky top-0 z-40 border-b bg-accent px-4 py-3 text-accent-foreground shadow-sm"><div className="mx-auto flex max-w-3xl items-center justify-between gap-3"><div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 size-5 shrink-0"/><div><p className="text-sm font-semibold">管理员预览模式</p><p className="text-xs leading-5 opacity-80">这是客户实际看到的只读页面，不会创建客户登录会话。</p></div></div><Link href="/customer-portals" className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-current/20 px-3 py-2 text-sm font-medium"><ArrowLeft className="size-4"/>返回客户服务</Link></div></aside> : null}
+    <header className="bg-primary px-4 pb-10 pt-6 text-primary-foreground"><div className="mx-auto flex max-w-3xl items-start justify-between gap-4"><div><p className="text-sm opacity-80">{data.settings?.storeName || '速维租赁管理'}</p><h1 className="mt-1 text-2xl font-bold text-balance">你好，{data.portal.customerName}</h1><p className="mt-2 flex items-center gap-2 text-sm opacity-80"><span>手机号 {data.portal.phone.slice(0, 3)}****{data.portal.phone.slice(-4)}</span><span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs">{levelLabels[data.portal.customerLevel] || '银牌'}客户</span></p></div>{!preview && token ? <form action={() => logoutCustomerPortal(token)}><button aria-label="退出登录" className="rounded-xl border border-primary-foreground/30 p-2"><LogOut className="size-5"/></button></form> : null}</div></header>
 
     <div className="mx-auto -mt-6 flex max-w-3xl flex-col gap-5 px-4">
       <section className="grid grid-cols-2 gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-4">
