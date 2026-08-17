@@ -475,7 +475,6 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
   if (!rental) throw new Error('租赁合同不存在')
   assertOfficialRental(rental)
-  const operationDate = new Date().toISOString().slice(0, 10)
 const existingBills = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId)))
 assertNoOutstandingRentBills(existingBills)
   let addedRent = 0
@@ -486,7 +485,6 @@ assertNoOutstandingRentBills(existingBills)
       const periodAnchorDate = rental.startDate
       const storedEndDate = item.endDate ?? rental.endDate
       const oldEndDate = value.billingUnit === 'month' && value.startPeriod ? billingPeriod(periodAnchorDate, value.startPeriod).start : storedEndDate
-      if (oldEndDate > operationDate) throw new Error(`${item.deviceName} 的续租账期从 ${oldEndDate} 开始，尚未生效，不能提前生成账单或收款`)
       if (value.newEndDate <= oldEndDate) throw new Error(`${item.deviceName} 的新到期日必须晚于续租生效日`)
       const available = availableQuantity(item)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
