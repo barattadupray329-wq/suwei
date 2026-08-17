@@ -32,7 +32,7 @@ export async function getCustomerPortalCustomers() {
     customerCompany: sql<string | null>`max(${rentals.customerCompany})`,
     contractCount: count(rentals.id),
     activeCount: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租','即将到期','逾期') then 1 else 0 end), 0)`,
-  }).from(rentals).where(eq(rentals.userId, ownerId)).groupBy(rentals.customerPhone)
+  }).from(rentals).where(and(eq(rentals.userId, ownerId), eq(rentals.lifecycleStatus, 'active'))).groupBy(rentals.customerPhone)
   const portals = await db.select().from(customerPortals).where(eq(customerPortals.userId, ownerId))
   const sessionPhones = new Set((await db.select({ phone: customerPhoneSessions.phone }).from(customerPhoneSessions).where(eq(customerPhoneSessions.shopId, ownerId))).map((row) => row.phone))
   const portalMap = new Map(portals.map((portal) => [normalizePhone(portal.phone), portal]))

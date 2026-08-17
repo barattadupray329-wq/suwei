@@ -51,7 +51,7 @@ export async function authenticateCustomerPortal(token: string, phone: string, p
 }
 
 async function loadCustomerPortalData(portal: typeof customerPortals.$inferSelect) {
-  const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, portal.userId), eq(rentals.customerPhone, portal.phone)))
+  const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, portal.userId), eq(rentals.customerPhone, portal.phone), eq(rentals.lifecycleStatus, 'active')))
   const ids = contracts.map((contract) => contract.id)
   const empty = { items: [], bills: [], payments: [], discounts: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
   if (!ids.length) return { portal, settings: null, manager: null, contracts: [], ...empty }
