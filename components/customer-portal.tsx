@@ -6,7 +6,7 @@ import { ArrowLeft, Banknote, CalendarClock, ChevronDown, LogOut, Monitor, Phone
 import { toast } from 'sonner'
 import { loginCustomerPortal, logoutCustomerPortal } from '@/app/actions/portal-auth'
 import { userErrorMessage } from '@/lib/errors'
-import { addCalendarDays, billCoverageLabel, billState, dueBillsAsOf } from '@/lib/rental-calculations'
+import { billCoverageLabel, billState, dueBillsAsOf } from '@/lib/rental-calculations'
 
 const money = (value: string | number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value || 0))
 const day = (value?: string | Date | null) => (value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value)) : '—')
@@ -43,7 +43,7 @@ function billing(bills: Row[]) {
   return {
     currentDue,
     dueBills: dueNow,
-    paidThrough: settled ? addCalendarDays(settled.periodEnd, 1) : null,
+    paidThrough: settled ? settled.periodEnd : null,
   }
 }
 
@@ -117,11 +117,11 @@ function ContractCard({ contract, data, devices, archived }: { contract: Row; da
   const rentingCount = devices.reduce((sum, item) => sum + item.renting, 0)
   const rentingByType = deviceTypeSummary(devices)
   return <details className="group rounded-2xl border bg-card shadow-sm open:ring-1 open:ring-border" open={!archived && (overdue || soon)}>
-    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap items-center gap-2 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{rentingByType.map(([type, count]) => <span key={type} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{type} ×{count}</span>)}{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">已付覆盖至 {day(bill.paidThrough)}（不含）</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
+    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4"><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><strong>{contract.contractNo}</strong><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{contract.status}</span>{overdue ? <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">已逾期 {Math.abs(remaining)} 天</span> : soon ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">剩余 {remaining} 天到期</span> : null}</div><p className="text-sm text-muted-foreground">{day(contract.startDate)} 至 {day(contract.endDate)}</p><div className="flex flex-wrap items-center gap-2 text-sm"><span>在租 <strong>{rentingCount}</strong> 台</span>{rentingByType.map(([type, count]) => <span key={type} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{type} ×{count}</span>)}{ACTIVE_STATUS.includes(contract.status) ? <span className={bill.currentDue > 0 ? 'text-destructive' : 'text-muted-foreground'}>当前待付 <strong>{money(bill.currentDue)}</strong></span> : null}{bill.paidThrough ? <span className="text-muted-foreground">租金已结清至 {day(bill.paidThrough)}</span> : null}</div></div><ChevronDown className="mt-1 size-5 shrink-0 transition group-open:rotate-180"/></summary>
     <div className="flex flex-col gap-5 border-t p-4">
-      <Block title="设备状态" icon={<Monitor/>}>{devices.map((item) => <div key={item.id} className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{item.deviceType} · {item.deviceName} × {item.quantity}</p><div className="mt-2 flex flex-wrap gap-2 text-xs">{item.renting > 0 ? <Tag tone="primary">在租 {item.renting}</Tag> : null}{item.returned > 0 ? <Tag>已归还 {item.returned}</Tag> : null}{item.bought > 0 ? <Tag>已买断 {item.bought}</Tag> : null}{item.lost > 0 ? <Tag tone="destructive">丢失 {item.lost}</Tag> : null}</div></div>)}</Block>
+      <Block title="设备状态" icon={<Monitor/>}>{devices.map((item) => <div key={item.id} className="rounded-xl bg-muted p-3"><p className="text-sm font-medium">{item.deviceType === item.deviceName || !item.deviceName ? item.deviceType : `${item.deviceType} · ${item.deviceName}`} × {item.quantity}</p><div className="mt-2 flex flex-wrap gap-2 text-xs">{item.renting > 0 ? <Tag tone="primary">在租 {item.renting}</Tag> : null}{item.returned > 0 ? <Tag>已归还 {item.returned}</Tag> : null}{item.bought > 0 ? <Tag>已买断 {item.bought}</Tag> : null}{item.lost > 0 ? <Tag tone="destructive">丢失 {item.lost}</Tag> : null}</div></div>)}</Block>
       <Block title="当前应付账单" icon={<Banknote/>}>{billing(rowsBy(data.bills, contract.id)).dueBills.map((item: Row) => <BillLine key={item.id} bill={item}/>)}</Block>
-      <Block title="付款记录" icon={<Banknote/>}>{rowsBy(data.payments, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.paymentDate)} · ${item.feeType}`} detail={`${money(item.amount)} · ${item.paymentMethod}`}/>)}</Block>
+      <Block title="付款记录" icon={<Banknote/>}>{rowsBy(data.payments, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.paymentDate)} · ${item.feeType === '原合同租金' || item.feeType === '起租预收' ? '租金' : item.feeType}`} detail={`${money(item.amount)} · ${item.paymentMethod}`}/>)}</Block>
       {rowsBy(data.returns, contract.id).length ? <Block title="归还记录" icon={<Monitor/>}>{rowsBy(data.returns, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.returnDate)} 归还 ${item.quantity} 台`} detail={`成色 ${item.condition}`}/>)}</Block> : null}
       {rowsBy(data.events, contract.id).length ? <Block title="服务记录" icon={<Monitor/>}>{rowsBy(data.events, contract.id).map((item: Row) => <Line key={item.id} title={`${day(item.eventDate)} · ${item.eventType}`} detail={item.faultDescription || item.notes || item.status}/>)}</Block> : null}
     </div>
