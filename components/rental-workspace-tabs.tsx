@@ -33,7 +33,11 @@ function writeWorkspaces(items: Workspace[]) {
 
 export function rememberRentalWorkspace(workspace: Workspace) {
   const current = readWorkspaces();
-  const next = [...current.filter((item) => item.id !== workspace.id), workspace];
+  const contractNo = workspace.contractNo.trim().toUpperCase();
+  const next = [
+    ...current.filter((item) => item.id !== workspace.id && item.contractNo.trim().toUpperCase() !== contractNo),
+    workspace,
+  ];
   writeWorkspaces(next);
 }
 

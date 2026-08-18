@@ -30,7 +30,25 @@ const pageMeta: Record<string, { label: string; icon: typeof LayoutDashboard }> 
 function read<T>(key: string, fallback: T): T {
   try { return JSON.parse(sessionStorage.getItem(key) || '') as T } catch { return fallback }
 }
-function writeTabs(tabs: Tab[]) { sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs.slice(-12))) }
+function rentalIdentity(tab: Tab) {
+  if (tab.kind !== 'rental') return tab.key
+  const contractNo = tab.label.trim().toUpperCase()
+  if (/^(HT|ZL|CZ)[A-Z0-9-]+$/.test(contractNo)) return `contract:${contractNo}`
+  const id = new URL(tab.href, window.location.origin).searchParams.get('rental') || tab.key.split(':')[1]
+  return `rental:${id}`
+}
+
+function dedupeTabs(tabs: Tab[]) {
+  const seen = new Set<string>()
+  return tabs.filter((tab) => {
+    const identity = rentalIdentity(tab)
+    if (seen.has(identity)) return false
+    seen.add(identity)
+    return true
+  })
+}
+
+function writeTabs(tabs: Tab[]) { sessionStorage.setItem(TABS_KEY, JSON.stringify(dedupeTabs(tabs).slice(-12))) }
 function currentRentalId() { return Number(new URLSearchParams(window.location.search).get('rental')) || null }
 
 export function prepareWorkspaceSwitch(activeKey?: string) {
@@ -88,17 +106,20 @@ export function GlobalWorkspaceTabs() {
     const sync = () => {
       const saved = read<Tab[]>(TABS_KEY, [])
       const rentals = read<RentalTab[]>(RENTAL_KEY, [])
-      let next = saved.map((tab) => {
+      let next = dedupeTabs(saved.map((tab) => {
         if (tab.kind !== 'rental') return tab
-        const rental = rentals.find((item) => `rental:${item.id}` === tab.key)
-        return rental ? { ...tab, href: rental.href, label: rental.contractNo, subtitle: rental.customerName, dirty: rental.dirty } : tab
-      })
+        const tabRentalId = Number(new URL(tab.href, window.location.origin).searchParams.get('rental')) || Number(tab.key.split(':')[1])
+        const rental = rentals.find((item) => item.id === tabRentalId)
+        return rental ? { ...tab, key: `rental:${rental.id}`, href: rental.href, label: rental.contractNo, subtitle: rental.customerName, dirty: rental.dirty } : tab
+      }))
       if (rentalId) {
         const rental = rentals.find((item) => item.id === rentalId)
         const tab: Tab = { key: activeKey, href, label: rental?.contractNo || `订单 ${rentalId}`, subtitle: rental?.customerName || '租赁订单', kind: 'rental', dirty: rental?.dirty }
-        const existingIndex = next.findIndex((item) => item.key === activeKey)
+        const identity = rentalIdentity(tab)
+        const existingIndex = next.findIndex((item) => item.key === activeKey || rentalIdentity(item) === identity)
         if (existingIndex === -1) next = [...next, tab]
         else next = next.map((item, index) => index === existingIndex ? { ...item, ...tab } : item)
+        next = dedupeTabs(next)
         restoreRentalForm(rentalId)
       } else if (basePath && pageMeta[basePath]) {
         const tab: Tab = { key: activeKey, href, label: pageMeta[basePath].label, kind: 'page' }
