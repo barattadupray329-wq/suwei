@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 import { SafeSync } from '@/components/safe-sync'
 import { GlobalWorkspaceTabs, prepareWorkspaceSwitch } from '@/components/global-workspace-tabs'
+import { PwaInstallButton } from '@/components/pwa-install-button'
 import { redirectToSignIn } from '@/lib/session-expiry'
 
 type ShellProps = { children: ReactNode; storeName: string; userName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[]; version?: string }
@@ -97,30 +98,14 @@ export function AppShell({ children, storeName, userName, role, permissions, ver
     {visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-xs font-semibold text-muted-foreground">{group.label}</p><div className="flex flex-col gap-1">{group.items.map(({ href, label, description, icon: Icon }) => <Link key={href} href={href} prefetch={false} onClick={() => { prepareWorkspaceSwitch(); if (mobile) setMobileMenu(false) }} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5 shrink-0"/><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{label}</span>{mobile && <span className={`mt-0.5 block text-xs ${isActive(href) ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{description}</span>}</span>{mobile && <ChevronRight className="size-4 opacity-60"/>}</Link>)}</div></section>)}
   </nav>
 
-  return <div className="desktop-app-shell min-h-svh bg-background">
-    <header className="app-titlebar sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card/95 px-4 backdrop-blur md:h-20 md:flex-col md:items-stretch md:px-0">
-      <div className="hidden h-8 items-center justify-between border-b bg-muted/70 px-4 md:flex">
-        <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-          <Monitor className="size-4 text-primary" />
-          <span className="truncate">{storeName}租赁管理系统</span>
-          <span aria-hidden="true">·</span>
-          <span className="truncate">{current?.label || '工作台'}</span>
-        </div>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />系统在线</span>
-          <span>版本 {version}</span>
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 items-center justify-between px-4 md:px-5">
-        <div className="flex min-w-0 items-center gap-3"><button type="button" aria-label="打开全部功能" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className="icon-button md:hidden"><Menu/></button><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground md:size-8"><Monitor className="size-5 md:size-4"/></span><div className="min-w-0"><p className="truncate font-bold md:text-sm">{storeName}</p><p className="truncate text-xs text-muted-foreground">{current?.label || '租赁业务管理中心'}</p></div></div>
-        <div className="hidden min-w-0 flex-1 items-center justify-center px-8 md:flex"><div className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-1.5"><span className="text-xs text-muted-foreground">当前模块</span><ChevronRight className="size-3 text-muted-foreground"/><span className="truncate text-sm font-semibold">{current?.label || '租赁业务管理中心'}</span></div></div>
-        <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
-      </div>
+  return <div className="min-h-svh bg-background">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card/95 px-4 backdrop-blur md:px-6">
+      <div className="flex min-w-0 items-center gap-3"><button type="button" aria-label="打开全部功能" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className="icon-button md:hidden"><Menu/></button><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5"/></span><div className="min-w-0"><p className="truncate font-bold">{storeName}</p><p className="truncate text-xs text-muted-foreground">{current?.label || '租赁业务管理中心'}</p></div></div>
+      <div className="flex items-center gap-3"><PwaInstallButton/><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
     </header>
     <GlobalWorkspaceTabs />
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭菜单" className="absolute inset-0 bg-foreground/35" onClick={() => setMobileMenu(false)}/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,340px)] flex-col bg-card shadow-xl"><div className="flex items-center justify-between border-b p-4"><div><p className="font-bold">全部功能</p><p className="text-xs text-muted-foreground">{userName} · {role === 'employee' ? '客户经理' : role === 'super_admin' ? '平台主管' : '业务主管'}</p></div><button type="button" aria-label="关闭菜单" onClick={() => setMobileMenu(false)} className="icon-button"><X/></button></div><div className="flex-1 overflow-y-auto p-4">{navigation(true)}</div><div className="border-t p-4"><SafeSync initialVersion={version}/></div></aside></div>}
-    <div className="app-workspace flex pb-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:pb-7"><aside className="desktop-sidebar sticky top-30 hidden h-[calc(100svh-7.5rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><div className="mt-6 flex flex-col gap-3"><Link href="/guide" prefetch={false} className="rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link><SafeSync initialVersion={version}/></div></aside><main className="min-w-0 flex-1">{children}</main></div>
-    <footer className="fixed inset-x-0 bottom-0 z-30 hidden h-7 items-center justify-between border-t bg-card px-3 text-xs text-muted-foreground md:flex"><div className="flex items-center gap-3"><span className="font-medium text-foreground">{storeName}</span><span>{current?.label || '工作台'}</span></div><div className="flex items-center gap-3"><span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-primary"/>服务正常</span><span>{userName}</span></div></footer>
+    <div className="flex pb-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:pb-0"><aside className="sticky top-30 hidden h-[calc(100svh-7.5rem)] w-64 shrink-0 self-start flex-col overflow-y-auto border-r bg-card p-4 md:flex"><div className="flex-1">{navigation()}</div><div className="mt-6 flex flex-col gap-3"><Link href="/guide" prefetch={false} className="rounded-xl bg-muted p-3 hover:bg-border"><p className="text-xs font-semibold">第一次使用？</p><p className="mt-1 text-xs leading-5 text-muted-foreground">打开项目说明书，按业务场景逐步操作。</p></Link><SafeSync initialVersion={version}/></div></aside><main className="min-w-0 flex-1">{children}</main></div>
     <nav aria-label="手机快捷导航" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">{visibleGroups[0]?.items.slice(0, 3).map(({ href, label, icon: Icon }) => <Link key={href} href={href} prefetch={false} onClick={() => prepareWorkspaceSwitch()} className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${isActive(href) ? 'text-primary' : 'text-muted-foreground'}`}><Icon className="size-5"/>{label}</Link>)}<button type="button" onClick={() => setMobileMenu(true)} className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium text-muted-foreground"><Menu className="size-5"/>全部</button></nav>
   </div>
 }
