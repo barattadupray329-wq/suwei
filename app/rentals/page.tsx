@@ -28,7 +28,8 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
       returnParams.set(key, entry)
     }
     const returnHref = returnParams.size ? `/rentals?${returnParams}` : '/rentals'
-    return <Dashboard role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} returnHref={returnHref} />
+    const workspaceKey = isNew ? 'new-rental' : `rental-${linkedRental?.id}`
+    return <Dashboard key={workspaceKey} role={access.role} permissions={access.permissions} currentActorId={access.actorId} currentActorName={access.actorName} assignees={assignees} summary={summary} rentals={linkedRental ? [linkedRental] : []} mode="management" initialNew={isNew} returnHref={returnHref} />
   }
 
   const requestedSort = value('sort')
