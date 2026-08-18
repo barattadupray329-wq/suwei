@@ -3,7 +3,7 @@ import type { MetadataRoute } from 'next'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: '速维电脑租赁管理系统',
+    name: '速维租赁',
     short_name: '速维租赁',
     description: '电脑租赁合同、设备、账务与客户业务管理系统',
     start_url: '/dashboard',
