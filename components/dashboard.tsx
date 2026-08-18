@@ -8547,7 +8547,10 @@ function Dialog({
               <ChevronLeft className="size-4" />
               返回
             </button>
-            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-balance sm:text-xl">{title}</h1>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">当前窗口</span>
+              <h1 className="min-w-0 truncate text-lg font-semibold text-balance sm:text-xl">{title}</h1>
+            </div>
             <button type="button" aria-label="关闭当前订单" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
               <X className="size-5" />
             </button>

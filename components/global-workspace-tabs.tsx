@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { Banknote, FileText, LayoutDashboard, List, PanelsTopLeft, X } from 'lucide-react'
 
 const TABS_KEY = 'suwei-global-workspaces-v1'
@@ -77,6 +77,7 @@ export function GlobalWorkspaceTabs() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const [isNavigating, startNavigation] = useTransition()
+  const tabRefs = useRef(new Map<string, HTMLDivElement>())
   const query = searchParams.toString()
   const href = `${pathname}${query ? `?${query}` : ''}`
   const rentalId = Number(searchParams.get('rental')) || null
@@ -95,11 +96,15 @@ export function GlobalWorkspaceTabs() {
       if (rentalId) {
         const rental = rentals.find((item) => item.id === rentalId)
         const tab: Tab = { key: activeKey, href, label: rental?.contractNo || `订单 ${rentalId}`, subtitle: rental?.customerName || '租赁订单', kind: 'rental', dirty: rental?.dirty }
-        next = [...next.filter((item) => item.key !== activeKey), tab]
+        const existingIndex = next.findIndex((item) => item.key === activeKey)
+        if (existingIndex === -1) next = [...next, tab]
+        else next = next.map((item, index) => index === existingIndex ? { ...item, ...tab } : item)
         restoreRentalForm(rentalId)
       } else if (basePath && pageMeta[basePath]) {
         const tab: Tab = { key: activeKey, href, label: pageMeta[basePath].label, kind: 'page' }
-        next = [...next.filter((item) => item.key !== activeKey), tab]
+        const existingIndex = next.findIndex((item) => item.key === activeKey)
+        if (existingIndex === -1) next = [...next, tab]
+        else next = next.map((item, index) => index === existingIndex ? { ...item, ...tab } : item)
       }
       writeTabs(next)
       setTabs(next)
@@ -116,6 +121,10 @@ export function GlobalWorkspaceTabs() {
   useEffect(() => {
     setPendingHref(null)
   }, [href])
+
+  useEffect(() => {
+    tabRefs.current.get(activeKey)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+  }, [activeKey])
 
   useEffect(() => {
     const saved = Number(sessionStorage.getItem(`suwei-scroll:${activeKey}`))
@@ -138,10 +147,14 @@ export function GlobalWorkspaceTabs() {
       sessionStorage.removeItem(`rental-workspace-operation-${id}`)
       sessionStorage.setItem(RENTAL_KEY, JSON.stringify(read<RentalTab[]>(RENTAL_KEY, []).filter((item) => item.id !== id)))
     }
+    const closingIndex = tabs.findIndex((item) => item.key === tab.key)
     const next = tabs.filter((item) => item.key !== tab.key)
     writeTabs(next)
     setTabs(next)
-    if (tab.key === activeKey) window.location.assign(next.at(-1)?.href || '/dashboard')
+    if (tab.key === activeKey) {
+      const adjacent = next[Math.min(closingIndex, next.length - 1)]
+      router.push(adjacent?.href || '/dashboard', { scroll: false })
+    }
   }
 
   if (!tabs.length) return null
@@ -151,15 +164,17 @@ export function GlobalWorkspaceTabs() {
         const active = tab.key === activeKey
         const pending = pendingHref === tab.href && (isNavigating || href !== tab.href)
         const Icon = tab.kind === 'rental' ? FileText : pageMeta[tab.key.replace('page:', '')]?.icon || PanelsTopLeft
-        return <div key={tab.key} className={`flex h-10 shrink-0 items-center rounded-lg border transition-colors ${active || pending ? 'border-primary bg-primary/10' : 'bg-background hover:bg-muted'}`}>
-          <Link href={tab.href} prefetch onMouseEnter={() => router.prefetch(tab.href)} onTouchStart={() => router.prefetch(tab.href)} onClick={(event) => { event.preventDefault(); open(tab) }} className="flex h-full min-w-0 items-center gap-2 px-3">
-            <Icon className="size-4 shrink-0 text-primary" />
-            {tab.dirty && <span className="size-2 shrink-0 rounded-full bg-destructive" aria-label="有未提交内容" />}
+        return <div ref={(node) => { if (node) tabRefs.current.set(tab.key, node); else tabRefs.current.delete(tab.key) }} key={tab.key} className={`relative flex h-11 shrink-0 items-center overflow-hidden rounded-lg border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground shadow-sm' : pending ? 'border-primary bg-primary/10 text-foreground' : 'bg-background text-foreground hover:bg-muted'}`}>
+          <Link aria-current={active ? 'page' : undefined} href={tab.href} prefetch onMouseEnter={() => router.prefetch(tab.href)} onTouchStart={() => router.prefetch(tab.href)} onClick={(event) => { event.preventDefault(); open(tab) }} className="flex h-full min-w-0 items-center gap-2 px-3">
+            <Icon className={`size-4 shrink-0 ${active ? 'text-primary-foreground' : 'text-primary'}`} />
+            {tab.dirty && <span className={`size-2 shrink-0 rounded-full ${active ? 'bg-primary-foreground' : 'bg-destructive'}`} aria-label="有未提交内容" />}
             <span className="max-w-40 truncate text-sm font-semibold">{tab.label}</span>
+            {active && <span className="rounded bg-primary-foreground/20 px-1.5 py-0.5 text-xs font-semibold">当前</span>}
             {pending && <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" aria-label="正在切换" />}
-            {tab.subtitle && <span className="hidden max-w-28 truncate text-xs text-muted-foreground sm:inline">{tab.subtitle}</span>}
+            {tab.subtitle && <span className={`hidden max-w-28 truncate text-xs sm:inline ${active ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{tab.subtitle}</span>}
           </Link>
-          <button type="button" aria-label={`关闭 ${tab.label}`} onClick={() => close(tab)} className="mr-1 rounded-md p-1.5 text-muted-foreground hover:bg-card hover:text-foreground"><X className="size-4" /></button>
+          <button type="button" aria-label={`关闭 ${tab.label}`} onClick={() => close(tab)} className={`mr-1 rounded-md p-1.5 ${active ? 'text-primary-foreground/75 hover:bg-primary-foreground/15 hover:text-primary-foreground' : 'text-muted-foreground hover:bg-card hover:text-foreground'}`}><X className="size-4" /></button>
+          {active && <span aria-hidden="true" className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary-foreground" />}
         </div>
       })}
     </div>
