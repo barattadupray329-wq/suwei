@@ -36,13 +36,9 @@ export function PwaInstallButton() {
     }
   }, [])
 
-  if (standalone) return null
+  if (standalone || !promptEvent) return null
 
   const install = async () => {
-    if (!promptEvent) {
-      toast.info('请在浏览器菜单中选择“安装此网站为应用”')
-      return
-    }
     await promptEvent.prompt()
     const choice = await promptEvent.userChoice
     if (choice.outcome === 'accepted') setPromptEvent(null)
