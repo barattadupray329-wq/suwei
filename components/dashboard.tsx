@@ -1173,7 +1173,7 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
   ).length;
   return (
     <div className="bg-background">
-      <div className="p-4 md:p-6">
+      <div className={linkedRental && dialog ? "hidden" : "p-4 md:p-6"}>
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -3971,6 +3971,42 @@ function Detail(props: DetailProps) {
     },
     { key: "manage", label: "合同与管理" },
   ];
+
+  if (wizardOpen) {
+    return (
+      <RentalOperationWizard
+        contractNo={rental.contractNo}
+        customerName={rental.customerName}
+        endDate={rental.endDate}
+        outstandingAmount={outstandingCents / 100}
+        refundableDeposit={refundableDeposit}
+        items={rental.items.map((item) => ({
+          id: item.id,
+          name: `${item.deviceType} · ${item.deviceName}`,
+          code: item.deviceCode,
+          quantity: item.quantity,
+          boughtOutQuantity: item.boughtOutQuantity,
+          returnedQuantity: item.returnedQuantity,
+          lostQuantity: item.lostQuantity,
+          monthlyRent: Number(item.monthlyRent),
+        }))}
+        onClose={() => setWizardOpen(false)}
+        onStart={(type: RentalOperationType, intent?: OperationIntent) => {
+          setWizardOpen(false);
+          if (type === "renewal") onRenew();
+          else if (type === "return") onReturn();
+          else if (type === "buyout") onBuyout();
+          else if (type === "loss") onLoss();
+          else if (type === "exchange") onExchange();
+          else if (type === "repair") onRepair();
+          else if (type === "pricing_change") onChange(intent);
+          else if (type === "deposit_refund") onDeposit();
+          else if (type === "term_change") onRentalChange("租期调整");
+          else if (type === "customer_change") onRentalChange("客户资料变更");
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col">
@@ -8485,6 +8521,7 @@ function Dialog({
   wide = false,
   medium = false,
   fixedHeight = false,
+  workspace = false,
 }: {
   open: boolean;
   title: string;
@@ -8493,8 +8530,33 @@ function Dialog({
   wide?: boolean;
   medium?: boolean;
   fixedHeight?: boolean;
+  workspace?: boolean;
 }) {
   if (!open) return null;
+  const workspaceMode = workspace || [
+    "租赁详情", "登记收款", "办理部分设备续租", "更正续租价格", "更正原始租金", "客户历史记录",
+    "办理设备退租", "登记设备丢失", "调整设备配置", "按期调整租金", "登记维修单", "退押金",
+    "设备换机调拨", "办理部分买断", "办理租赁变更",
+  ].some((workspaceTitle) => title === workspaceTitle || title.startsWith("HT"));
+  if (workspaceMode) {
+    return (
+      <section role="dialog" aria-modal="false" aria-label={title} data-workspace-page className="min-h-[calc(100svh-7.5rem)] bg-background">
+        <header className="sticky top-30 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-6">
+          <div className="mx-auto flex max-w-7xl items-center gap-3">
+            <button type="button" onClick={onClose} className="flex h-10 shrink-0 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-semibold hover:bg-muted">
+              <ChevronLeft className="size-4" />
+              返回
+            </button>
+            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-balance sm:text-xl">{title}</h1>
+            <button type="button" aria-label="关闭当前订单" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+              <X className="size-5" />
+            </button>
+          </div>
+        </header>
+        <div className="mx-auto w-full max-w-7xl p-4 pb-24 md:p-6 md:pb-24">{children}</div>
+      </section>
+    );
+  }
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
@@ -8510,17 +8572,11 @@ function Dialog({
       >
         <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            aria-label="关闭"
-            onClick={onClose}
-            className="rounded-lg p-2 hover:bg-muted"
-          >
+          <button aria-label="关闭" onClick={onClose} className="rounded-lg p-2 hover:bg-muted">
             <X className="size-5" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {children}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
     </div>
   );

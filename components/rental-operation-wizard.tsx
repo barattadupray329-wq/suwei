@@ -45,8 +45,8 @@ export function RentalOperationWizard({ contractNo, customerName, endDate, outst
   const activeEntry = entries.find((entry) => entry.key === activeKey) ?? defaultEntry
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/35 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="operation-wizard-title">
-      <div className="flex max-h-[94svh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border bg-background shadow-xl sm:rounded-2xl">
+    <section className="mx-auto flex w-full max-w-5xl flex-col gap-5" role="region" aria-labelledby="operation-wizard-title">
+      <div className="overflow-hidden rounded-2xl border bg-card">
         <header className="flex items-start justify-between gap-4 border-b p-4 sm:px-6 sm:py-5">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-primary">业务办理中心</p>
@@ -56,7 +56,7 @@ export function RentalOperationWizard({ contractNo, customerName, endDate, outst
           <button type="button" onClick={onClose} aria-label="关闭业务办理中心" className="shrink-0 rounded-lg p-2 transition-colors hover:bg-muted"><X className="size-5" /></button>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="p-4 sm:p-6">
           <div className="flex flex-col gap-5">
             <section aria-label="合同办理摘要" className="rounded-xl border bg-card p-4">
               <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
@@ -123,6 +123,6 @@ export function RentalOperationWizard({ contractNo, customerName, endDate, outst
           <button type="button" onClick={onClose} className="h-10 rounded-lg border px-4 text-sm font-medium transition-colors hover:bg-muted">关闭</button>
         </footer>
       </div>
-    </div>
+    </section>
   )
 }
