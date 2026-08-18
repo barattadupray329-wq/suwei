@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { Banknote, FileText, LayoutDashboard, List, PanelsTopLeft, X } from 'lucide-react'
 
 const TABS_KEY = 'suwei-global-workspaces-v1'
@@ -72,8 +72,11 @@ function restoreRentalForm(rentalId: number) {
 
 export function GlobalWorkspaceTabs() {
   const pathname = usePathname()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [tabs, setTabs] = useState<Tab[]>([])
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const [isNavigating, startNavigation] = useTransition()
   const query = searchParams.toString()
   const href = `${pathname}${query ? `?${query}` : ''}`
   const rentalId = Number(searchParams.get('rental')) || null
@@ -107,9 +110,25 @@ export function GlobalWorkspaceTabs() {
   }, [activeKey, basePath, href, rentalId])
 
   useEffect(() => {
+    tabs.forEach((tab) => router.prefetch(tab.href))
+  }, [router, tabs])
+
+  useEffect(() => {
+    setPendingHref(null)
+  }, [href])
+
+  useEffect(() => {
     const saved = Number(sessionStorage.getItem(`suwei-scroll:${activeKey}`))
     if (Number.isFinite(saved) && saved > 0) window.requestAnimationFrame(() => window.scrollTo({ top: saved }))
   }, [activeKey])
+
+  const open = (tab: Tab) => {
+    if (tab.key === activeKey) return
+    prepareWorkspaceSwitch(activeKey)
+    setPendingHref(tab.href)
+    router.prefetch(tab.href)
+    startNavigation(() => router.push(tab.href, { scroll: false }))
+  }
 
   const close = (tab: Tab) => {
     if (tab.dirty && !window.confirm('该窗口有未提交内容，确认关闭并放弃吗？')) return
@@ -130,12 +149,14 @@ export function GlobalWorkspaceTabs() {
     <div className="flex items-center gap-2 overflow-x-auto">
       {tabs.map((tab) => {
         const active = tab.key === activeKey
+        const pending = pendingHref === tab.href && (isNavigating || href !== tab.href)
         const Icon = tab.kind === 'rental' ? FileText : pageMeta[tab.key.replace('page:', '')]?.icon || PanelsTopLeft
-        return <div key={tab.key} className={`flex h-10 shrink-0 items-center rounded-lg border transition-colors ${active ? 'border-primary bg-primary/10' : 'bg-background hover:bg-muted'}`}>
-          <Link href={tab.href} prefetch={false} onClick={() => prepareWorkspaceSwitch(activeKey)} className="flex h-full min-w-0 items-center gap-2 px-3">
+        return <div key={tab.key} className={`flex h-10 shrink-0 items-center rounded-lg border transition-colors ${active || pending ? 'border-primary bg-primary/10' : 'bg-background hover:bg-muted'}`}>
+          <Link href={tab.href} prefetch onMouseEnter={() => router.prefetch(tab.href)} onTouchStart={() => router.prefetch(tab.href)} onClick={(event) => { event.preventDefault(); open(tab) }} className="flex h-full min-w-0 items-center gap-2 px-3">
             <Icon className="size-4 shrink-0 text-primary" />
             {tab.dirty && <span className="size-2 shrink-0 rounded-full bg-destructive" aria-label="有未提交内容" />}
             <span className="max-w-40 truncate text-sm font-semibold">{tab.label}</span>
+            {pending && <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" aria-label="正在切换" />}
             {tab.subtitle && <span className="hidden max-w-28 truncate text-xs text-muted-foreground sm:inline">{tab.subtitle}</span>}
           </Link>
           <button type="button" aria-label={`关闭 ${tab.label}`} onClick={() => close(tab)} className="mr-1 rounded-md p-1.5 text-muted-foreground hover:bg-card hover:text-foreground"><X className="size-4" /></button>
