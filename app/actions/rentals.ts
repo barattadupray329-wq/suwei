@@ -467,6 +467,7 @@ function addCalendarDays(date: string, days: number) {
 }
 
 export async function renewRentalItems(rentalId: number, inputs: RenewalInput[], settlementInput: SettlementInput) {
+  return toActionResult('办理续租', async () => {
   const access = await getAccessContext('租赁操作')
   const userId = access.userId
   const values = z.array(renewalSchema).min(1, '请至少选择一项设备').parse(inputs)
@@ -542,7 +543,9 @@ assertNoOutstandingRentBills(existingBills)
     await tx.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '办理续租', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} 续租 ${values.reduce((sum, value) => sum + value.quantity, 0)} 台，新增应收 ${addedRent.toFixed(2)} 元`, metadata: { addedRent, endDate, itemCount: values.length } })
   }
   revalidatePath('/')
+  revalidatePath('/rentals')
   revalidatePath('/audit-logs')
+  })
 }
 
 const renewalCorrectionSchema = z.object({ renewalRecordId: z.number().int().positive(), correctedUnitPrice: z.number().positive(), reason: z.string().trim().min(2, '请填写至少 2 个字的更正原因').max(200) })
