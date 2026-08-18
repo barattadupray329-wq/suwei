@@ -10,7 +10,6 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RentalWorkspaceTabs } from "@/components/rental-workspace-tabs";
 import {
   BellRing,
   CheckSquare,
@@ -772,6 +771,17 @@ export function Dashboard({
   );
   const workspaceSnapshots = useRef(new Map<number, WorkspaceFieldSnapshot>());
   const listScrollPosition = useRef(0);
+  const operationRestored = useRef(false);
+  useEffect(() => {
+    if (!linkedRental || operationRestored.current) return;
+    operationRestored.current = true;
+    const saved = sessionStorage.getItem(`rental-workspace-operation-${linkedRental.id}`) as WorkspaceDialog;
+    if (saved && saved !== "new" && saved !== "detail") setDialog(saved);
+  }, [linkedRental]);
+  useEffect(() => {
+    if (!linkedRental || !operationRestored.current || !dialog || dialog === "new") return;
+    sessionStorage.setItem(`rental-workspace-operation-${linkedRental.id}`, dialog);
+  }, [dialog, linkedRental]);
   const selectedId = selected?.id ?? null;
   useEffect(() => {
     if (selectedId === null) return;
@@ -1351,9 +1361,6 @@ const [selectedOriginalItem, setSelectedOriginalItem] = useState<Item | null>(nu
                 </strong>
               </span>
             </section>
-          )}
-          {mode === "management" && selected && (
-            <RentalWorkspaceTabs activeRental={{ id: selected.id, contractNo: selected.contractNo, customerName: selected.customerCompany || selected.customerName }} listHref={returnHref} />
           )}
           {mode === "management" && false && (
             <nav aria-label="订单工作区" className="flex items-center gap-2 overflow-x-auto rounded-xl border bg-card p-2">
