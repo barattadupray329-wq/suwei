@@ -1,5 +1,5 @@
 import { billingPeriod, billingPeriodAt } from "./billing-periods";
-import { billPeriodRanges, toCents } from "./rental-calculations";
+import { toCents } from "./rental-calculations";
 
 export type ReturnRentMode = "full_month" | "daily" | "waive";
 export type ReturnSettlementBill = {
@@ -20,9 +20,13 @@ export function returnPeriodSettlement(input: {
   const rentBills = input.bills.filter(
     (bill) => bill.billType !== "押金" && toCents(bill.amount) > 0,
   );
-  const { ranges } = billPeriodRanges(rentBills, {
-    anchorDate: input.anchorDate,
-  });
+  const ranges = new Map(
+    rentBills.map((bill) => {
+      const start = billingPeriodAt(input.anchorDate, bill.periodStart).periodNo;
+      const end = billingPeriodAt(input.anchorDate, bill.periodEnd).periodNo;
+      return [bill.id, { start, end, span: end - start + 1 }] as const;
+    }),
+  );
   let currentSettled = false;
   let historicalUnpaidPeriods = 0;
   let historicalOutstandingCents = 0;
