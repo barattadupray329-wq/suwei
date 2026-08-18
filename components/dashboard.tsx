@@ -8541,7 +8541,7 @@ function Dialog({
   if (workspaceMode) {
     return (
       <section role="dialog" aria-modal="false" aria-label={title} data-workspace-page className="min-h-[calc(100svh-7.5rem)] bg-background">
-        <header className="sticky top-30 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-6">
+        <header className="workspace-page-header sticky top-30 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-6">
           <div className="mx-auto flex max-w-7xl items-center gap-3">
             <button type="button" onClick={onClose} className="flex h-10 shrink-0 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-semibold hover:bg-muted">
               <ChevronLeft className="size-4" />

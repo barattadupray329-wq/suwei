@@ -189,13 +189,13 @@ export function GlobalWorkspaceTabs() {
   }
 
   if (!tabs.length) return null
-  return <nav aria-label="多窗口工作台" className="sticky top-16 z-20 border-b bg-card/95 px-3 py-2 backdrop-blur md:px-4">
-    <div className="flex items-center gap-2 overflow-x-auto">
+  return <nav aria-label="多窗口工作台" className="workspace-tabs sticky top-16 z-20 border-b bg-card/95 px-3 py-2 backdrop-blur md:top-20 md:px-3 md:py-1.5">
+    <div className="flex items-center gap-2 overflow-x-auto md:gap-1.5">
       {tabs.map((tab) => {
         const active = tab.key === activeKey
         const pending = pendingHref === tab.href && (isNavigating || href !== tab.href)
         const Icon = tab.kind === 'rental' ? FileText : pageMeta[tab.key.replace('page:', '')]?.icon || PanelsTopLeft
-        return <div ref={(node) => { if (node) tabRefs.current.set(tab.key, node); else tabRefs.current.delete(tab.key) }} key={tab.key} className={`relative flex h-11 shrink-0 items-center overflow-hidden rounded-lg border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground shadow-sm' : pending ? 'border-primary bg-primary/10 text-foreground' : 'bg-background text-foreground hover:bg-muted'}`}>
+        return <div ref={(node) => { if (node) tabRefs.current.set(tab.key, node); else tabRefs.current.delete(tab.key) }} key={tab.key} className={`relative flex h-11 shrink-0 items-center overflow-hidden rounded-lg border transition-colors md:h-10 md:rounded-md ${active ? 'border-primary bg-primary text-primary-foreground shadow-sm' : pending ? 'border-primary bg-primary/10 text-foreground' : 'bg-background text-foreground hover:bg-muted'}`}>
           <Link aria-current={active ? 'page' : undefined} href={tab.href} prefetch onMouseEnter={() => router.prefetch(tab.href)} onTouchStart={() => router.prefetch(tab.href)} onClick={(event) => { event.preventDefault(); open(tab) }} className="flex h-full min-w-0 items-center gap-2 px-3">
             <Icon className={`size-4 shrink-0 ${active ? 'text-primary-foreground' : 'text-primary'}`} />
             {tab.dirty && <span className={`size-2 shrink-0 rounded-full ${active ? 'bg-primary-foreground' : 'bg-destructive'}`} aria-label="有未提交内容" />}
