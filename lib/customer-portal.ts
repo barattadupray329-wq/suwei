@@ -50,21 +50,19 @@ export async function authenticateCustomerPortal(token: string, phone: string, p
   await setPortalSession(portal.id, portal.sessionVersion)
 }
 
-async function loadCustomerPortalData(portal: typeof customerPortals.$inferSelect) {
+export async function loadCustomerPortalData(portal: typeof customerPortals.$inferSelect) {
   const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, portal.userId), eq(rentals.customerPhone, portal.phone), eq(rentals.lifecycleStatus, 'active')))
   const ids = contracts.map((contract) => contract.id)
-  const empty = { items: [], bills: [], payments: [], discounts: [], ledger: [], renewals: [], buyouts: [], returns: [], events: [] }
-  if (!ids.length) return { portal, settings: null, manager: null, contracts: [], ...empty }
   const [items, bills, payments, discounts, ledger, renewals, buyouts, returns, events, [settings], [assignee]] = await Promise.all([
-    db.select().from(rentalItems).where(and(eq(rentalItems.userId, portal.userId), inArray(rentalItems.rentalId, ids))),
-    db.select().from(receivableBills).where(and(eq(receivableBills.userId, portal.userId), inArray(receivableBills.rentalId, ids))),
-    db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, portal.userId), inArray(paymentRecords.rentalId, ids))),
-    db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.userId, portal.userId), inArray(paymentDiscounts.rentalId, ids))),
-    db.select().from(accountLedger).where(and(eq(accountLedger.userId, portal.userId), inArray(accountLedger.rentalId, ids))),
-    db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, portal.userId), inArray(renewalRecords.rentalId, ids))),
-    db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, portal.userId), inArray(buyoutRecords.rentalId, ids))),
-    db.select().from(returnRecords).where(and(eq(returnRecords.userId, portal.userId), inArray(returnRecords.rentalId, ids))),
-    db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, portal.userId), inArray(rentalEvents.rentalId, ids))),
+    ids.length ? db.select().from(rentalItems).where(and(eq(rentalItems.userId, portal.userId), inArray(rentalItems.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(receivableBills).where(and(eq(receivableBills.userId, portal.userId), inArray(receivableBills.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, portal.userId), inArray(paymentRecords.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.userId, portal.userId), inArray(paymentDiscounts.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(accountLedger).where(and(eq(accountLedger.userId, portal.userId), inArray(accountLedger.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(renewalRecords).where(and(eq(renewalRecords.userId, portal.userId), inArray(renewalRecords.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(buyoutRecords).where(and(eq(buyoutRecords.userId, portal.userId), inArray(buyoutRecords.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(returnRecords).where(and(eq(returnRecords.userId, portal.userId), inArray(returnRecords.rentalId, ids))) : Promise.resolve([]),
+    ids.length ? db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, portal.userId), inArray(rentalEvents.rentalId, ids))) : Promise.resolve([]),
     db.select().from(businessSettings).where(eq(businessSettings.userId, portal.userId)),
     portal.assigneeUserId ? db.select({ name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, portal.assigneeUserId)) : Promise.resolve([]),
   ])
