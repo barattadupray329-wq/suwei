@@ -144,13 +144,22 @@ export function GlobalWorkspaceTabs() {
   }, [href])
 
   useEffect(() => {
-    tabRefs.current.get(activeKey)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+    const tab = tabRefs.current.get(activeKey)
+    const strip = tab?.parentElement
+    if (!tab || !strip) return
+    const left = Math.max(0, tab.offsetLeft - strip.clientWidth / 2 + tab.clientWidth / 2)
+    strip.scrollTo({ left, behavior: 'smooth' })
   }, [activeKey])
 
   useEffect(() => {
-    const saved = Number(sessionStorage.getItem(`suwei-scroll:${activeKey}`))
-    if (Number.isFinite(saved) && saved > 0) window.requestAnimationFrame(() => window.scrollTo({ top: saved }))
-  }, [activeKey])
+    const stored = sessionStorage.getItem(`suwei-scroll:${activeKey}`)
+    const target = stored === null ? 0 : Number(stored)
+    const top = Number.isFinite(target) ? Math.max(0, target) : 0
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.scrollTo({ top, behavior: 'instant' }))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeKey, href])
 
   const open = (tab: Tab) => {
     if (tab.key === activeKey) return
@@ -162,6 +171,7 @@ export function GlobalWorkspaceTabs() {
 
   const close = (tab: Tab) => {
     if (tab.dirty && !window.confirm('该窗口有未提交内容，确认关闭并放弃吗？')) return
+    sessionStorage.removeItem(`suwei-scroll:${tab.key}`)
     if (tab.kind === 'rental') {
       const id = Number(tab.key.split(':')[1])
       sessionStorage.removeItem(`${SNAPSHOT_PREFIX}${id}`)
