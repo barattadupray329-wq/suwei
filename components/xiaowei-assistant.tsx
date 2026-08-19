@@ -57,8 +57,10 @@ export function XiaoweiAssistant() {
       try {
         const results = await sendRentalReminders(action.rentalIds)
         const sent = results.filter((result) => result.ok).length
-        const failed = results.length - sent
-        setAnswer((current) => current ? { ...current, title: failed ? '短信发送完成，部分失败' : '短信发送成功', summary: `成功发送 ${sent} 条${failed ? `，失败 ${failed} 条` : ''}。`, facts: results.map((result) => `${result.contractNo}：${result.ok ? '发送成功' : result.message}`), pendingAction: undefined, updatedAt: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date()) } : current)
+        const skipped = results.filter((result) => result.skipped).length
+        const failed = results.length - sent - skipped
+        const summary = `发送成功 ${sent} 条，已发送过 ${skipped} 条，发送失败 ${failed} 条。`
+        setAnswer((current) => current ? { ...current, title: failed ? '短信发送完成，部分失败' : sent ? '短信发送成功' : '短信已发送过', summary, facts: results.map((result) => `${result.contractNo}：${result.ok ? '发送成功' : result.skipped ? '此前已发送成功，本次未重复发送' : `发送失败：${result.message}`}`), pendingAction: undefined, updatedAt: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date()) } : current)
       } catch (error) { toast.error(error instanceof Error ? error.message : '短信发送失败，请稍后重试') }
     })
   }

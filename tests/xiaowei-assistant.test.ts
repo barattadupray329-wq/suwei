@@ -73,6 +73,8 @@ describe('小维经营助手', () => {
     expect(action).toContain("pendingAction:{type:'send-due-reminders'")
     expect(assistant).toContain('sendRentalReminders(action.rentalIds)')
     expect(assistant).toContain('answer.pendingAction.label')
+    expect(assistant).toContain('发送成功 ${sent} 条，已发送过 ${skipped} 条，发送失败 ${failed} 条')
+    expect(assistant).toContain('此前已发送成功，本次未重复发送')
   })
 
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {

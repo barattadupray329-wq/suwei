@@ -10,7 +10,7 @@ import { beijingDate, hasRemainingRentalItems } from '@/lib/sms-reminder-rules'
 
 const MAX_BATCH = 20
 const ACTIVE_STATUSES = ['在租', '即将到期', '部分买断', '部分退租']
-export type SmsReminderResult = { rentalId: number; contractNo: string; ok: boolean; message: string }
+export type SmsReminderResult = { rentalId: number; contractNo: string; ok: boolean; skipped?: boolean; message: string }
 
 async function logAudit(input: { userId: string; actorUserId: string; actorName: string; rentalId: number; contractNo: string; phone: string; scene: string; ok: boolean }) {
   await db.insert(auditLogs).values({ userId: input.userId, actorUserId: input.actorUserId, actorName: input.actorName, action: '发送业务短信', resourceType: '租赁合同', resourceId: String(input.rentalId), summary: `${input.ok ? '成功' : '失败'}发送${input.scene}至 ${maskCustomerPhone(input.phone)}`, metadata: { contractNo: input.contractNo, phone: maskCustomerPhone(input.phone), scene: input.scene, result: input.ok ? 'success' : 'failed' } })
@@ -68,7 +68,7 @@ export async function sendRentalReminders(rentalIds: number[]): Promise<SmsRemin
   for (const contract of contracts) {
     const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:due-reminder:${beijingDate()}`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
     await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: '到期提醒', ok: result.ok })
-    results.push({ rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, message: result.message })
+    results.push({ rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, skipped: result.duplicate || result.skipped, message: result.message })
   }
   return results
 }
