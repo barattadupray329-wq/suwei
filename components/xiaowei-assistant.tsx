@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowRight, Bot, Database, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { askXiaowei, type XiaoweiAnswer } from '@/app/actions/xiaowei'
@@ -10,9 +11,12 @@ const suggestions = ['这个月租了多少台？', '哪个型号在租最多？
 
 export function XiaoweiAssistant() {
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<XiaoweiAnswer | null>(null)
   const [pending, startTransition] = useTransition()
+
+  useEffect(() => setMounted(true), [])
 
   useEffect(() => {
     if (!open) return
@@ -38,7 +42,7 @@ export function XiaoweiAssistant() {
       <span className="relative flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Bot className="size-4"/><Sparkles className="absolute -right-1 -top-1 size-3 rounded-full bg-card p-0.5 text-primary"/></span>
       <span className="hidden text-sm font-bold lg:inline">小维</span>
     </button>
-    {open && <div className="fixed inset-0 z-[70] flex justify-end pointer-events-none sm:top-16">
+    {mounted && open && createPortal(<div className="fixed inset-0 z-[70] flex justify-end pointer-events-none sm:top-16">
       <button type="button" aria-label="关闭小维" className="absolute inset-0 bg-foreground/15 pointer-events-auto sm:hidden" onClick={() => setOpen(false)}/>
       <aside role="dialog" aria-modal="true" aria-labelledby="xiaowei-title" className="pointer-events-auto relative flex h-full w-full flex-col overflow-hidden border-border bg-background shadow-2xl sm:w-[440px] sm:border-l sm:shadow-[-12px_0_32px_rgba(15,23,42,0.12)]">
         <header className="flex shrink-0 items-center justify-between border-b bg-primary px-5 py-4 text-primary-foreground">
@@ -57,6 +61,6 @@ export function XiaoweiAssistant() {
         </div>
         <footer className="shrink-0 border-t bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"><form onSubmit={(event) => { event.preventDefault(); submit() }} className="flex items-center gap-2"><label htmlFor="xiaowei-question" className="sr-only">询问小维</label><input id="xiaowei-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={200} placeholder="问问本月租赁、设备排行或风险…" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/><button type="submit" disabled={pending || question.trim().length < 2} aria-label="发送问题" className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50">{pending ? <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"/> : <Send className="size-4"/>}</button></form><p className="mt-2 text-center text-xs text-muted-foreground">小维只分析系统已有数据，重要决策请人工复核</p></footer>
       </aside>
-    </div>}
+    </div>, document.body)}
   </>
 }
