@@ -14,11 +14,19 @@ describe('小维经营助手', () => {
   })
 
   it('覆盖经营查询、到期、待收和风控能力', () => {
-    expect(action).toContain('本月租赁概况')
+    expect(action).toContain("`${label}租赁概况`")
     expect(action).toContain('待收与逾期分析')
     expect(action).toContain('经营风控扫描')
     expect(action).toContain('到期提醒')
     expect(action).toContain('在租${label}排行')
+  })
+
+  it('优先区分客户、负责人和设备排行，避免答非所问', () => {
+    expect(action.indexOf('if (asksPerson)')).toBeLessThan(action.indexOf('if (asksConfig || asksModel'))
+    expect(action).toContain('客户${unit}排行')
+    expect(action).toContain("负责人${asksAmount ? '合同额' : '在租数量'}排行")
+    expect(action).toContain('请确认你想比较什么')
+    expect(action).toContain('哪个客户租得最多？')
   })
 
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {
