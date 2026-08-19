@@ -6,6 +6,7 @@ const action = readFileSync(resolve(process.cwd(), 'app/actions/xiaowei.ts'), 'u
 const shell = readFileSync(resolve(process.cwd(), 'components/app-shell.tsx'), 'utf8')
 const assistant = readFileSync(resolve(process.cwd(), 'components/xiaowei-assistant.tsx'), 'utf8')
 const catalog = readFileSync(resolve(process.cwd(), 'lib/xiaowei-question-catalog.ts'), 'utf8')
+const chat = readFileSync(resolve(process.cwd(), 'lib/xiaowei-chat.ts'), 'utf8')
 
 describe('小维经营助手', () => {
   it('每次提问都通过服务端权限上下文隔离门店和客户经理数据', () => {
@@ -87,10 +88,21 @@ describe('小维经营助手', () => {
     expect(assistant).toContain('此前已发送成功，本次未重复发送')
   })
 
+  it('支持自然聊天、有限历史和模型失败降级', () => {
+    expect(chat).toContain("model: MODEL")
+    expect(chat).toContain("slice(-6)")
+    expect(chat).toContain("不能编造客户、合同、金额、日期或发送状态")
+    expect(chat).toContain("AbortSignal.timeout(8_000)")
+    expect(action).toContain('replyNaturally(q,history)')
+    expect(action).toContain("普通对话 · 未读取经营数据")
+    expect(assistant).toContain('conversationHistory')
+    expect(assistant).toContain('conversationContext, conversationHistory')
+  })
+
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {
     expect(shell).toContain("role !== 'super_admin' && can('租赁操作')")
     expect(shell).toContain('<XiaoweiAssistant/>')
-    expect(assistant).toContain('精确查询，不猜数字')
+    expect(assistant).toContain('智能经营助理 · 能聊天，也能办事')
     expect(assistant).toContain('小维只分析系统已有数据')
   })
 })

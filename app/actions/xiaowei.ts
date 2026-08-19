@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { buyoutRecords, lossRecords, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, xiaoweiIntentLearnings } from '@/lib/db/schema'
+import { replyNaturally, type XiaoweiChatTurn } from '@/lib/xiaowei-chat'
 
 export type XiaoweiContext = { customerPhone?:string; customerLabel?:string; intent?:'customer-query'|'due-reminder'|'finance' }
 export type XiaoweiAnswer = { title:string; summary:string; facts:string[]; suggestions?:string[]; needsClarification?:boolean; learned?:boolean; context?:XiaoweiContext; pendingAction?:{ type:'send-reminders'; scene:'due'|'overdue'; rentalIds:number[]; label:string }; scope:string; href:string; hrefLabel:string; updatedAt:string }
@@ -23,7 +24,7 @@ function range(q:string,now:string){if(/本月|这个月|当月/.test(q))return{
 
 const normalizeQuestion=(value:string)=>value.trim().toLowerCase().replace(/[，。？！、,.?!：:；;\s]/g,'').slice(0,120)
 
-export async function askXiaowei(raw:string, clarification?:string, context?:XiaoweiContext):Promise<XiaoweiAnswer>{
+export async function askXiaowei(raw:string, clarification?:string, context?:XiaoweiContext, history:XiaoweiChatTurn[]=[]):Promise<XiaoweiAnswer>{
  const original=raw.trim().slice(0,200);if(original.length<2)throw new Error('请把问题描述得更具体一些')
  const access=await getAccessContext('租赁操作');if(access.role==='super_admin'||!access.shopId)throw new Error('平台主管不访问店铺经营数据')
  const normalized=normalizeQuestion(original)
@@ -37,6 +38,14 @@ export async function askXiaowei(raw:string, clarification?:string, context?:Xia
  }else{
   const mapping=await db.select().from(xiaoweiIntentLearnings).where(eq(xiaoweiIntentLearnings.normalizedQuestion,normalized)).limit(1)
   if(mapping[0]){q=mapping[0].resolvedQuestion;learned=true}
+ }
+ const casual=/^(你好|您好|嗨|在吗|谢谢|感谢|辛苦了|你是谁|你会什么|能做什么|早上好|下午好|晚上好|再见|拜拜)/.test(q)
+ if(casual){
+  try{
+   const summary=await replyNaturally(q,history)
+   return {title:'小维',summary,facts:[],scope:'普通对话 · 未读取经营数据',href:'/dashboard',hrefLabel:'查看经营总览',updatedAt:new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'medium',timeStyle:'short'}).format(new Date())}
+  }catch{return {title:'小维',summary:'你好，我在。你可以和我聊聊，也可以让我查询租赁、设备、待收和逾期情况，或协助发送提醒短信。',facts:[],scope:'普通对话 · 未读取经营数据',href:'/dashboard',hrefLabel:'查看经营总览',updatedAt:new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'medium',timeStyle:'short'}).format(new Date())}
+  }
  }
  const employee=access.role==='employee';const where=employee?and(eq(rentals.userId,access.userId),eq(rentals.assigneeUserId,access.actorId)):eq(rentals.userId,access.userId)
  const all=await db.select().from(rentals).where(where);const official=all.filter(r=>r.orderType==='official'&&r.lifecycleStatus!=='deleted');const ids=new Set(official.map(r=>r.id))
@@ -123,5 +132,10 @@ export async function askXiaowei(raw:string, clarification?:string, context?:Xia
  if(/风险|风控|异常|押金/.test(q)){const overdue=bills.filter(b=>b.dueDate<now&&n(b.amount)>n(b.paidAmount)),noDeposit=official.filter(r=>active(r.status)&&n(r.deposit)<=0),large=official.filter(r=>active(r.status)&&r.quantity>=10);return answer('经营风控扫描','以下是基于系统记录的经营提醒，不替代人工审核。',[`逾期合同 ${new Set(overdue.map(b=>b.rentalId)).size} 份`,`在租但押金为 0 的合同 ${noDeposit.length} 份`,`单份在租 10 台以上合同 ${large.length} 份`])}
  if(/租了多少|租出|新增|本月|这个月|今年/.test(q)){const qty=scoped.reduce((s,r)=>s+r.quantity,0),label=period.label||'当前范围';return answer(`${label}租赁概况`,`${label}新增 ${scoped.length} 份正式合同，共租出 ${qty} 台。`,[`合同总额 ${money(scoped.reduce((s,r)=>s+n(r.totalRent),0))}`,`统计截止 ${now}`])}
  if(/最好|最优|最重要|表现最好/.test(q))return clarify('请确认评价口径','“最好”可以按不同经营指标判断，请选择口径。',['哪个客户在租数量最多？','哪个客户合同金额最高？','哪个客户实际回款最多？','哪些客户有逾期风险？'])
- return clarify('我还不完全确定你的意思','你可以选择最接近的一项；确认后我会继续查询，并记住这种问法。',['查询某个客户还有几台在租','查询哪个客户租得最多','查询哪个月实收租金最多','查询哪个月退租最多','查询硬件配置排行'])
+ try{
+  const summary=await replyNaturally(q,history)
+  return answer('小维',summary,[],'/dashboard','查看经营总览')
+ }catch{
+  return clarify('我还不完全确定你的意思','你可以换一种说法，或选择最接近的一项；我会继续查询，并记住这种问法。',['查询某个客户还有几台在租','查询哪个客户租得最多','查询哪个月实收租金最多','查询哪个月退租最多','查询硬件配置排行'])
+ }
 }
