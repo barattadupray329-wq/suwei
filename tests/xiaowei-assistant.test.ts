@@ -66,6 +66,15 @@ describe('小维经营助手', () => {
     expect(assistant).toContain('setQuestion(\'\')')
   })
 
+  it('按客户预览并确认发送未来七天到期提醒短信', () => {
+    expect(action).toContain("type:'send-due-reminders'")
+    expect(action).toContain('未来 7 天没有即将到期的在租合同')
+    expect(action).toContain('请确认发送到期提醒')
+    expect(action).toContain("pendingAction:{type:'send-due-reminders'")
+    expect(assistant).toContain('sendRentalReminders(action.rentalIds)')
+    expect(assistant).toContain('answer.pendingAction.label')
+  })
+
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {
     expect(shell).toContain("role !== 'super_admin' && can('租赁操作')")
     expect(shell).toContain('<XiaoweiAssistant/>')

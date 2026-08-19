@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { ArrowRight, Bot, Database, Search, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { askXiaowei, type XiaoweiAnswer } from '@/app/actions/xiaowei'
+import { sendRentalReminders } from '@/app/actions/sms-reminders'
 import { commonXiaoweiQuestions, xiaoweiQuestionCatalog } from '@/lib/xiaowei-question-catalog'
 
 type XiaoweiMessage = { question: string; answer: XiaoweiAnswer }
@@ -46,6 +47,19 @@ export function XiaoweiAssistant() {
     startTransition(async () => {
       try { setAnswer(await askXiaowei(clarification ? currentQuestion : clean, clarification)) }
       catch (error) { toast.error(error instanceof Error ? error.message : '小维暂时无法查询，请稍后重试') }
+    })
+  }
+
+  const confirmAction = () => {
+    const action = answer?.pendingAction
+    if (!action || pending) return
+    startTransition(async () => {
+      try {
+        const results = await sendRentalReminders(action.rentalIds)
+        const sent = results.filter((result) => result.ok).length
+        const failed = results.length - sent
+        setAnswer((current) => current ? { ...current, title: failed ? '短信发送完成，部分失败' : '短信发送成功', summary: `成功发送 ${sent} 条${failed ? `，失败 ${failed} 条` : ''}。`, facts: results.map((result) => `${result.contractNo}：${result.ok ? '发送成功' : result.message}`), pendingAction: undefined, updatedAt: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date()) } : current)
+      } catch (error) { toast.error(error instanceof Error ? error.message : '短信发送失败，请稍后重试') }
     })
   }
 
@@ -90,7 +104,7 @@ export function XiaoweiAssistant() {
           </div> : <div className="flex flex-col gap-4">
             {messages.map((message, index) => <div key={`${message.question}-${index}`} className="flex flex-col gap-3"><div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">{message.question}</div><article className="rounded-2xl border bg-card p-4"><div className="flex items-center gap-2 text-primary"><Bot className="size-4"/><h3 className="text-sm font-bold">{message.answer.title}</h3></div><p className="mt-2 text-sm font-semibold leading-6">{message.answer.summary}</p></article></div>)}
             <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">{currentQuestion}</div>
-            <article className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-center gap-2 text-primary"><Bot className="size-5"/><h3 className="font-bold">{answer.title}</h3></div><p className="mt-3 text-pretty text-base font-semibold leading-7">{answer.summary}</p>{answer.facts.length > 0 && <ul className="mt-4 flex flex-col gap-2">{answer.facts.map((fact) => <li key={fact} className="rounded-xl bg-muted px-3 py-2 text-sm leading-6">{fact}</li>)}</ul>}{answer.suggestions?.length ? <div className="mt-4 flex flex-col gap-2"><p className="text-xs font-semibold text-muted-foreground">请选择最接近的一项</p>{answer.suggestions.map((suggestion) => <button key={suggestion} type="button" disabled={pending} onClick={() => submit(currentQuestion, suggestion)} className="flex items-center justify-between rounded-xl border bg-background px-3 py-2.5 text-left text-sm font-medium hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"><span>{suggestion}</span><ArrowRight className="size-4 shrink-0 text-primary"/></button>)}</div> : null}<div className="mt-4 border-t pt-4"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4 text-primary"/>{answer.scope}</p><p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-primary"/>数据更新时间：{answer.updatedAt}</p><Link href={answer.href} onClick={() => setOpen(false)} className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">{answer.hrefLabel}<ArrowRight className="size-4"/></Link></div></article>
+            <article className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-center gap-2 text-primary"><Bot className="size-5"/><h3 className="font-bold">{answer.title}</h3></div><p className="mt-3 text-pretty text-base font-semibold leading-7">{answer.summary}</p>{answer.facts.length > 0 && <ul className="mt-4 flex flex-col gap-2">{answer.facts.map((fact) => <li key={fact} className="rounded-xl bg-muted px-3 py-2 text-sm leading-6">{fact}</li>)}</ul>}{answer.pendingAction ? <button type="button" disabled={pending} onClick={confirmAction} className="mt-4 flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-50">{pending ? '正在发送…' : answer.pendingAction.label}</button> : null}{answer.suggestions?.length ? <div className="mt-4 flex flex-col gap-2"><p className="text-xs font-semibold text-muted-foreground">请选择最接近的一项</p>{answer.suggestions.map((suggestion) => <button key={suggestion} type="button" disabled={pending} onClick={() => submit(currentQuestion, suggestion)} className="flex items-center justify-between rounded-xl border bg-background px-3 py-2.5 text-left text-sm font-medium hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"><span>{suggestion}</span><ArrowRight className="size-4 shrink-0 text-primary"/></button>)}</div> : null}<div className="mt-4 border-t pt-4"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4 text-primary"/>{answer.scope}</p><p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-primary"/>数据更新时间：{answer.updatedAt}</p><Link href={answer.href} onClick={() => setOpen(false)} className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">{answer.hrefLabel}<ArrowRight className="size-4"/></Link></div></article>
             {!answer.needsClarification && <div className="flex items-center justify-center gap-4"><button type="button" onClick={correctAnswer} className="text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline">答非所问，重新选择</button><button type="button" onClick={startNewQuestion} className="text-sm font-semibold text-primary">继续问其他问题</button></div>}
           </div>}
         </div>

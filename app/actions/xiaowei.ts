@@ -5,7 +5,7 @@ import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { buyoutRecords, lossRecords, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, xiaoweiIntentLearnings } from '@/lib/db/schema'
 
-export type XiaoweiAnswer = { title:string; summary:string; facts:string[]; suggestions?:string[]; needsClarification?:boolean; learned?:boolean; scope:string; href:string; hrefLabel:string; updatedAt:string }
+export type XiaoweiAnswer = { title:string; summary:string; facts:string[]; suggestions?:string[]; needsClarification?:boolean; learned?:boolean; pendingAction?:{ type:'send-due-reminders'; rentalIds:number[]; label:string }; scope:string; href:string; hrefLabel:string; updatedAt:string }
 type Rental = typeof rentals.$inferSelect
 type Item = typeof rentalItems.$inferSelect
 const n=(v:unknown)=>Number(v||0)
@@ -67,6 +67,13 @@ export async function askXiaowei(raw:string, clarification?:string):Promise<Xiao
   const quantity=itemQuantity||activeRentals.reduce((sum,rental)=>sum+rental.quantity,0)
   const itemRanking=rank(customerItems,item=>item.deviceName||item.deviceType,available)
   const name=customer(customerRentals[0])
+  if(/发送|发|通知|提醒/.test(q)&&/短信/.test(q)){
+   const deadline=new Date(`${now}T00:00:00+08:00`);deadline.setDate(deadline.getDate()+7)
+   const dueThrough=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(deadline)
+   const dueRentals=customerRentals.filter(r=>active(r.status)&&r.endDate>=now&&r.endDate<=dueThrough).slice(0,20)
+   if(!dueRentals.length)return answer('没有可发送的到期提醒',`${name}未来 7 天没有即将到期的在租合同，因此没有发送短信。`,[`检查范围：${now} 至 ${dueThrough}`],'/rentals','查看该客户合同')
+   return {...answer('请确认发送到期提醒',`将向 ${name} 的手机号尾号 ${customerRentals[0].customerPhone.slice(-4)} 发送 ${dueRentals.length} 条租赁到期提醒。`,dueRentals.map(r=>`${r.contractNo}：${r.endDate} 到期`),'/rentals','查看该客户合同'),pendingAction:{type:'send-due-reminders',rentalIds:dueRentals.map(r=>r.id),label:`确认发送 ${dueRentals.length} 条短信`}}
+  }
   if(/在租|租着|租了|还有|几台|多少台|设备/.test(q))return answer(`${name}的在租情况`,`${name}当前有 ${activeRentals.length} 份在租合同，共 ${quantity} 台设备。`,[
    ...itemRanking.map(([label,count])=>`${label}：${count} 台`),
    ...activeRentals.slice(0,5).map(r=>`${r.contractNo}：${r.quantity} 台，${r.endDate} 到期`)
