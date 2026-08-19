@@ -61,7 +61,9 @@ describe('小维经营助手', () => {
     expect(action).toContain('correctionCount')
     expect(assistant).toContain('answer.suggestions')
     expect(assistant).toContain('答非所问，重新选择')
-    expect(assistant).toContain('submit(question, suggestion)')
+    expect(assistant).toContain('submit(currentQuestion, suggestion)')
+    expect(assistant).toContain('setMessages')
+    expect(assistant).toContain('setQuestion(\'\')')
   })
 
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {

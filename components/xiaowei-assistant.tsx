@@ -8,10 +8,14 @@ import { toast } from 'sonner'
 import { askXiaowei, type XiaoweiAnswer } from '@/app/actions/xiaowei'
 import { commonXiaoweiQuestions, xiaoweiQuestionCatalog } from '@/lib/xiaowei-question-catalog'
 
+type XiaoweiMessage = { question: string; answer: XiaoweiAnswer }
+
 export function XiaoweiAssistant() {
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [question, setQuestion] = useState('')
+  const [currentQuestion, setCurrentQuestion] = useState('')
+  const [messages, setMessages] = useState<XiaoweiMessage[]>([])
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('全部')
@@ -33,11 +37,21 @@ export function XiaoweiAssistant() {
   const submit = (value = question, clarification?: string) => {
     const clean = value.trim()
     if (clean.length < 2 || pending) return
-    if (!clarification) setQuestion(clean)
+    if (!clarification) {
+      if (answer && currentQuestion) setMessages((items) => [...items, { question: currentQuestion, answer }])
+      setCurrentQuestion(clean)
+      setQuestion('')
+      setAnswer(null)
+    }
     startTransition(async () => {
-      try { setAnswer(await askXiaowei(clean, clarification)) }
+      try { setAnswer(await askXiaowei(clarification ? currentQuestion : clean, clarification)) }
       catch (error) { toast.error(error instanceof Error ? error.message : '小维暂时无法查询，请稍后重试') }
     })
+  }
+
+  const startNewQuestion = () => {
+    setQuestion('')
+    document.getElementById('xiaowei-question')?.focus()
   }
 
   const correctAnswer = () => {
@@ -51,7 +65,7 @@ export function XiaoweiAssistant() {
   const chooseCatalogQuestion = (selected: string) => {
     if (correcting) {
       setCorrecting(false)
-      submit(question, selected)
+      submit(currentQuestion, selected)
       return
     }
     submit(selected)
@@ -74,9 +88,10 @@ export function XiaoweiAssistant() {
             <section className="rounded-2xl border bg-card p-5"><div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Sparkles className="size-5"/></span><div><h3 className="font-bold">你好，我是小维</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">我会直接查询你有权限查看的合同、设备和账单数据，帮你快速了解经营情况。</p></div></div></section>
             {!catalogOpen ? <section><div className="mb-3 flex items-center justify-between"><p className="text-sm font-semibold">常用问题</p><button type="button" onClick={() => setCatalogOpen(true)} className="text-sm font-semibold text-primary">查看全部问题</button></div><div className="flex flex-col gap-2">{commonXiaoweiQuestions.map((item) => <button key={item} type="button" onClick={() => chooseCatalogQuestion(item)} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-primary/5"><span>{item}</span><ArrowRight className="size-4 text-muted-foreground"/></button>)}</div></section> : <section className="flex flex-col gap-4"><div className="flex items-center justify-between"><div><h3 className="font-bold">全部问题</h3><p className="text-xs text-muted-foreground">按业务分类查找可用问题</p></div><button type="button" onClick={() => { setCatalogOpen(false); setCatalogSearch(''); setActiveCategory('全部') }} className="text-sm font-semibold text-primary">返回常用</button></div><label className="flex h-11 items-center gap-2 rounded-xl border bg-card px-3"><Search className="size-4 text-muted-foreground"/><span className="sr-only">搜索问题</span><input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="搜索客户、收款、退租、硬件…" className="min-w-0 flex-1 bg-transparent text-sm outline-none"/></label><div className="flex gap-2 overflow-x-auto pb-1">{['全部', ...xiaoweiQuestionCatalog.map((group) => group.category)].map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${activeCategory === category ? 'border-primary bg-primary text-primary-foreground' : 'bg-card text-foreground'}`}>{category}</button>)}</div><div className="flex flex-col gap-5">{xiaoweiQuestionCatalog.filter((group) => activeCategory === '全部' || group.category === activeCategory).map((group) => { const questions = group.questions.filter((item) => !catalogSearch.trim() || item.toLowerCase().includes(catalogSearch.trim().toLowerCase()) || group.category.includes(catalogSearch.trim())); return questions.length ? <div key={group.category}><p className="mb-2 text-xs font-bold text-primary">{group.category}</p><div className="flex flex-col gap-2">{questions.map((item) => <button key={item} type="button" onClick={() => chooseCatalogQuestion(item)} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left text-sm hover:border-primary/40 hover:bg-primary/5"><span>{item}</span><ArrowRight className="size-4 shrink-0 text-muted-foreground"/></button>)}</div></div> : null })}</div></section>}
           </div> : <div className="flex flex-col gap-4">
-            <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">{question}</div>
-            <article className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-center gap-2 text-primary"><Bot className="size-5"/><h3 className="font-bold">{answer.title}</h3></div><p className="mt-3 text-pretty text-base font-semibold leading-7">{answer.summary}</p>{answer.facts.length > 0 && <ul className="mt-4 flex flex-col gap-2">{answer.facts.map((fact) => <li key={fact} className="rounded-xl bg-muted px-3 py-2 text-sm leading-6">{fact}</li>)}</ul>}{answer.suggestions?.length ? <div className="mt-4 flex flex-col gap-2"><p className="text-xs font-semibold text-muted-foreground">请选择最接近的一项</p>{answer.suggestions.map((suggestion) => <button key={suggestion} type="button" disabled={pending} onClick={() => submit(question, suggestion)} className="flex items-center justify-between rounded-xl border bg-background px-3 py-2.5 text-left text-sm font-medium hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"><span>{suggestion}</span><ArrowRight className="size-4 shrink-0 text-primary"/></button>)}</div> : null}<div className="mt-4 border-t pt-4"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4 text-primary"/>{answer.scope}</p><p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-primary"/>数据更新时间：{answer.updatedAt}</p><Link href={answer.href} onClick={() => setOpen(false)} className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">{answer.hrefLabel}<ArrowRight className="size-4"/></Link></div></article>
-            {!answer.needsClarification && <div className="flex items-center justify-center gap-4"><button type="button" onClick={correctAnswer} className="text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline">答非所问，重新选择</button><button type="button" onClick={() => { setAnswer(null); setQuestion('') }} className="text-sm font-semibold text-primary">继续问其他问题</button></div>}
+            {messages.map((message, index) => <div key={`${message.question}-${index}`} className="flex flex-col gap-3"><div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">{message.question}</div><article className="rounded-2xl border bg-card p-4"><div className="flex items-center gap-2 text-primary"><Bot className="size-4"/><h3 className="text-sm font-bold">{message.answer.title}</h3></div><p className="mt-2 text-sm font-semibold leading-6">{message.answer.summary}</p></article></div>)}
+            <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">{currentQuestion}</div>
+            <article className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-center gap-2 text-primary"><Bot className="size-5"/><h3 className="font-bold">{answer.title}</h3></div><p className="mt-3 text-pretty text-base font-semibold leading-7">{answer.summary}</p>{answer.facts.length > 0 && <ul className="mt-4 flex flex-col gap-2">{answer.facts.map((fact) => <li key={fact} className="rounded-xl bg-muted px-3 py-2 text-sm leading-6">{fact}</li>)}</ul>}{answer.suggestions?.length ? <div className="mt-4 flex flex-col gap-2"><p className="text-xs font-semibold text-muted-foreground">请选择最接近的一项</p>{answer.suggestions.map((suggestion) => <button key={suggestion} type="button" disabled={pending} onClick={() => submit(currentQuestion, suggestion)} className="flex items-center justify-between rounded-xl border bg-background px-3 py-2.5 text-left text-sm font-medium hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"><span>{suggestion}</span><ArrowRight className="size-4 shrink-0 text-primary"/></button>)}</div> : null}<div className="mt-4 border-t pt-4"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4 text-primary"/>{answer.scope}</p><p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-primary"/>数据更新时间：{answer.updatedAt}</p><Link href={answer.href} onClick={() => setOpen(false)} className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">{answer.hrefLabel}<ArrowRight className="size-4"/></Link></div></article>
+            {!answer.needsClarification && <div className="flex items-center justify-center gap-4"><button type="button" onClick={correctAnswer} className="text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline">答非所问，重新选择</button><button type="button" onClick={startNewQuestion} className="text-sm font-semibold text-primary">继续问其他问题</button></div>}
           </div>}
         </div>
         <footer className="shrink-0 border-t bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"><form onSubmit={(event) => { event.preventDefault(); submit() }} className="flex items-center gap-2"><label htmlFor="xiaowei-question" className="sr-only">询问小维</label><input id="xiaowei-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={200} placeholder="问问本月租赁、设备排行或风险…" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/><button type="submit" disabled={pending || question.trim().length < 2} aria-label="发送问题" className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50">{pending ? <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"/> : <Send className="size-4"/>}</button></form><p className="mt-2 text-center text-xs text-muted-foreground">小维只分析系统已有数据，重要决策请人工复核</p></footer>
