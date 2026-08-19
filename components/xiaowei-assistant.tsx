@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { ArrowRight, Bot, Database, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { askXiaowei, type XiaoweiAnswer } from '@/app/actions/xiaowei'
@@ -13,6 +13,15 @@ export function XiaoweiAssistant() {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<XiaoweiAnswer | null>(null)
   const [pending, startTransition] = useTransition()
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [open])
 
   const submit = (value = question) => {
     const clean = value.trim()
@@ -29,14 +38,14 @@ export function XiaoweiAssistant() {
       <span className="relative flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Bot className="size-4"/><Sparkles className="absolute -right-1 -top-1 size-3 rounded-full bg-card p-0.5 text-primary"/></span>
       <span className="hidden text-sm font-bold lg:inline">小维</span>
     </button>
-    {open && <div className="fixed inset-0 z-[70] flex justify-end">
-      <button type="button" aria-label="关闭小维" className="absolute inset-0 bg-foreground/30 backdrop-blur-[1px]" onClick={() => setOpen(false)}/>
-      <aside role="dialog" aria-modal="true" aria-labelledby="xiaowei-title" className="relative flex h-full w-full flex-col bg-background shadow-2xl sm:max-w-md">
-        <header className="flex items-center justify-between border-b bg-primary px-5 py-4 text-primary-foreground">
+    {open && <div className="fixed inset-0 z-[70] flex justify-end pointer-events-none sm:top-16">
+      <button type="button" aria-label="关闭小维" className="absolute inset-0 bg-foreground/15 pointer-events-auto sm:hidden" onClick={() => setOpen(false)}/>
+      <aside role="dialog" aria-modal="true" aria-labelledby="xiaowei-title" className="pointer-events-auto relative flex h-full w-full flex-col overflow-hidden border-border bg-background shadow-2xl sm:w-[440px] sm:border-l sm:shadow-[-12px_0_32px_rgba(15,23,42,0.12)]">
+        <header className="flex shrink-0 items-center justify-between border-b bg-primary px-5 py-4 text-primary-foreground">
           <div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-2xl bg-primary-foreground/15"><Bot className="size-6"/></span><div><h2 id="xiaowei-title" className="font-bold">小维</h2><p className="text-xs text-primary-foreground/75">经营数据助手 · 精确查询，不猜数字</p></div></div>
           <button type="button" aria-label="关闭小维" onClick={() => setOpen(false)} className="rounded-lg p-2 hover:bg-primary-foreground/10"><X className="size-5"/></button>
         </header>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {!answer ? <div className="flex flex-col gap-5">
             <section className="rounded-2xl border bg-card p-5"><div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Sparkles className="size-5"/></span><div><h3 className="font-bold">你好，我是小维</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">我会直接查询你有权限查看的合同、设备和账单数据，帮你快速了解经营情况。</p></div></div></section>
             <section><p className="mb-3 text-sm font-semibold">你可以这样问</p><div className="flex flex-col gap-2">{suggestions.map((item) => <button key={item} type="button" onClick={() => submit(item)} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-primary/5"><span>{item}</span><ArrowRight className="size-4 text-muted-foreground"/></button>)}</div></section>
@@ -46,7 +55,7 @@ export function XiaoweiAssistant() {
             <button type="button" onClick={() => { setAnswer(null); setQuestion('') }} className="self-center text-sm font-semibold text-primary">继续问其他问题</button>
           </div>}
         </div>
-        <footer className="border-t bg-card p-4"><form onSubmit={(event) => { event.preventDefault(); submit() }} className="flex items-center gap-2"><label htmlFor="xiaowei-question" className="sr-only">询问小维</label><input id="xiaowei-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={200} placeholder="问问本月租赁、设备排行或风险…" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/><button type="submit" disabled={pending || question.trim().length < 2} aria-label="发送问题" className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50">{pending ? <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"/> : <Send className="size-4"/>}</button></form><p className="mt-2 text-center text-xs text-muted-foreground">小维只分析系统已有数据，重要决策请人工复核</p></footer>
+        <footer className="shrink-0 border-t bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"><form onSubmit={(event) => { event.preventDefault(); submit() }} className="flex items-center gap-2"><label htmlFor="xiaowei-question" className="sr-only">询问小维</label><input id="xiaowei-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={200} placeholder="问问本月租赁、设备排行或风险…" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/><button type="submit" disabled={pending || question.trim().length < 2} aria-label="发送问题" className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50">{pending ? <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"/> : <Send className="size-4"/>}</button></form><p className="mt-2 text-center text-xs text-muted-foreground">小维只分析系统已有数据，重要决策请人工复核</p></footer>
       </aside>
     </div>}
   </>
