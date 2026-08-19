@@ -76,12 +76,12 @@ describe('小维经营助手', () => {
     expect(assistant).toContain('clarification, conversationContext')
   })
 
-  it('按客户预览并确认发送未来七天到期提醒短信', () => {
-    expect(action).toContain("type:'send-due-reminders'")
-    expect(action).toContain('未来 7 天没有即将到期的在租合同')
-    expect(action).toContain('请确认发送到期提醒')
-    expect(action).toContain("pendingAction:{type:'send-due-reminders'")
-    expect(assistant).toContain('sendRentalReminders(action.rentalIds)')
+  it('按客户和对话语义确认发送到期或逾期提醒短信', () => {
+    expect(action).toContain("type:'send-reminders'")
+    expect(action).toContain("scene=asksOverdue||(!dueRentals.length&&overdueRentals.length)?'overdue':'due'")
+    expect(action).toContain("sceneLabel=scene==='overdue'?'逾期催收':'到期提醒'")
+    expect(action).toContain("pendingAction:{type:'send-reminders',scene")
+    expect(assistant).toContain('sendRentalReminders(action.rentalIds, action.scene)')
     expect(assistant).toContain('answer.pendingAction.label')
     expect(assistant).toContain('发送成功 ${sent} 条，已发送过 ${skipped} 条，发送失败 ${failed} 条')
     expect(assistant).toContain('此前已发送成功，本次未重复发送')

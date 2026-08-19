@@ -56,7 +56,7 @@ export function XiaoweiAssistant() {
     if (!action || pending) return
     startTransition(async () => {
       try {
-        const results = await sendRentalReminders(action.rentalIds)
+        const results = await sendRentalReminders(action.rentalIds, action.scene)
         const sent = results.filter((result) => result.ok).length
         const skipped = results.filter((result) => result.skipped).length
         const failed = results.length - sent - skipped

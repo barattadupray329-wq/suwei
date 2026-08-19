@@ -58,16 +58,25 @@ export async function sendLifecycleNotice(rentalId: number, scene: Exclude<Busin
   return { rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, message: result.message }
 }
 
-export async function sendRentalReminders(rentalIds: number[]): Promise<SmsReminderResult[]> {
+export async function sendRentalReminders(rentalIds: number[], reminderScene: 'due' | 'overdue' = 'due'): Promise<SmsReminderResult[]> {
   const access = await getAccessContext('租赁操作')
   const ids = [...new Set(rentalIds.filter(Number.isInteger))]
   if (!ids.length) throw new Error('请先选择需要提醒的合同')
   if (ids.length > MAX_BATCH) throw new Error(`每次最多发送 ${MAX_BATCH} 条短信`)
   const contracts = await db.select().from(rentals).where(and(eq(rentals.userId, access.userId), inArray(rentals.id, ids), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active')))
+  const selectedItems = await db.select().from(rentalItems).where(inArray(rentalItems.rentalId, ids))
+  const currentDate = beijingDate()
+  const scene: BusinessSmsScene = reminderScene === 'overdue' ? 'overdue-reminder' : 'due-reminder'
+  const sceneName = reminderScene === 'overdue' ? '逾期催收' : '到期提醒'
   const results: SmsReminderResult[] = []
   for (const contract of contracts) {
-    const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:due-reminder:${beijingDate()}`, params: { customer: contract.customerName.slice(0, 20), dueDate: contract.endDate } })
-    await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: '到期提醒', ok: result.ok })
+    const stillEligible = hasRemainingRentalItems(selectedItems.filter((item) => item.rentalId === contract.id)) && (reminderScene === 'overdue' ? contract.endDate < currentDate : contract.endDate >= currentDate)
+    if (!stillEligible) {
+      results.push({ rentalId: contract.id, contractNo: contract.contractNo, ok: false, skipped: true, message: '合同状态已变化，本次未发送' })
+      continue
+    }
+    const result = await sendBusinessSms({ userId: access.userId, rentalId: contract.id, phone: contract.customerPhone, scene, triggerType: 'manual', actorUserId: access.actorId, idempotencyKey: `${access.userId}:${contract.id}:${scene}:${currentDate}`, params: { customer: contract.customerName.slice(0, 20), contractNo: contract.contractNo, dueDate: contract.endDate } })
+    await logAudit({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, rentalId: contract.id, contractNo: contract.contractNo, phone: contract.customerPhone, scene: sceneName, ok: result.ok })
     results.push({ rentalId: contract.id, contractNo: contract.contractNo, ok: result.ok, skipped: result.duplicate || result.skipped, message: result.message })
   }
   return results
