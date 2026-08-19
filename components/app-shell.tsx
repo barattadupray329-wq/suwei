@@ -10,6 +10,7 @@ import { authClient } from '@/lib/auth-client'
 import { SafeSync } from '@/components/safe-sync'
 import { GlobalWorkspaceTabs, prepareWorkspaceSwitch } from '@/components/global-workspace-tabs'
 import { PwaInstallButton } from '@/components/pwa-install-button'
+import { XiaoweiAssistant } from '@/components/xiaowei-assistant'
 import { redirectToSignIn } from '@/lib/session-expiry'
 
 type ShellProps = { children: ReactNode; storeName: string; userName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[]; version?: string }
@@ -101,7 +102,7 @@ export function AppShell({ children, storeName, userName, role, permissions, ver
   return <div className="min-h-svh bg-background">
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card/95 px-4 backdrop-blur md:px-6">
       <div className="flex min-w-0 items-center gap-3"><button type="button" aria-label="打开全部功能" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className="icon-button md:hidden"><Menu/></button><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Monitor className="size-5"/></span><div className="min-w-0"><p className="truncate font-bold">{storeName}</p><p className="truncate text-xs text-muted-foreground">{current?.label || '租赁业务管理中心'}</p></div></div>
-      <div className="flex items-center gap-3"><PwaInstallButton/><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
+      <div className="flex items-center gap-3">{role !== 'super_admin' && can('租赁操作') ? <XiaoweiAssistant/> : null}<PwaInstallButton/><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{userName}</p><p className="text-xs text-muted-foreground">{role === 'super_admin' ? '平台主管' : role === 'admin' ? '业务主管' : '客户经理'}</p></div><button type="button" aria-label="退出登录" title="退出登录" disabled={signingOut} onClick={safeSignOut} className="icon-button"><LogOut/></button></div>
     </header>
     <GlobalWorkspaceTabs />
     {mobileMenu && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="关闭菜单" className="absolute inset-0 bg-foreground/35" onClick={() => setMobileMenu(false)}/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,340px)] flex-col bg-card shadow-xl"><div className="flex items-center justify-between border-b p-4"><div><p className="font-bold">全部功能</p><p className="text-xs text-muted-foreground">{userName} · {role === 'employee' ? '客户经理' : role === 'super_admin' ? '平台主管' : '业务主管'}</p></div><button type="button" aria-label="关闭菜单" onClick={() => setMobileMenu(false)} className="icon-button"><X/></button></div><div className="flex-1 overflow-y-auto p-4">{navigation(true)}</div><div className="border-t p-4"><SafeSync initialVersion={version}/></div></aside></div>}
