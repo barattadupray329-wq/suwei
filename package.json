@@ -12,6 +12,7 @@
     "verify:data-integrity": "vitest run tests/data-integrity-policy.test.ts tests/backup-policy.test.ts tests/payment-allocation.test.ts tests/rental-lifecycle.test.ts tests/tenant-policy.test.ts",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:safe": "node scripts/safe-deploy.mjs",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "d1:migrate:local": "wrangler d1 migrations apply suwei-db --local",
