@@ -32,6 +32,32 @@ export async function askXiaowei(raw:string):Promise<XiaoweiAnswer>{
  const answer=(title:string,summary:string,facts:string[],href='/rentals',hrefLabel='查看业务明细'):XiaoweiAnswer=>({...base,title,summary,facts,href,hrefLabel})
  const monthly=/哪个月|哪月|月份|每月|月度/.test(q), asksAmount=/金额|租金|收入|业绩|合同额|收款/.test(q), asksRank=/最多|最高|排行|排名|前\s*\d+/.test(q)
 
+ const mentionedCustomers=new Map<string,Rental[]>()
+ for(const rental of official){
+  const names=[valid(rental.customerName),valid(rental.customerCompany),rental.customerPhone].filter(Boolean)
+  if(!names.some(name=>q.includes(name)))continue
+  const key=rental.customerPhone
+  mentionedCustomers.set(key,[...(mentionedCustomers.get(key)||[]),rental])
+ }
+ if(mentionedCustomers.size>1){
+  const choices=[...mentionedCustomers.values()].map(rows=>`${customer(rows[0])}（${rows[0].customerPhone.slice(-4)}）：查询其在租情况`)
+  return answer('请确认具体客户','系统找到多个匹配客户，请选择手机号后四位确认。',choices)
+ }
+ if(mentionedCustomers.size===1){
+  const customerRentals=[...mentionedCustomers.values()][0]
+  const activeRentals=customerRentals.filter(r=>active(r.status))
+  const activeIds=new Set(activeRentals.map(r=>r.id))
+  const customerItems=items.filter(i=>activeIds.has(i.rentalId)&&available(i)>0)
+  const itemQuantity=customerItems.reduce((sum,item)=>sum+available(item),0)
+  const quantity=itemQuantity||activeRentals.reduce((sum,rental)=>sum+rental.quantity,0)
+  const itemRanking=rank(customerItems,item=>item.deviceName||item.deviceType,available)
+  const name=customer(customerRentals[0])
+  if(/在租|租着|租了|还有|几台|多少台|设备/.test(q))return answer(`${name}的在租情况`,`${name}当前有 ${activeRentals.length} 份在租合同，共 ${quantity} 台设备。`,[
+   ...itemRanking.map(([label,count])=>`${label}：${count} 台`),
+   ...activeRentals.slice(0,5).map(r=>`${r.contractNo}：${r.quantity} 台，${r.endDate} 到期`)
+  ],'/rentals?status=active','查看该客户合同')
+ }
+
  if(monthly&&/收款|实收|到账/.test(q)){const rent=payments.filter(p=>/租金/.test(p.feeType));const r=rank(rent,p=>month(p.paymentDate),p=>n(p.amount),12);return answer('月度实际租金收款排行',r.length?`${r[0][0]} 实收租金最多，共 ${money(r[0][1])}。`:'暂无租金收款记录。',r.map(([k,v],i)=>`${i+1}. ${k}：${money(v)}`),'/finance','查看资金流水')}
  if(monthly&&/退租|归还/.test(q)){const r=rank(returns,x=>month(x.returnDate),x=>x.quantity,12);return answer('月度退租排行',r.length?`${r[0][0]} 退租最多，共 ${r[0][1]} 台。`:'暂无退租记录。',r.map(([k,v],i)=>`${i+1}. ${k}：${v} 台`),'/rentals?status=returned','查看退租记录')}
  if(monthly&&/续租/.test(q)){const r=rank(renewals,x=>month(x.renewalDate),x=>x.quantity,12);return answer('月度续租排行',r.length?`${r[0][0]} 续租最多，共 ${r[0][1]} 台。`:'暂无续租记录。',r.map(([k,v],i)=>`${i+1}. ${k}：${v} 台`))}

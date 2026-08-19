@@ -24,6 +24,13 @@ describe('小维经营助手', () => {
     expect(action).toContain('在租${hw[2]}排行')
   })
 
+  it('识别问题中的客户姓名、公司或手机号并查询在租情况', () => {
+    expect(action).toContain('mentionedCustomers')
+    expect(action).toContain('q.includes(name)')
+    expect(action).toContain('当前有 ${activeRentals.length} 份在租合同，共 ${quantity} 台设备')
+    expect(action).toContain('请确认具体客户')
+  })
+
   it('优先区分客户、负责人和设备排行，避免答非所问', () => {
     expect(action.indexOf('if(asksPerson)')).toBeLessThan(action.indexOf("if(/逾期|待收"))
     expect(action).toContain("客户${asksAmount?'合同额':'在租数量'}排行")
