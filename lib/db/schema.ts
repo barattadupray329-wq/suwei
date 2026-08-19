@@ -175,6 +175,20 @@ export const rentalOperations = sqliteTable('rental_operations', {
   index('rental_operations_user_rental_created_idx').on(table.userId, table.rentalId, table.createdAt),
 ])
 
+export const xiaoweiIntentLearnings = sqliteTable('xiaowei_intent_learnings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  normalizedQuestion: text('normalized_question').notNull(),
+  resolvedQuestion: text('resolved_question').notNull(),
+  confirmationCount: integer('confirmation_count').notNull().default(1),
+  correctionCount: integer('correction_count').notNull().default(0),
+  lastActorUserId: text('last_actor_user_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [
+  unique('xiaowei_intent_learnings_question_uidx').on(table.normalizedQuestion),
+  index('xiaowei_intent_learnings_updated_idx').on(table.updatedAt),
+])
+
 export const notificationPolicies = sqliteTable('notification_policies', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: text('user_id').notNull(),

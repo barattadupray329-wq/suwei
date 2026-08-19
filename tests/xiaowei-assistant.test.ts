@@ -37,7 +37,7 @@ describe('小维经营助手', () => {
     expect(action).toContain("客户${asksAmount?'合同额':'在租数量'}排行")
     expect(action).toContain("负责人${asksAmount?'合同额':'在租数量'}排行")
     expect(action).toContain('请确认评价口径')
-    expect(action).toContain('哪个客户租得最多？')
+    expect(action).toContain('哪个客户在租数量最多？')
     expect(action).toContain('电脑配置需要按硬件比较')
   })
 
@@ -51,6 +51,17 @@ describe('小维经营助手', () => {
     expect(assistant).toContain('查看全部问题')
     expect(assistant).toContain('catalogSearch')
     expect(assistant).toContain('activeCategory')
+  })
+
+  it('支持多轮澄清、全局学习和回答纠正', () => {
+    expect(action).toContain('xiaoweiIntentLearnings')
+    expect(action).toContain('normalizedQuestion')
+    expect(action).toContain('needsClarification:true')
+    expect(action).toContain('confirmationCount')
+    expect(action).toContain('correctionCount')
+    expect(assistant).toContain('answer.suggestions')
+    expect(assistant).toContain('答非所问，重新选择')
+    expect(assistant).toContain('submit(question, suggestion)')
   })
 
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {
