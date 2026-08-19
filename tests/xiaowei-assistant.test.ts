@@ -33,7 +33,7 @@ describe('小维经营助手', () => {
   })
 
   it('优先区分客户、负责人和设备排行，避免答非所问', () => {
-    expect(action.indexOf('if(asksPerson)')).toBeLessThan(action.indexOf("if(/逾期|待收"))
+    expect(action.indexOf('if(asksPerson)')).toBeLessThan(action.lastIndexOf("if(/逾期|待收"))
     expect(action).toContain("客户${asksAmount?'合同额':'在租数量'}排行")
     expect(action).toContain("负责人${asksAmount?'合同额':'在租数量'}排行")
     expect(action).toContain('请确认评价口径')
@@ -64,6 +64,16 @@ describe('小维经营助手', () => {
     expect(assistant).toContain('submit(currentQuestion, suggestion)')
     expect(assistant).toContain('setMessages')
     expect(assistant).toContain('setQuestion(\'\')')
+  })
+
+  it('支持客户代词追问并保持客户级数据范围', () => {
+    expect(action).toContain('XiaoweiContext')
+    expect(action).toContain('context?.customerPhone===rental.customerPhone')
+    expect(action).toContain('/他|她|该客户|这个客户|这位客户|其|他的|她的/')
+    expect(action).toContain('customerIds.has(b.rentalId)')
+    expect(action).toContain("`${name}的待收与逾期`")
+    expect(assistant).toContain('answer?.context')
+    expect(assistant).toContain('clarification, conversationContext')
   })
 
   it('按客户预览并确认发送未来七天到期提醒短信', () => {

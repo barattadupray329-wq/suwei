@@ -5,7 +5,8 @@ import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
 import { buyoutRecords, lossRecords, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, xiaoweiIntentLearnings } from '@/lib/db/schema'
 
-export type XiaoweiAnswer = { title:string; summary:string; facts:string[]; suggestions?:string[]; needsClarification?:boolean; learned?:boolean; pendingAction?:{ type:'send-due-reminders'; rentalIds:number[]; label:string }; scope:string; href:string; hrefLabel:string; updatedAt:string }
+export type XiaoweiContext = { customerPhone?:string; customerLabel?:string; intent?:'customer-query'|'due-reminder'|'finance' }
+export type XiaoweiAnswer = { title:string; summary:string; facts:string[]; suggestions?:string[]; needsClarification?:boolean; learned?:boolean; context?:XiaoweiContext; pendingAction?:{ type:'send-due-reminders'; rentalIds:number[]; label:string }; scope:string; href:string; hrefLabel:string; updatedAt:string }
 type Rental = typeof rentals.$inferSelect
 type Item = typeof rentalItems.$inferSelect
 const n=(v:unknown)=>Number(v||0)
@@ -22,7 +23,7 @@ function range(q:string,now:string){if(/本月|这个月|当月/.test(q))return{
 
 const normalizeQuestion=(value:string)=>value.trim().toLowerCase().replace(/[，。？！、,.?!：:；;\s]/g,'').slice(0,120)
 
-export async function askXiaowei(raw:string, clarification?:string):Promise<XiaoweiAnswer>{
+export async function askXiaowei(raw:string, clarification?:string, context?:XiaoweiContext):Promise<XiaoweiAnswer>{
  const original=raw.trim().slice(0,200);if(original.length<2)throw new Error('请把问题描述得更具体一些')
  const access=await getAccessContext('租赁操作');if(access.role==='super_admin'||!access.shopId)throw new Error('平台主管不访问店铺经营数据')
  const normalized=normalizeQuestion(original)
@@ -50,7 +51,9 @@ export async function askXiaowei(raw:string, clarification?:string):Promise<Xiao
  const mentionedCustomers=new Map<string,Rental[]>()
  for(const rental of official){
   const names=[valid(rental.customerName),valid(rental.customerCompany),rental.customerPhone].filter(Boolean)
-  if(!names.some(name=>q.includes(name)))continue
+  const explicitlyMentioned=names.some(name=>q.includes(name))
+  const refersToPrevious=/他|她|该客户|这个客户|这位客户|其|他的|她的/.test(q)&&context?.customerPhone===rental.customerPhone
+  if(!explicitlyMentioned&&!refersToPrevious)continue
   const key=rental.customerPhone
   mentionedCustomers.set(key,[...(mentionedCustomers.get(key)||[]),rental])
  }
@@ -67,14 +70,23 @@ export async function askXiaowei(raw:string, clarification?:string):Promise<Xiao
   const quantity=itemQuantity||activeRentals.reduce((sum,rental)=>sum+rental.quantity,0)
   const itemRanking=rank(customerItems,item=>item.deviceName||item.deviceType,available)
   const name=customer(customerRentals[0])
+  const customerContext:XiaoweiContext={customerPhone:customerRentals[0].customerPhone,customerLabel:name,intent:'customer-query'}
+  const customerAnswer=(title:string,summary:string,facts:string[],href='/rentals',hrefLabel='查看该客户合同'):XiaoweiAnswer=>({...answer(title,summary,facts,href,hrefLabel),context:customerContext})
+  if(/逾期|待收|欠款|应收|催收/.test(q)){
+   const customerIds=new Set(customerRentals.map(r=>r.id))
+   const outstanding=bills.filter(b=>customerIds.has(b.rentalId)).map(b=>({...b,unpaid:Math.max(0,n(b.amount)-n(b.paidAmount))})).filter(b=>b.unpaid>0)
+   const overdue=outstanding.filter(b=>b.dueDate<now)
+   return customerAnswer(`${name}的待收与逾期`,`${name}当前待收 ${money(outstanding.reduce((s,b)=>s+b.unpaid,0))}，其中逾期 ${money(overdue.reduce((s,b)=>s+b.unpaid,0))}。`,[`待收账单 ${outstanding.length} 笔`,`逾期账单 ${overdue.length} 笔`,`逾期合同 ${new Set(overdue.map(b=>b.rentalId)).size} 份`],'/rentals?settlement=outstanding')
+  }
   if(/发送|发|通知|提醒/.test(q)&&/短信/.test(q)){
    const deadline=new Date(`${now}T00:00:00+08:00`);deadline.setDate(deadline.getDate()+7)
    const dueThrough=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(deadline)
    const dueRentals=customerRentals.filter(r=>active(r.status)&&r.endDate>=now&&r.endDate<=dueThrough).slice(0,20)
-   if(!dueRentals.length)return answer('没有可发送的到期提醒',`${name}未来 7 天没有即将到期的在租合同，因此没有发送短信。`,[`检查范围：${now} 至 ${dueThrough}`],'/rentals','查看该客户合同')
-   return {...answer('请确认发送到期提醒',`将向 ${name} 的手机号尾号 ${customerRentals[0].customerPhone.slice(-4)} 发送 ${dueRentals.length} 条租赁到期提醒。`,dueRentals.map(r=>`${r.contractNo}：${r.endDate} 到期`),'/rentals','查看该客户合同'),pendingAction:{type:'send-due-reminders',rentalIds:dueRentals.map(r=>r.id),label:`确认发送 ${dueRentals.length} 条短信`}}
+   const reminderContext:XiaoweiContext={...customerContext,intent:'due-reminder'}
+   if(!dueRentals.length)return {...customerAnswer('没有可发送的到期提醒',`${name}未来 7 天没有即将到期的在租合同，因此没有发送短信。`,[`检查范围：${now} 至 ${dueThrough}`]),context:reminderContext}
+   return {...customerAnswer('请确认发送到期提醒',`将向 ${name} 的手机号尾号 ${customerRentals[0].customerPhone.slice(-4)} 发送 ${dueRentals.length} 条租赁到期提醒。`,dueRentals.map(r=>`${r.contractNo}：${r.endDate} 到期`)),context:reminderContext,pendingAction:{type:'send-due-reminders',rentalIds:dueRentals.map(r=>r.id),label:`确认发送 ${dueRentals.length} 条短信`}}
   }
-  if(/在租|租着|租了|还有|几台|多少台|设备/.test(q))return answer(`${name}的在租情况`,`${name}当前有 ${activeRentals.length} 份在租合同，共 ${quantity} 台设备。`,[
+  if(/在租|租着|租了|还有|几台|多少台|设备/.test(q))return customerAnswer(`${name}的在租情况`,`${name}当前有 ${activeRentals.length} 份在租合同，共 ${quantity} 台设备。`,[
    ...itemRanking.map(([label,count])=>`${label}：${count} 台`),
    ...activeRentals.slice(0,5).map(r=>`${r.contractNo}：${r.quantity} 台，${r.endDate} 到期`)
   ],'/rentals?status=active','查看该客户合同')

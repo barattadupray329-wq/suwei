@@ -44,8 +44,9 @@ export function XiaoweiAssistant() {
       setQuestion('')
       setAnswer(null)
     }
+    const conversationContext = answer?.context
     startTransition(async () => {
-      try { setAnswer(await askXiaowei(clarification ? currentQuestion : clean, clarification)) }
+      try { setAnswer(await askXiaowei(clarification ? currentQuestion : clean, clarification, conversationContext)) }
       catch (error) { toast.error(error instanceof Error ? error.message : '小维暂时无法查询，请稍后重试') }
     })
   }
