@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 const action = readFileSync(resolve(process.cwd(), 'app/actions/xiaowei.ts'), 'utf8')
 const shell = readFileSync(resolve(process.cwd(), 'components/app-shell.tsx'), 'utf8')
 const assistant = readFileSync(resolve(process.cwd(), 'components/xiaowei-assistant.tsx'), 'utf8')
+const catalog = readFileSync(resolve(process.cwd(), 'lib/xiaowei-question-catalog.ts'), 'utf8')
 
 describe('小维经营助手', () => {
   it('每次提问都通过服务端权限上下文隔离门店和客户经理数据', () => {
@@ -38,6 +39,18 @@ describe('小维经营助手', () => {
     expect(action).toContain('请确认评价口径')
     expect(action).toContain('哪个客户租得最多？')
     expect(action).toContain('电脑配置需要按硬件比较')
+  })
+
+  it('提供覆盖全部业务域的可搜索问题目录', () => {
+    for (const category of ['合同经营', '客户查询', '设备分析', '硬件配置', '收款财务', '退租续租', '维修换机', '丢失买断', '人员业绩', '经营风控', '综合分析']) {
+      expect(catalog).toContain(category)
+    }
+    expect(catalog).toContain('易先生还有几台在租？')
+    expect(catalog).toContain('哪个月实际租金收款最多？')
+    expect(catalog).toContain('哪个月退租最多？')
+    expect(assistant).toContain('查看全部问题')
+    expect(assistant).toContain('catalogSearch')
+    expect(assistant).toContain('activeCategory')
   })
 
   it('只向有租赁权限的店铺主管和客户经理显示入口', () => {
