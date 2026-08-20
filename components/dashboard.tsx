@@ -622,7 +622,7 @@ export function Dashboard({
     link.download = `租赁合同-${today()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success(`已导出 ${selectedRentals.length} 份合同`);
+    toast.success(`已导出 ${selectedRentals.length} ��合同`);
   };
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
@@ -1203,7 +1203,7 @@ canViewFinance={canViewFinance}
             </dl>
 
             <div className="flex flex-col gap-3">
-              <p className="text-sm font-semibold">确认后系统将自动完成</p>
+              <p className="text-sm font-semibold">��认后系统将自动完成</p>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
                   <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -2712,7 +2712,19 @@ function DetailOverview({
       <section className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
         {rental.items.map((item) => {
-          const remain = item.quantity - item.boughtOutQuantity;
+          const remain = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const itemStatus =
+            remain > 0
+              ? item.boughtOutQuantity > 0 || item.returnedQuantity > 0 || item.lostQuantity > 0
+                ? "部分处理"
+                : "在租"
+              : item.boughtOutQuantity === item.quantity
+                ? "已买断"
+                : item.returnedQuantity === item.quantity
+                  ? "已退租"
+                  : item.lostQuantity === item.quantity
+                    ? "已丢失"
+                    : "已结束";
           return (
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-2 sm:flex-row">
@@ -2720,7 +2732,7 @@ function DetailOverview({
                   <p className="font-semibold">{item.deviceType} · {item.deviceName}</p>
                   <p className="text-sm text-muted-foreground">{item.deviceCode || ""}</p>
                 </div>
-                <Status value={remain === 0 ? "已买断" : item.boughtOutQuantity > 0 ? "部分买断" : "在租"} />
+                <Status value={itemStatus} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Info l="原数量" v={`${item.quantity} 台`} />
@@ -3080,7 +3092,19 @@ function LegacyDetail({
       <div className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
         {rental.items.map((item) => {
-          const remain = item.quantity - item.boughtOutQuantity;
+          const remain = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const itemStatus =
+            remain > 0
+              ? item.boughtOutQuantity > 0 || item.returnedQuantity > 0 || item.lostQuantity > 0
+                ? "部分处理"
+                : "在租"
+              : item.boughtOutQuantity === item.quantity
+                ? "已买断"
+                : item.returnedQuantity === item.quantity
+                  ? "已退租"
+                  : item.lostQuantity === item.quantity
+                    ? "已丢失"
+                    : "已结束";
           return (
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-2 sm:flex-row">
@@ -3092,15 +3116,7 @@ function LegacyDetail({
                     {item.deviceCode || ""}
                   </p>
                 </div>
-                <Status
-                  value={
-                    remain === 0
-                      ? "已买断"
-                      : item.boughtOutQuantity > 0
-                        ? "部分买断"
-                        : "在租"
-                  }
-                />
+                <Status value={itemStatus} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Info l="原数量" v={`${item.quantity} 台`} />
