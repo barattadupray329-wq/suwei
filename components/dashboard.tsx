@@ -552,7 +552,7 @@ export function Dashboard({
     )
     .join("\n");
   const copyReminders = async () => {
-    if (!reminderText) return toast.error("请先选择合同");
+    if (!reminderText) return toast.error("请选择合同");
     await navigator.clipboard.writeText(reminderText);
     toast.success(`已复制 ${selectedRentals.length} 条提醒`);
   };
@@ -2482,6 +2482,42 @@ function Detail(props: DetailProps) {
     { key: "manage", label: "合同与管理" },
   ];
 
+  const startOperation = (type: RentalOperationType) => {
+    setWizardOpen(false);
+    if (type === "renewal") onRenew();
+    else if (type === "return") onReturn();
+    else if (type === "buyout") onBuyout();
+    else if (type === "loss") onLoss();
+    else if (type === "exchange") onExchange();
+    else if (type === "repair") onRepair();
+    else if (type === "pricing_change") onChange();
+    else onRentalChange();
+  };
+
+  if (wizardOpen) {
+    return (
+      <RentalOperationWizard
+        embedded
+        contractNo={rental.contractNo}
+        customerName={rental.customerName}
+        customerPhone={rental.customerPhone}
+        endDate={rental.endDate}
+        items={rental.items.map((item) => ({
+          id: item.id,
+          name: `${item.deviceType} · ${item.deviceName}`,
+          code: item.deviceCode,
+          quantity: item.quantity,
+          boughtOutQuantity: item.boughtOutQuantity,
+          returnedQuantity: item.returnedQuantity,
+          lostQuantity: item.lostQuantity,
+          monthlyRent: Number(item.monthlyRent),
+        }))}
+        onClose={() => setWizardOpen(false)}
+        onStart={startOperation}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col">
       <section className="rounded-xl border bg-card p-4">
@@ -2609,36 +2645,6 @@ function Detail(props: DetailProps) {
           业务办理中心
         </button>
       </div>
-      {wizardOpen && (
-        <RentalOperationWizard
-          contractNo={rental.contractNo}
-          customerName={rental.customerName}
-          customerPhone={rental.customerPhone}
-          endDate={rental.endDate}
-          items={rental.items.map((item) => ({
-            id: item.id,
-            name: `${item.deviceType} · ${item.deviceName}`,
-            code: item.deviceCode,
-            quantity: item.quantity,
-            boughtOutQuantity: item.boughtOutQuantity,
-            returnedQuantity: item.returnedQuantity,
-            lostQuantity: item.lostQuantity,
-            monthlyRent: Number(item.monthlyRent),
-          }))}
-          onClose={() => setWizardOpen(false)}
-          onStart={(type: RentalOperationType) => {
-            setWizardOpen(false);
-            if (type === "renewal") onRenew();
-            else if (type === "return") onReturn();
-            else if (type === "buyout") onBuyout();
-            else if (type === "loss") onLoss();
-            else if (type === "exchange") onExchange();
-            else if (type === "repair") onRepair();
-            else if (type === "pricing_change") onChange();
-            else onRentalChange();
-          }}
-        />
-      )}
     </div>
   );
 }
