@@ -422,6 +422,9 @@ export function Dashboard({
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
+  useEffect(() => {
+    if (linkedRental) setSelected(linkedRental);
+  }, [linkedRental]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
