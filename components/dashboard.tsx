@@ -511,12 +511,7 @@ export function Dashboard({
     message: string,
   ) => run(fn, message, "detail");
   const openDetail = (r: Rental) => {
-    if (mode === "overview") {
-      router.push(`/rentals?rental=${r.id}`);
-      return;
-    }
-    setSelected(r);
-    setDialog("detail");
+    router.push(`/rentals?rental=${r.id}`);
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
@@ -630,7 +625,7 @@ export function Dashboard({
   const expiredCount = rentals.filter((r) => displayStatus(r) === "已到期").length;
   return (
     <div className="bg-background">
-      <div className="p-4 md:p-6">
+      <div className={linkedRental ? "hidden" : "p-4 md:p-6"}>
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -1123,6 +1118,7 @@ export function Dashboard({
         title={selected?.contractNo || "租赁详情"}
         wide
         fixedHeight
+        embedded={Boolean(linkedRental)}
         onClose={closeDetail}
       >
         {selected && (
@@ -4579,6 +4575,7 @@ function Dialog({
   onClose,
   wide = false,
   fixedHeight = false,
+  embedded = false,
 }: {
   open: boolean;
   title: string;
@@ -4586,8 +4583,52 @@ function Dialog({
   onClose: () => void;
   wide?: boolean;
   fixedHeight?: boolean;
+  embedded?: boolean;
 }) {
   if (!open) return null;
+
+  const panel = (
+    <div
+      role={embedded ? "region" : "dialog"}
+      aria-modal={embedded ? undefined : "true"}
+      aria-label={title}
+      className={
+        embedded
+          ? "flex min-h-[calc(100svh-8rem)] w-full flex-col bg-background"
+          : `flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`
+      }
+    >
+      <div className={`flex shrink-0 items-center justify-between border-b ${embedded ? "bg-muted/30 px-4 py-3 md:px-6" : "bg-card p-4"}`}>
+        <div className="flex min-w-0 items-center gap-3">
+          {embedded && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 items-center gap-1 rounded-xl border bg-background px-3 text-sm font-medium hover:bg-muted"
+            >
+              <ChevronLeft className="size-4" />
+              返回
+            </button>
+          )}
+          <h2 className="truncate text-lg font-semibold">{title}</h2>
+        </div>
+        <button
+          type="button"
+          aria-label="关闭"
+          onClick={onClose}
+          className="rounded-lg p-2 hover:bg-muted"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      <div className={embedded ? "flex-1 p-4 md:p-6" : "min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"}>
+        <div className={embedded ? "mx-auto max-w-7xl" : undefined}>{children}</div>
+      </div>
+    </div>
+  );
+
+  if (embedded) return panel;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
@@ -4595,24 +4636,7 @@ function Dialog({
         if (e.currentTarget === e.target) onClose();
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            aria-label="关闭"
-            onClick={onClose}
-            className="rounded-lg p-2 hover:bg-muted"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
-      </div>
+      {panel}
     </div>
   );
 }
