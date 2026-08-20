@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
+import { monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
   it('到期日立即进入首期，周期开始日当天不重复生成下一期', () => {
@@ -18,6 +18,17 @@ describe('逾期月租周期', () => {
       { periodStart: '2026-01-31', periodEnd: '2026-02-28' },
       { periodStart: '2026-02-28', periodEnd: '2026-03-28' },
     ])
+  })
+
+  it('合同期内退租能定位当前月租账期', () => {
+    expect(monthlyRentPeriod('2026-08-15', '2026-10-14', '2026-08-15')).toEqual({
+      periodStart: '2026-08-15',
+      periodEnd: '2026-09-15',
+    })
+    expect(monthlyRentPeriod('2026-08-15', '2026-10-14', '2026-09-20')).toEqual({
+      periodStart: '2026-09-15',
+      periodEnd: '2026-10-15',
+    })
   })
 
   it('处置只影响处置日当天及之后开始的新账单', () => {

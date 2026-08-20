@@ -14,6 +14,22 @@ export function overdueRentPeriods(endDate: string, today: string) {
   return periods
 }
 
+export function monthlyRentPeriod(startDate: string, endDate: string, targetDate: string) {
+  if (targetDate < startDate) return undefined
+
+  if (targetDate <= endDate) {
+    let periodStart = startDate
+    let periodEnd = addCalendarMonths(periodStart, 1)
+    while (periodEnd <= targetDate) {
+      periodStart = periodEnd
+      periodEnd = addCalendarMonths(periodStart, 1)
+    }
+    return { periodStart, periodEnd }
+  }
+
+  return overdueRentPeriods(endDate, targetDate).at(-1)
+}
+
 export function returnBillingAdjustment(input: { periodStart: string; returnDate: string; monthlyRent: string; quantity: number; mode: ReturnBillingMode }) {
   const fullAmountCents = toCents(input.monthlyRent) * input.quantity
   const usedDays = Math.max(1, Math.ceil((Date.parse(`${input.returnDate}T00:00:00+08:00`) - Date.parse(`${input.periodStart}T00:00:00+08:00`)) / 86_400_000) + 1)

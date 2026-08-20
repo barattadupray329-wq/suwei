@@ -622,7 +622,7 @@ export function Dashboard({
     link.download = `租赁合同-${today()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success(`已导出 ${selectedRentals.length} ��合同`);
+    toast.success(`已导出 ${selectedRentals.length} 份合同`);
   };
   const dueSoon = summary.dueSoon;
   const repairPending = summary.repairPending;
@@ -1203,7 +1203,7 @@ canViewFinance={canViewFinance}
             </dl>
 
             <div className="flex flex-col gap-3">
-              <p className="text-sm font-semibold">��认后系统将自动完成</p>
+              <p className="text-sm font-semibold">确认后系统将自动完成</p>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex items-start gap-2 rounded-xl border p-3 text-sm">
                   <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -4734,7 +4734,7 @@ function Status({ value }: { value: string }) {
         ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
         : ["待审核", "待处理", "即将到期", "已到期"].includes(value)
           ? "bg-accent text-accent-foreground ring-1 ring-inset ring-border"
-          : ["买断", "已退租", "已关闭", "丢失"].includes(value)
+          : ["买断", "已退租", "已买断", "丢失"].includes(value)
             ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
             : "bg-muted text-muted-foreground ring-1 ring-inset ring-border";
   return (

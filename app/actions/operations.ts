@@ -11,7 +11,7 @@ import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { overdueRentPeriods, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -38,7 +38,7 @@ export async function returnRentalItems(input: ReturnInput[]) {
   const [[rental],items]=await Promise.all([db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId)))])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
   const byId=new Map(items.map((item)=>[item.id,item]))
-  const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const currentPeriod=rental.billingType==='monthly'?overdueRentPeriods(rental.endDate,value.date).at(-1):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
+  const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(rental.startDate,rental.endDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
   const finalItems=items.map((item)=>{const row=rows.find((entry)=>entry.item.id===item.id);return row?{...item,returnedQuantity:item.returnedQuantity+row.value.quantity}:item})
   const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),billingAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
   const adjustedRentCents=toCents(rental.totalRent)-billingAdjustmentCents
