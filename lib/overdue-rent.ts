@@ -2,6 +2,22 @@ import { addCalendarMonths, toCents } from './rental-calculations'
 
 export type RentalDisposal = { rentalItemId: number; quantity: number; date: string }
 export type ReturnBillingMode = 'full_month' | 'daily' | 'waive'
+export type RentBillBalance = { id: number; billType: string; amount: string; paidAmount: string; notes?: string | null }
+
+export function isRentBillType(billType: string) {
+  return billType === '租金'
+    || billType === '起租预收'
+    || billType === '日租租金'
+    || billType.includes('续租租金')
+}
+
+export function fullReturnWaiver(bills: RentBillBalance[]) {
+  const affected = bills.filter((bill) => isRentBillType(bill.billType) && toCents(bill.amount) > toCents(bill.paidAmount))
+  return {
+    affected,
+    adjustmentCents: affected.reduce((sum, bill) => sum + toCents(bill.amount) - toCents(bill.paidAmount), 0),
+  }
+}
 
 export function overdueRentPeriods(endDate: string, today: string) {
   const periods: Array<{ periodStart: string; periodEnd: string }> = []

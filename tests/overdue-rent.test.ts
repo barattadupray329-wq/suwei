@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
+import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
   it('到期日立即进入首期，周期开始日当天不重复生成下一期', () => {
@@ -46,5 +46,17 @@ describe('逾期月租周期', () => {
 
   it('多台设备按分计算并限制按天金额不超过整月', () => {
     expect(returnBillingAdjustment({ periodStart: '2026-06-01', returnDate: '2026-06-30', monthlyRent: '199.99', quantity: 2, mode: 'daily' })).toEqual({ fullAmountCents: 39998, chargedAmountCents: 39998, adjustmentCents: 0, usedDays: 30 })
+  })
+
+  it('全部退租且本期不收会取消当前及未来所有未收租金', () => {
+    const result = fullReturnWaiver([
+      { id: 1, billType: '起租预收', amount: '220.00', paidAmount: '0' },
+      { id: 2, billType: '续租租金', amount: '220.00', paidAmount: '0' },
+      { id: 3, billType: '押金', amount: '500.00', paidAmount: '0' },
+      { id: 4, billType: '租金', amount: '220.00', paidAmount: '100.00' },
+      { id: 5, billType: '租金', amount: '220.00', paidAmount: '220.00' },
+    ])
+    expect(result.adjustmentCents).toBe(56000)
+    expect(result.affected.map((bill) => bill.id)).toEqual([1, 2, 4])
   })
 })

@@ -11,7 +11,7 @@ import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { fullReturnWaiver, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -35,21 +35,43 @@ export async function returnRentalItems(input: ReturnInput[]) {
   if (new Set(values.map((value)=>value.rentalItemId)).size!==values.length) throw new Error('同一设备不能重复提交')
   const latestReturnDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
   await ensureOverdueRentBills(userId, latestReturnDate)
-  const [[rental],items]=await Promise.all([db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId)))])
+  const [[rental],items,bills]=await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+  ])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
   const byId=new Map(items.map((item)=>[item.id,item]))
   const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(rental.startDate,rental.endDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
   const finalItems=items.map((item)=>{const row=rows.find((entry)=>entry.item.id===item.id);return row?{...item,returnedQuantity:item.returnedQuantity+row.value.quantity}:item})
-  const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),billingAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
+  const isFullWaivedReturn=finalItems.every((item)=>availableQuantity(item)===0)&&rows.every((row)=>row.value.billingMode==='waive')
+  const fullWaiver=isFullWaivedReturn?fullReturnWaiver(bills):{affected:[],adjustmentCents:0}
+  const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),periodAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),billingAdjustmentCents=isFullWaivedReturn?fullWaiver.adjustmentCents:periodAdjustmentCents,collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
   const adjustedRentCents=toCents(rental.totalRent)-billingAdjustmentCents
   const rentRefundCents=Math.min(billingAdjustmentCents,Math.max(0,toCents(rental.paidAmount)-adjustedRentCents))
   const rentRefundNow=rentRefundCents>0&&values[0].rentRefundSettlement.timing==='now'
   const totalCents=adjustedRentCents+deductionCents,paidCents=toCents(rental.paidAmount)+collectedCents-(rentRefundNow?rentRefundCents:0)
   if(totalCents<0)throw new Error('退租调整后合同总额不能小于 0')
   const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  if(isFullWaivedReturn){
+    for(const bill of fullWaiver.affected){
+      statements.push(db.update(receivableBills).set({
+        amount:bill.paidAmount,
+        status:toCents(bill.paidAmount)===0?'已减免':'已结清',
+        notes:`${bill.notes?`${bill.notes}；`:''}全部设备退租并选择本期不收，取消未收租金`,
+        updatedAt:new Date(),
+      }).where(and(eq(receivableBills.userId,userId),eq(receivableBills.id,bill.id))))
+    }
+    if(fullWaiver.adjustmentCents>0){
+      statements.push(
+        db.insert(rentalEvents).values({userId,rentalId,eventType:'退租结算',status:'已完成',eventDate:latestReturnDate,reason:'本期不收，全部设备退租，取消当前及未来未收租金',feeAdjustment:fromCents(-fullWaiver.adjustmentCents),operatorName:name,notes:`取消未收租金 ${fromCents(fullWaiver.adjustmentCents)} 元；合同与客户记录保留用于审计和风控`}),
+        db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'全部退租免租',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 全部退租，取消未收租金 ${fromCents(fullWaiver.adjustmentCents)} 元`,metadata:{billingMode:'waive',affectedBillIds:fullWaiver.affected.map((bill)=>bill.id),adjustmentAmount:fromCents(fullWaiver.adjustmentCents)}}),
+      )
+    }
+  }
   for(const row of rows){const v=row.value,next=row.item.returnedQuantity+v.quantity,collected=v.collectionSettlement.timing==='now'?v.deductionAmount:0,operationNo=`${operationNumber('return',rentalId)}-${row.id}`;statements.push(db.insert(rentalOperations).values({userId,rentalId,operationNo,operationType:'return',status:'completed',idempotencyKey:operationIdempotencyKey({userId,rentalId,type:'return',clientRequestId:crypto.randomUUID()}),actorUserId:actorId,actorName:name,summary:`${rental.contractNo} 退租 ${row.item.deviceName} ${v.quantity} 台`,completedAt:new Date()}),db.update(rentalItems).set({returnedQuantity:next,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,row.item.id))),db.insert(returnRecords).values({id:row.id,userId,rentalId,rentalItemId:row.item.id,quantity:v.quantity,returnDate:v.date,condition:v.condition,deductionAmount:fromCents(toCents(v.deductionAmount)),depositRefund:fromCents(toCents(v.depositRefund)),notes:v.notes,operatorName:name}),db.insert(rentalEvents).values({userId,rentalId,itemId:row.item.id,eventType:'退租',status:'已完成',eventDate:v.date,beforeSnapshot:{availableQuantity:row.available},afterSnapshot:{availableQuantity:row.available-v.quantity,returnedQuantity:next},feeAdjustment:fromCents(toCents(v.deductionAmount)-toCents(v.depositRefund)),operatorName:name,notes:v.notes}),db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'办理退租',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 退租 ${row.item.deviceName} ${v.quantity} 台`,metadata:{rentalItemId:row.item.id,quantity:v.quantity}}));false && statements.push(db.insert(returnSettlements).values({id:row.id,userId,rentalId,returnRecordId:row.id,customerPhone:rental.customerPhone,calculatedRefund:fromCents(row.billing.fullAmountCents),minimumTermMet:true,finalRefund:fromCents(row.billing.adjustmentCents),handlingType:v.billingMode==='full_month'?'整月收取':v.billingMode==='daily'?'按天收取':'本期不收',refundStatus:false?(v.refundSettlement.timing==='now'?'已退款':'待退款'):'无需退款',refundMethod:false?v.refundSettlement.method:null,refundDate:false&&v.refundSettlement.timing==='now'?v.date:null,reason:v.billingReason||null,operatorName:name}));if(false&&row.billing.adjustmentCents>0)statements.push(db.insert(customerCreditLedger).values({userId,customerPhone:rental.customerPhone,sourceRentalId:rentalId,returnSettlementId:row.id,entryType:'退租转入',amount:fromCents(row.billing.adjustmentCents),entryDate:v.date,operatorName:name,notes:v.billingReason||`${rental.contractNo} 退租转客户余额`}));if(false&&row.billing.adjustmentCents>0)statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:v.refundSettlement.timing==='now'?'租金退款':'租金待退',amount:fromCents(-row.billing.adjustmentCents),entryDate:v.date,operatorName:name,notes:`${v.refundSettlement.timing==='now'?`已通过${v.refundSettlement.method}退款`:'约定以后退款'}${v.billingReason?`；${v.billingReason}`:''}`}));if(row.billing.adjustmentCents>0)statements.push(db.insert(receivableBills).values({userId,rentalId,billNo:`RETURN-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:v.date,billType:'提前退租减免',amount:fromCents(-row.billing.adjustmentCents),paidAmount:'0.00',status:'已调整',notes:'提前退租按实际使用天数结算'}));if(v.deductionAmount>0)statements.push(db.insert(receivableBills).values({id:row.id,userId,rentalId,billNo:`RETURN-CHARGE-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:v.date,billType:'退租赔偿',amount:fromCents(toCents(v.deductionAmount)),paidAmount:fromCents(toCents(collected)),status:collected>0?'已结清':'待收',notes:`${row.item.deviceName} 退租赔偿`}));if(collected>0){const paymentId=row.id;statements.push(db.insert(paymentRecords).values({id:paymentId,userId,rentalId,returnRecordId:row.id,amount:fromCents(toCents(collected)),paymentDate:v.date,paymentMethod:v.collectionSettlement.method,feeType:'其他',operatorName:name,notes:'退租赔偿即时收款'}),db.insert(paymentAllocations).values({userId,rentalId,paymentRecordId:paymentId,billId:row.id,amount:fromCents(toCents(collected))}))};if(v.depositRefund>0)statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:v.refundSettlement.timing==='now'?'押金退还':'押金待退',amount:fromCents(-toCents(v.depositRefund)),entryDate:v.date,operatorName:name,notes:v.notes}))}
   for (const row of rows) {
-    if (!row.currentPeriod || row.billing.adjustmentCents <= 0) continue
+    if (isFullWaivedReturn || !row.currentPeriod || row.billing.adjustmentCents <= 0) continue
     const modeLabel = row.value.billingMode === 'daily' ? `退剩余天数：固定按 30 天折算，已用 ${row.billing.usedDays} 天` : '退本期全额（不超过本期实收）'
     statements.push(db.insert(receivableBills).values({
       userId, rentalId, billNo: `RETURN-BILLING-${rentalId}-${row.id}`,
