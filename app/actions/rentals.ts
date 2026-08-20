@@ -541,7 +541,7 @@ export async function reversePayment(paymentId: number, reason: string) {
     const [payment] = await tx.select().from(paymentRecords).where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.userId, userId)))
     if (!payment || Number(payment.amount) <= 0) throw new Error('原收款不存在或不可冲正')
     const existing = await tx.select().from(accountLedger).where(and(eq(accountLedger.paymentRecordId, paymentId), eq(accountLedger.entryType, '收款冲正'), eq(accountLedger.userId, userId)))
-    if (existing.length) throw new Error('该收款已冲正')
+    if (existing.length) return { ok: true, alreadyReversed: true }
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId)))
     if (!rental) throw new Error('合同不存在')
     const allocations = await tx.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId)))
@@ -573,7 +573,7 @@ export async function reversePayment(paymentId: number, reason: string) {
     }
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   }
-  revalidatePath('/')
+  return { ok: true, alreadyReversed: false }
 }
 
 export async function recordDepositAction(rentalId: number, entryType: '押金退还' | '押金抵扣欠租' | '押金抵扣赔偿', amount: number, entryDate: string, notes = '') {
