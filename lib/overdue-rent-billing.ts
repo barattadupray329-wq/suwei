@@ -1,5 +1,6 @@
 import { and, eq, inArray, lte, notInArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
+import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { buyoutRecords, lossRecords, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 import { addCalendarDays, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
@@ -43,18 +44,29 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   }))
   if (!bills.length) return { created: 0, amount: '0.00' }
 
-  for (const bill of bills) {
-    await db.insert(receivableBills).values(bill).onConflictDoNothing()
-  }
+  const insertStatements = chunkRowsForD1(bills).map((chunk) => db.insert(receivableBills).values(chunk).onConflictDoNothing())
+  if (insertStatements.length) await db.batch(insertStatements as [typeof insertStatements[number], ...Array<typeof insertStatements[number]>])
+
   const affectedIds = [...new Set(bills.map((bill) => bill.rentalId))]
-  for (const rentalId of affectedIds) {
-    const [contractBills, [contract]] = await Promise.all([
-      db.select({ amount: receivableBills.amount, billType: receivableBills.billType }).from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rentalId))),
-      db.select({ paidAmount: rentals.paidAmount }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))).limit(1),
-    ])
-    if (!contract) continue
-    const totalCents = contractBills.filter((bill) => bill.billType !== '押金').reduce((sum, bill) => sum + toCents(bill.amount), 0)
-    await db.update(rentals).set({ totalRent: fromCents(totalCents), paymentStatus: paymentStatusFromCents(totalCents, toCents(contract.paidAmount)), updatedAt: new Date() }).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId)))
+  const contractBills = await db.select({ rentalId: receivableBills.rentalId, amount: receivableBills.amount, billType: receivableBills.billType })
+    .from(receivableBills)
+    .where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, affectedIds)))
+  const totalsByRental = new Map<number, number>()
+  for (const bill of contractBills) {
+    if (bill.billType === '押金') continue
+    totalsByRental.set(bill.rentalId, (totalsByRental.get(bill.rentalId) ?? 0) + toCents(bill.amount))
+  }
+  const paidByRental = new Map(contracts.map((contract) => [contract.id, toCents(contract.paidAmount)]))
+  const now = new Date()
+  const updateStatements = affectedIds.map((rentalId) => {
+    const totalCents = totalsByRental.get(rentalId) ?? 0
+    return db.update(rentals)
+      .set({ totalRent: fromCents(totalCents), paymentStatus: paymentStatusFromCents(totalCents, paidByRental.get(rentalId) ?? 0), updatedAt: now })
+      .where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId)))
+  })
+  for (let offset = 0; offset < updateStatements.length; offset += 50) {
+    const chunk = updateStatements.slice(offset, offset + 50)
+    await db.batch(chunk as [typeof chunk[number], ...Array<typeof chunk[number]>])
   }
   return { created: bills.length, amount: fromCents(bills.reduce((sum, bill) => sum + toCents(bill.amount), 0)) }
 }
