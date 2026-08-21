@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { assertDateOrder, dateOnly, inclusiveDays, rentalEndDate } from '../lib/rental-calculations'
 import { assertQuantityInvariant, availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
-import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, paymentStatusFromCents } from '../lib/rental-reconciliation'
+import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, normalizedBillStatus, paymentStatusFromCents } from '../lib/rental-reconciliation'
 
 describe('全流程业务不变量', () => {
   it('拒绝不存在的日期并正确处理闰年', () => {
@@ -39,6 +39,14 @@ describe('全流程业务不变量', () => {
   it('对账拒绝合同、账单和收款不一致', () => {
     expect(assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '100.10', paidAmount: '20.05' }], payments: [{ amount: '20.05', feeType: '租金' }], allocations: [{ amount: '20.05' }] })).toBe(true)
     expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同应收与账单应收不一致')
+  })
+
+  it('账单状态保留调整终态并正确推导普通账单', () => {
+    expect(normalizedBillStatus('-60.00', '0', '已调整')).toBe('已调整')
+    expect(normalizedBillStatus('0', '0', '已减免')).toBe('已减免')
+    expect(normalizedBillStatus('100.00', '0')).toBe('待收款')
+    expect(normalizedBillStatus('100.00', '25.00')).toBe('部分收款')
+    expect(normalizedBillStatus('100.00', '100.00')).toBe('已结清')
   })
 
   it('押金与租金独立核算，不计入合同租金应收和已收', () => {

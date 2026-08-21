@@ -580,16 +580,36 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
   const userId = await getUserId()
   if (amount <= 0 || !entryDate) throw new Error('请填写有效金额和日期')
   { const tx = db
-    const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
+    const [[rental], entries] = await Promise.all([
+      tx.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
+      tx.select().from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId))),
+    ])
     if (!rental) throw new Error('合同不存在')
-    const entries = await tx.select().from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId)))
-    const balance = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? Number(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(Number(entry.amount)) : 0), 0)
-    if (amount > balance) throw new Error(`可用押金余额不足，当前为 ${balance.toFixed(2)} 元`)
-    await tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: String(-amount), entryDate, operatorName: '当前用户', notes })
+    assertOfficialRental(rental)
+    const balanceCents = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? moneyToCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(moneyToCents(entry.amount)) : 0), 0)
+    const amountCents = moneyToCents(amount)
+    if (amountCents > balanceCents) throw new Error(`可用押金余额不足，当前为 ${centsToMoney(balanceCents)} 元`)
+    const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+      tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: centsToMoney(-amountCents), entryDate, operatorName: '当前用户', notes }),
+    ]
     if (entryType !== '押金退还') {
-      const paid = Number(fromCents(toCents(rental.paidAmount) + toCents(amount)))
-      await tx.update(rentals).set({ paidAmount: String(paid), paymentStatus: paid >= Number(rental.totalRent) ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId)))
+      const bills = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId), ne(receivableBills.billType, '押金'))).orderBy(receivableBills.dueDate)
+      const allocations = allocatePayment(bills, centsToMoney(amountCents))
+      const paymentId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+      statements.push(tx.insert(paymentRecords).values({ id: paymentId, userId, rentalId, amount: centsToMoney(amountCents), paymentDate: entryDate, paymentMethod: '其他', feeType: '其他', operatorName: '当前用户', notes: `${entryType}：${notes}` }))
+      for (const allocation of allocations) {
+        const bill = bills.find((item) => item.id === allocation.billId)!
+        const nextPaidCents = moneyToCents(bill.paidAmount) + allocation.amountCents
+        statements.push(
+          tx.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: paymentId, billId: bill.id, amount: centsToMoney(allocation.amountCents) }),
+          tx.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: allocation.balanceAfterCents === 0 ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))),
+        )
+      }
+      const paidCents = moneyToCents(rental.paidAmount) + amountCents
+      const totalCents = moneyToCents(rental.totalRent)
+      statements.push(tx.update(rentals).set({ paidAmount: centsToMoney(paidCents), paymentStatus: paymentStatusFromCents(totalCents, paidCents), updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))))
     }
+    await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   }
   revalidatePath('/')
 }

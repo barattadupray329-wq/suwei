@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowRight, ChevronRight, CircleAlert, X } from 'lucide-react'
+import { ArrowRight, ChevronRight, X } from 'lucide-react'
 import { OPERATION_DEFINITIONS, type RentalOperationType } from '@/lib/rental-operation-hub'
 
 type WizardItem = {
@@ -28,7 +28,6 @@ type Props = {
 
 export function RentalOperationWizard({ contractNo, customerName, customerPhone, endDate, items, onClose, onStart, embedded = false }: Props) {
   const [type, setType] = useState<RentalOperationType | null>(null)
-  const definition = OPERATION_DEFINITIONS.find((item) => item.type === type)
   const availableItems = items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0).length
 
   return (
@@ -70,11 +69,7 @@ export function RentalOperationWizard({ contractNo, customerName, customerPhone,
                 </div>
               </section>
             ))}
-            {definition && (
-              <section className="rounded-xl bg-accent p-4 text-sm leading-6 text-accent-foreground">
-                <div className="flex gap-2"><CircleAlert className="mt-1 size-4 shrink-0" /><p><strong>下一步：</strong>进入“{definition.label}”专用表单后，可一次选择多项设备，并设置批量默认值或逐项覆盖。提交时整批校验并原子写入，不会出现部分成功。</p></div>
-              </section>
-            )}
+
           </div>
         </main>
 
