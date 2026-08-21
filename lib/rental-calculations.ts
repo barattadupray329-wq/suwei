@@ -148,6 +148,23 @@ export function billPeriodLabel(range: BillPeriodRange | undefined, unit: Billin
   return range.span > 1 ? `第 ${range.start}-${range.end} ${suffix}` : `第 ${range.start} ${suffix}`
 }
 
+export function billPaymentPeriodSummary<T extends { id: number; amount: string | number; paidAmount: string | number }>(
+  bills: T[],
+  ranges: Map<number, BillPeriodRange>,
+) {
+  return bills.reduce((summary, bill) => {
+    const span = ranges.get(bill.id)?.span ?? 1
+    const amountCents = toCents(bill.amount)
+    const paidCents = toCents(bill.paidAmount)
+    if (amountCents <= 0 || paidCents >= amountCents) summary.paid += span
+    else {
+      summary.unpaid += span
+      if (paidCents > 0) summary.partial += span
+    }
+    return summary
+  }, { paid: 0, unpaid: 0, partial: 0 })
+}
+
 export function nextOpenBill<T extends { amount: string | number; paidAmount: string | number; dueDate: string }>(bills: T[]) {
   return bills
     .filter((bill) => toCents(bill.amount) > toCents(bill.paidAmount))

@@ -8,7 +8,7 @@ import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { billPaymentPeriodSummary, billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -225,8 +225,19 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       bills: bills.map((bill) => ({ dueDate: bill.dueDate, amount: bill.amount, paidAmount: bill.paidAmount })),
     }, today)
     // 期数按自然月（日租按天）累计，而不是按账单条数：起租 3 个月 + 续租 1 个月 = 4 期
-    const periodCount = billPeriodRanges(bills, { anchorDate: row.startDate, unit: normalizeBillingUnit(row.billingType) }).total
-    return { ...row, quantity, endDate: effectiveEndDate, periodCount, billingUnit: normalizeBillingUnit(row.billingType), status }
+    const periodRanges = billPeriodRanges(bills, { anchorDate: row.startDate, unit: normalizeBillingUnit(row.billingType) })
+    const periodPayments = billPaymentPeriodSummary(bills, periodRanges.ranges)
+    return {
+      ...row,
+      quantity,
+      endDate: effectiveEndDate,
+      periodCount: periodRanges.total,
+      paidPeriodCount: periodPayments.paid,
+      unpaidPeriodCount: periodPayments.unpaid,
+      partialPeriodCount: periodPayments.partial,
+      billingUnit: normalizeBillingUnit(row.billingType),
+      status,
+    }
   })
   const total = Number(summaryRow?.count ?? 0)
   return {
@@ -602,7 +613,7 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
     ])
     if (!rental) throw new Error('合同不存在')
     assertOfficialRental(rental)
-    const balanceCents = entries.reduce((sum, entry) => sum + (entry.entryType === '押��收取' ? moneyToCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(moneyToCents(entry.amount)) : 0), 0)
+    const balanceCents = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? moneyToCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(moneyToCents(entry.amount)) : 0), 0)
     const amountCents = moneyToCents(amount)
     if (amountCents > balanceCents) throw new Error(`可用押金余额不足，当前为 ${centsToMoney(balanceCents)} 元`)
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
