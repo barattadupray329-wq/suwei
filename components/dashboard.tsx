@@ -1244,6 +1244,7 @@ canViewFinance={canViewFinance}
         open={dialog === "change-guide"}
         title="办理租赁变更"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1258,6 +1259,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "delete-confirm"}
         title={selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"}
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1328,6 +1330,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "payment"}
         title="登记收款"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1345,6 +1348,7 @@ canViewFinance={canViewFinance}
         open={dialog === "renew"}
         title="办理部分设备续租"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1376,6 +1380,7 @@ canViewFinance={canViewFinance}
         open={dialog === "history"}
         title="客户历史记录"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && <CustomerHistory phone={selected.customerPhone} />}
@@ -1383,6 +1388,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "return"}
         title="办理设备退租"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1402,6 +1408,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "loss"}
         title="登记设备丢失"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1419,6 +1426,7 @@ canViewFinance={canViewFinance}
         open={dialog === "change"}
         title="变更配置与租金"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1438,6 +1446,7 @@ canViewFinance={canViewFinance}
         open={dialog === "repair"}
         title="登记维修单"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1453,6 +1462,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "deposit"}
         title="押金退还或抵扣"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1472,6 +1482,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "exchange"}
         title="设备换机调拨"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1490,6 +1501,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "buyout"}
         title="办理部分买断"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
