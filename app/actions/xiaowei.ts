@@ -7,7 +7,7 @@ import { getAccessContext } from '@/lib/access'
 import { businessSmsReadiness, sendBusinessSms } from '@/lib/business-sms'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
 import { db } from '@/lib/db'
-import { extractCustomerName, wantsDueSms } from '@/lib/xiaowei-intent'
+import { resolveCustomerName, wantsCustomerDueStatus, wantsDueSms } from '@/lib/xiaowei-intent'
 import { aiUsageDaily, auditLogs, paymentRecords, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 import { beijingDate, hasRemainingRentalItems } from '@/lib/sms-reminder-rules'
 
@@ -143,6 +143,33 @@ async function customerAnswer(userId: string, customerName: string, remainingReq
   }
 }
 
+async function customerDueAnswer(userId: string, customerName: string, remainingRequests: number): Promise<XiaoweiAnswer | null> {
+  const contracts = await getCustomerContracts(userId, customerName)
+  if (!contracts.length) return null
+  const today = beijingDate()
+  const dueContracts = contracts.filter((contract) => contract.endDate <= today)
+  const items = dueContracts.length ? await db.select({
+    rentalId: rentalItems.rentalId,
+    quantity: rentalItems.quantity,
+    boughtOutQuantity: rentalItems.boughtOutQuantity,
+    returnedQuantity: rentalItems.returnedQuantity,
+    lostQuantity: rentalItems.lostQuantity,
+  }).from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, dueContracts.map((contract) => contract.id)))) : []
+  const due = dueContracts.map((contract) => ({
+    ...contract,
+    remainingQuantity: items.filter((item) => item.rentalId === contract.id).reduce((sum, item) => sum + Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity), 0),
+  })).filter((contract) => contract.remainingQuantity > 0)
+  const quantity = due.reduce((sum, contract) => sum + contract.remainingQuantity, 0)
+  return {
+    title: `${customerName}的到期情况`,
+    summary: due.length ? `${customerName}当前有 ${due.length} 份已到期且仍未归还的合同，共 ${quantity} 台设备。` : `${customerName}当前没有已到期且仍未归还的设备。`,
+    facts: due.length ? due.map((contract) => `${contract.contractNo}｜未归还 ${contract.remainingQuantity} 台｜${contract.endDate} 到期`) : ['未发现结束日期不晚于今天且仍有未归还设备的有效正式合同'],
+    scope: '沿用上一轮客户，仅统计当前店铺内已到期且仍有未归还设备的有效正式合同',
+    updatedAt: nowText(), href: `/rentals?query=${encodeURIComponent(customerName)}`, hrefLabel: '查看客户合同',
+    suggestions: [`${customerName}有哪些合同？`, `发送给${customerName}到期通知`], remainingRequests, aiGenerated: false,
+  }
+}
+
 async function prepareDueSms(userId: string, customerName: string, remainingRequests: number): Promise<XiaoweiAnswer> {
   const contracts = await getCustomerContracts(userId, customerName)
   if (!contracts.length) throw new Error(`当前店铺未找到客户“${customerName}”的有效合同`)
@@ -194,10 +221,15 @@ export async function askXiaowei(question: string, history: XiaoweiMessage[] = [
   const text = question.trim()
   if (text.length < 2) throw new Error('请告诉小维你想查询什么')
   if (text.length > 300) throw new Error('问题请控制在 300 字以内')
-  const customerName = extractCustomerName(text)
+  const customerName = resolveCustomerName(text, history)
   if (wantsDueSms(text)) {
     if (!customerName) throw new Error('请说清楚客户姓名，例如“发送给郑智铭到期通知”')
     return prepareDueSms(access.userId, customerName, 0)
+  }
+  if (customerName && wantsCustomerDueStatus(text)) {
+    const dueAnswer = await customerDueAnswer(access.userId, customerName, 0)
+    if (dueAnswer) return dueAnswer
+    throw new Error(`当前店铺未找到客户“${customerName}”的有效合同`)
   }
   if (customerName && /(?:租了|租的|名下|合同|设备|几台|多少台|到期订单)/.test(text)) {
     const directAnswer = await customerAnswer(access.userId, customerName, 0)
