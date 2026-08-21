@@ -18,7 +18,7 @@ import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
-import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
+import { nonDepositPaymentCents, paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 
 async function getUserId() {
@@ -115,8 +115,24 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const ledgerMap = groupByRental(ledger)
   return rows.map((row) => {
     const rentalItemRows = itemMap.get(row.id) ?? []
+    const rentalPayments = paymentMap.get(row.id) ?? []
     const quantity = rentalItemRows.reduce((sum, item) => sum + availableQuantity(item), 0)
-    return { ...row, quantity, status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status, items: rentalItemRows, buyoutRecords: buyoutMap.get(row.id) ?? [], renewalRecords: renewalMap.get(row.id) ?? [], paymentRecords: paymentMap.get(row.id) ?? [], events: eventMap.get(row.id) ?? [], bills: billMap.get(row.id) ?? [], ledger: ledgerMap.get(row.id) ?? [] }
+    const paidCents = nonDepositPaymentCents(rentalPayments)
+    const totalCents = moneyToCents(row.totalRent)
+    return {
+      ...row,
+      paidAmount: centsToMoney(paidCents),
+      paymentStatus: paymentStatusFromCents(totalCents, paidCents),
+      quantity,
+      status: quantity === 0 && rentalItemRows.length > 0 ? rentalLifecycleStatus(rentalItemRows) : row.status,
+      items: rentalItemRows,
+      buyoutRecords: buyoutMap.get(row.id) ?? [],
+      renewalRecords: renewalMap.get(row.id) ?? [],
+      paymentRecords: rentalPayments,
+      events: eventMap.get(row.id) ?? [],
+      bills: billMap.get(row.id) ?? [],
+      ledger: ledgerMap.get(row.id) ?? [],
+    }
   })
 }
 
@@ -586,7 +602,7 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
     ])
     if (!rental) throw new Error('合同不存在')
     assertOfficialRental(rental)
-    const balanceCents = entries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? moneyToCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(moneyToCents(entry.amount)) : 0), 0)
+    const balanceCents = entries.reduce((sum, entry) => sum + (entry.entryType === '押��收取' ? moneyToCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(moneyToCents(entry.amount)) : 0), 0)
     const amountCents = moneyToCents(amount)
     if (amountCents > balanceCents) throw new Error(`可用押金余额不足，当前为 ${centsToMoney(balanceCents)} 元`)
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [

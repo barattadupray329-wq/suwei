@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { assertDateOrder, dateOnly, inclusiveDays, rentalEndDate } from '../lib/rental-calculations'
 import { assertQuantityInvariant, availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
-import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, normalizedBillStatus, paymentStatusFromCents } from '../lib/rental-reconciliation'
+import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents } from '../lib/rental-reconciliation'
 
 describe('全流程业务不变量', () => {
   it('拒绝不存在的日期并正确处理闰年', () => {
@@ -39,6 +39,17 @@ describe('全流程业务不变量', () => {
   it('对账拒绝合同、账单和收款不一致', () => {
     expect(assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '100.10', paidAmount: '20.05' }], payments: [{ amount: '20.05', feeType: '租金' }], allocations: [{ amount: '20.05' }] })).toBe(true)
     expect(() => assertFinancialReconciliation({ contractTotal: '100.10', contractPaid: '20.05', bills: [{ amount: '99.10', paidAmount: '20.05' }], payments: [{ amount: '20.05' }] })).toThrow('合同应收与账单应收不一致')
+  })
+
+  it('合同已收以全部非押金流水为准并计入冲正', () => {
+    expect(nonDepositPaymentCents([
+      { amount: '2800.00', feeType: '原合同租金' },
+      { amount: '1200.00', feeType: '续租费' },
+      { amount: '200.00', feeType: '续租费' },
+      { amount: '200.00', feeType: '续租费' },
+      { amount: '-200.00', feeType: '续租费' },
+      { amount: '500.00', feeType: '押金' },
+    ])).toBe(420000)
   })
 
   it('账单状态保留调整终态并正确推导普通账单', () => {
