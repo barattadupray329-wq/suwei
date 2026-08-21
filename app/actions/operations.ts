@@ -11,7 +11,7 @@ import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { fullReturnWaiver, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -70,15 +70,28 @@ export async function returnRentalItems(input: ReturnInput[]) {
     }
   }
   for(const row of rows){const v=row.value,next=row.item.returnedQuantity+v.quantity,collected=v.collectionSettlement.timing==='now'?v.deductionAmount:0,operationNo=`${operationNumber('return',rentalId)}-${row.id}`;statements.push(db.insert(rentalOperations).values({userId,rentalId,operationNo,operationType:'return',status:'completed',idempotencyKey:operationIdempotencyKey({userId,rentalId,type:'return',clientRequestId:crypto.randomUUID()}),actorUserId:actorId,actorName:name,summary:`${rental.contractNo} 退租 ${row.item.deviceName} ${v.quantity} 台`,completedAt:new Date()}),db.update(rentalItems).set({returnedQuantity:next,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,row.item.id))),db.insert(returnRecords).values({id:row.id,userId,rentalId,rentalItemId:row.item.id,quantity:v.quantity,returnDate:v.date,condition:v.condition,deductionAmount:fromCents(toCents(v.deductionAmount)),depositRefund:fromCents(toCents(v.depositRefund)),notes:v.notes,operatorName:name}),db.insert(rentalEvents).values({userId,rentalId,itemId:row.item.id,eventType:'退租',status:'已完成',eventDate:v.date,beforeSnapshot:{availableQuantity:row.available},afterSnapshot:{availableQuantity:row.available-v.quantity,returnedQuantity:next},feeAdjustment:fromCents(toCents(v.deductionAmount)-toCents(v.depositRefund)),operatorName:name,notes:v.notes}),db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'办理退租',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 退租 ${row.item.deviceName} ${v.quantity} 台`,metadata:{rentalItemId:row.item.id,quantity:v.quantity}}));false && statements.push(db.insert(returnSettlements).values({id:row.id,userId,rentalId,returnRecordId:row.id,customerPhone:rental.customerPhone,calculatedRefund:fromCents(row.billing.fullAmountCents),minimumTermMet:true,finalRefund:fromCents(row.billing.adjustmentCents),handlingType:v.billingMode==='full_month'?'整月收取':v.billingMode==='daily'?'按天收取':'本期不收',refundStatus:false?(v.refundSettlement.timing==='now'?'已退款':'待退款'):'无需退款',refundMethod:false?v.refundSettlement.method:null,refundDate:false&&v.refundSettlement.timing==='now'?v.date:null,reason:v.billingReason||null,operatorName:name}));if(false&&row.billing.adjustmentCents>0)statements.push(db.insert(customerCreditLedger).values({userId,customerPhone:rental.customerPhone,sourceRentalId:rentalId,returnSettlementId:row.id,entryType:'退租转入',amount:fromCents(row.billing.adjustmentCents),entryDate:v.date,operatorName:name,notes:v.billingReason||`${rental.contractNo} 退租转客户余额`}));if(false&&row.billing.adjustmentCents>0)statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:v.refundSettlement.timing==='now'?'租金退款':'租金待退',amount:fromCents(-row.billing.adjustmentCents),entryDate:v.date,operatorName:name,notes:`${v.refundSettlement.timing==='now'?`已通过${v.refundSettlement.method}退款`:'约定以后退款'}${v.billingReason?`；${v.billingReason}`:''}`}));if(row.billing.adjustmentCents>0)statements.push(db.insert(receivableBills).values({userId,rentalId,billNo:`RETURN-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:v.date,billType:'提前退租减免',amount:fromCents(-row.billing.adjustmentCents),paidAmount:'0.00',status:'已调整',notes:'提前退租按实际使用天数结算'}));if(v.deductionAmount>0)statements.push(db.insert(receivableBills).values({id:row.id,userId,rentalId,billNo:`RETURN-CHARGE-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:v.date,billType:'退租赔偿',amount:fromCents(toCents(v.deductionAmount)),paidAmount:fromCents(toCents(collected)),status:collected>0?'已结清':'待收',notes:`${row.item.deviceName} 退租赔偿`}));if(collected>0){const paymentId=row.id;statements.push(db.insert(paymentRecords).values({id:paymentId,userId,rentalId,returnRecordId:row.id,amount:fromCents(toCents(collected)),paymentDate:v.date,paymentMethod:v.collectionSettlement.method,feeType:'其他',operatorName:name,notes:'退租赔偿即时收款'}),db.insert(paymentAllocations).values({userId,rentalId,paymentRecordId:paymentId,billId:row.id,amount:fromCents(toCents(collected))}))};if(v.depositRefund>0)statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:v.refundSettlement.timing==='now'?'押金退还':'押金待退',amount:fromCents(-toCents(v.depositRefund)),entryDate:v.date,operatorName:name,notes:v.notes}))}
+  const billReductions = new Map<number, { bill: typeof bills[number]; cents: number; notes: string[] }>()
   for (const row of rows) {
     if (isFullWaivedReturn || !row.currentPeriod || row.billing.adjustmentCents <= 0) continue
-    const modeLabel = row.value.billingMode === 'daily' ? `退剩余天数：固定按 30 天折算，已用 ${row.billing.usedDays} 天` : '退本期全额（不超过本期实收）'
-    statements.push(db.insert(receivableBills).values({
-      userId, rentalId, billNo: `RETURN-BILLING-${rentalId}-${row.id}`,
-      periodStart: row.currentPeriod.periodStart, periodEnd: row.currentPeriod.periodEnd, dueDate: row.value.date,
-      billType: '退租当期租金调整', amount: fromCents(-row.billing.adjustmentCents), paidAmount: '0.00', status: '已调整',
-      notes: `${row.item.deviceName} ${row.value.quantity} 台；${modeLabel}；协商说明：${row.value.billingReason}`,
-    }))
+    const bill = bills
+      .filter((candidate) => isRentBillType(candidate.billType) && toCents(candidate.amount) > 0 && candidate.periodStart <= row.value.date && row.value.date < candidate.periodEnd)
+      .sort((left, right) => right.periodStart.localeCompare(left.periodStart))[0]
+    if (!bill) throw new Error(`${row.item.deviceName} 当前账期不存在，无法办理退租租金调整`)
+    const modeLabel = row.value.billingMode === 'daily' ? `退剩余天数：固定按 30 天折算，已用 ${row.billing.usedDays} 天` : '退回设备自本账期起不再计租'
+    const current = billReductions.get(bill.id) ?? { bill, cents: 0, notes: [] }
+    current.cents += row.billing.adjustmentCents
+    current.notes.push(`${row.item.deviceName} ${row.value.quantity} 台；${modeLabel}；协商说明：${row.value.billingReason}`)
+    billReductions.set(bill.id, current)
+  }
+  for (const { bill, cents, notes } of billReductions.values()) {
+    const nextAmountCents = toCents(bill.amount) - cents
+    if (nextAmountCents < toCents(bill.paidAmount)) throw new Error('退租后的本期应收不能低于本期已收金额')
+    statements.push(db.update(receivableBills).set({
+      amount: fromCents(nextAmountCents),
+      status: toCents(bill.paidAmount) >= nextAmountCents ? '已结清' : toCents(bill.paidAmount) > 0 ? '部分收款' : '待收',
+      notes: [bill.notes, ...notes].filter(Boolean).join('；'),
+      updatedAt: new Date(),
+    }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
   }
   if(rentRefundCents>0){const settlement=values[0].rentRefundSettlement;statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:settlement.timing==='now'?'租金退款':'租金待退',amount:fromCents(-rentRefundCents),entryDate:latestReturnDate,operatorName:name,notes:`退租租金退款；${settlement.timing==='now'?`已通过${settlement.method}退还`:'约定以后退还'}`}))}
   statements.push(db.update(rentals).set({quantity:finalItems.reduce((sum,item)=>sum+availableQuantity(item),0),totalRent:fromCents(totalCents),paidAmount:fromCents(paidCents),paymentStatus:paymentStatusFromCents(totalCents,paidCents),status:rentalLifecycleStatus(finalItems),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
