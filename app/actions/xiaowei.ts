@@ -7,7 +7,7 @@ import { getAccessContext } from '@/lib/access'
 import { businessSmsReadiness, sendBusinessSms } from '@/lib/business-sms'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
 import { db } from '@/lib/db'
-import { resolveCustomerName, wantsCustomerDueStatus, wantsDueSms } from '@/lib/xiaowei-intent'
+import { classifyXiaoweiIntent, resolveCustomerName } from '@/lib/xiaowei-intent'
 import { aiUsageDaily, auditLogs, paymentRecords, receivableBills, rentalEvents, rentalItems, rentals } from '@/lib/db/schema'
 import { beijingDate, hasRemainingRentalItems } from '@/lib/sms-reminder-rules'
 
@@ -84,7 +84,7 @@ async function reserveFreeUsage(userId: string) {
   return Math.max(0, Math.floor((DAILY_NEURON_BUDGET - used - RESERVED_NEURONS_PER_REQUEST) / RESERVED_NEURONS_PER_REQUEST))
 }
 
-async function getBusinessContext(userId: string, question: string) {
+async function getBusinessContext(userId: string) {
   const today = chinaDate()
   const month = today.slice(0, 7)
   const [[active], [due], [overdue], [paid], events] = await Promise.all([
@@ -94,19 +94,12 @@ async function getBusinessContext(userId: string, question: string) {
     db.select({ count: sql<number>`count(*)`, amount: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)), 0)` }).from(paymentRecords).where(and(eq(paymentRecords.userId, userId), sql`substr(${paymentRecords.paymentDate}, 1, 7) = ${month}`)),
     db.select({ type: rentalEvents.eventType, count: sql<number>`count(*)` }).from(rentalEvents).where(and(eq(rentalEvents.userId, userId), sql`substr(${rentalEvents.eventDate}, 1, 7) = ${month}`)).groupBy(rentalEvents.eventType),
   ])
-  let customerFacts: string[] = []
-  const keyword = question.match(/[\u4e00-\u9fa5A-Za-z·]{2,12}/)?.[0]
-  if (keyword && !/现在|多少|合同|设备|本月|待收|逾期|收款|经营|分析/.test(keyword)) {
-    const rows = await db.select({ contractNo: rentals.contractNo, customerName: rentals.customerName, quantity: rentals.quantity, status: rentals.status }).from(rentals).where(and(eq(rentals.userId, userId), sql`${rentals.customerName} like ${`%${keyword}%`}`, eq(rentals.lifecycleStatus, 'active'))).limit(10)
-    customerFacts = rows.map((row) => `${row.customerName}｜${row.contractNo}｜${row.quantity}台｜${row.status}`)
-  }
   const facts = [
     `在租合同：${Number(active?.contracts || 0)}份；在租设备：${Number(active?.quantity || 0)}台；合同金额合计：${money(Number(active?.rent || 0))}`,
     `当前待收：${money(Number(due?.amount || 0))}（${Number(due?.count || 0)}笔）`,
     `逾期待收：${money(Number(overdue?.amount || 0))}（${Number(overdue?.count || 0)}笔）`,
     `本月实际收款：${money(Number(paid?.amount || 0))}（${Number(paid?.count || 0)}笔，包含冲正负数）`,
     `本月业务：${events.length ? events.map((item) => `${item.type}${item.count}次`).join('、') : '暂无记录'}`,
-    ...customerFacts,
   ]
   return { facts, today, month }
 }
@@ -222,24 +215,44 @@ async function askXiaoweiInternal(question: string, history: XiaoweiMessage[] = 
   if (text.length < 2) throw new Error('请告诉小维你想查询什么')
   if (text.length > 300) throw new Error('问题请控制在 300 字以内')
   const customerName = resolveCustomerName(text, history)
-  if (wantsDueSms(text)) {
+  const intent = classifyXiaoweiIntent(text, Boolean(customerName))
+  if (intent === 'capabilities') {
+    return {
+      title: '小维能帮你做这些事',
+      summary: '我可以正常对话，也能结合当前店铺数据回答租赁业务问题。涉及短信时，我会先生成预览，只有你确认后才发送。',
+      facts: ['查询指定客户的有效合同、在租设备和到期设备', '分析待收、逾期、收款和经营风险', '生成客户到期短信预览，并在二次确认后发送', '解释租赁业务流程，给出下一步处理建议'],
+      scope: '业务查询默认只读；短信必须二次确认；不会直接收款、退租或修改合同',
+      updatedAt: nowText(), href: '/rentals', hrefLabel: '查看租赁管理',
+      suggestions: ['陈江涛租了几台？', '当前逾期待收情况怎么样？', '发送给郑智铭到期通知'], remainingRequests: 0, aiGenerated: false,
+    }
+  }
+  if (intent === 'greeting') {
+    return {
+      title: '你好，我是小维', summary: '我在。你可以直接和我聊天，也可以问客户、合同、设备、待收和到期提醒。', facts: [],
+      scope: '租赁业务助手', updatedAt: nowText(), href: '/rentals', hrefLabel: '查看租赁管理',
+      suggestions: ['你会哪些？', '哪些数据最需要我关注？', '陈江涛租了几台？'], remainingRequests: 0, aiGenerated: false,
+    }
+  }
+  if (intent === 'due-sms') {
     if (!customerName) throw new Error('请说清楚客户姓名，例如“发送给郑智铭到期通知”')
     return prepareDueSms(access.userId, customerName, 0)
   }
-  if (customerName && wantsCustomerDueStatus(text)) {
+  if (intent === 'customer-due' && customerName) {
     const dueAnswer = await customerDueAnswer(access.userId, customerName, 0)
     if (dueAnswer) return dueAnswer
     throw new Error(`当前店铺未找到客户“${customerName}”的有效合同`)
   }
-  if (customerName && /(?:租了|租的|名下|合同|设备|几台|多少台|到期订单)/.test(text)) {
+  if (intent === 'customer' && customerName) {
     const directAnswer = await customerAnswer(access.userId, customerName, 0)
     if (directAnswer) return directAnswer
     throw new Error(`当前店铺未找到客户“${customerName}”的有效合同`)
   }
-  const context = await getBusinessContext(access.userId, text)
+  const context = intent === 'business' ? await getBusinessContext(access.userId) : null
   const remainingRequests = await reserveFreeUsage(access.userId)
   const messages = history.slice(-MAX_HISTORY).map((item) => ({ role: item.role, content: item.content.slice(0, 800) }))
-  const prompt = `你是“小维”，中国电脑租赁店的只读业务助手。只允许依据下方实时数据回答，禁止编造、禁止声称已执行收款/退租/改合同等操作。回答使用简洁中文，先给结论，再说明关键依据和建议；金额保留两位小数。若数据不足，明确说需要去哪个页面核对。\n店铺：${access.shopName}\n统计日期：${context.today}\n实时数据：\n- ${context.facts.join('\n- ')}\n用户问题：${text}`
+  const prompt = context
+    ? `你是“小维”，中国电脑租赁店的业务助手。只允许依据下方实时数据回答，禁止编造、禁止声称已执行收款、退租或改合同等操作。回答使用简洁中文，先给结论，再说明关键依据和建议；金额保留两位小数。若数据不足，明确说明。\n店铺：${access.shopName}\n统计日期：${context.today}\n实时数据：\n- ${context.facts.join('\n- ')}\n用户问题：${text}`
+    : `你是“小维”，中国电脑租赁店的友好业务助手。请自然、简洁地回应用户，能够正常闲聊和解释租赁业务常识。不要把普通聊天误判为客户查询，不要编造店铺数据，也不要声称已经执行任何业务操作。用户问题：${text}`
   try {
     const { env } = await getCloudflareContext({ async: true })
     if (!env.AI) throw new Error('AI binding missing')
@@ -247,8 +260,8 @@ async function askXiaoweiInternal(question: string, history: XiaoweiMessage[] = 
     const summary = result.response?.trim()
     if (!summary) throw new Error('empty AI response')
     return {
-      title: '小维分析', summary, facts: context.facts.slice(0, 5),
-      scope: `只读分析当前店铺“${access.shopName}”的数据，不会修改任何业务记录`, updatedAt: nowText(),
+      title: context ? '小维分析' : '小维回复', summary, facts: context?.facts.slice(0, 5) ?? [],
+      scope: context ? `只读分析当前店铺“${access.shopName}”的数据，不会修改任何业务记录` : '本次为普通对话，未查询或修改店铺业务数据', updatedAt: nowText(),
       href: /逾期|待收|收款|金额/.test(text) ? '/finance' : '/rentals', hrefLabel: /逾期|待收|收款|金额/.test(text) ? '查看资金与账单' : '查看租赁管理',
       suggestions: ['哪些数据最需要我关注？', '当前逾期待收情况怎么样？', '给我一份今日经营建议'], remainingRequests, aiGenerated: true,
     }
