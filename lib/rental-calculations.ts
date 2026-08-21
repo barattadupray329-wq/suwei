@@ -119,15 +119,22 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
   const sorted = [...bills].sort((left, right) => left.periodStart.localeCompare(right.periodStart) || (left.dueDate ?? '').localeCompare(right.dueDate ?? '') || left.id - right.id)
   const anchorDate = options.anchorDate ?? sorted[0]?.periodStart ?? null
   const ranges = new Map<number, BillPeriodRange>()
+  const rangesByDates = new Map<string, BillPeriodRange>()
   let cursor = 0
   let total = 0
   for (const bill of sorted) {
+    const datesKey = `${bill.periodStart}:${bill.periodEnd}`
+    const existingRange = rangesByDates.get(datesKey)
+    if (existingRange) {
+      ranges.set(bill.id, existingRange)
+      continue
+    }
     let start = cursor + 1
     let end = start
     if (anchorDate) {
       try {
-        // 期号一律相对起租日推算，续租账单落在哪个自然月就是第几期；
-        // cursor 用于兜底历史数据里账期首尾相接（重叠一天）导致的期号回退。
+        // 相同账期的多台设备或多项费用复用同一期；不同账期仍按顺序递增，
+        // 兼容历史续租账单与上一账期首尾重叠一天的情况。
         start = Math.max(cursor + 1, elapsedUnits(anchorDate, bill.periodStart, unit) + 1)
         end = Math.max(start, coveredUnits(anchorDate, addCalendarDays(bill.periodEnd, 1), unit))
       } catch {
@@ -135,7 +142,9 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
         end = start
       }
     }
-    ranges.set(bill.id, { start, end, span: end - start + 1 })
+    const range = { start, end, span: end - start + 1 }
+    ranges.set(bill.id, range)
+    rangesByDates.set(datesKey, range)
     cursor = Math.max(cursor, end)
     total = Math.max(total, end)
   }
@@ -152,14 +161,23 @@ export function billPaymentPeriodSummary<T extends { id: number; amount: string 
   bills: T[],
   ranges: Map<number, BillPeriodRange>,
 ) {
-  return bills.reduce((summary, bill) => {
-    const span = ranges.get(bill.id)?.span ?? 1
-    const amountCents = toCents(bill.amount)
-    const paidCents = toCents(bill.paidAmount)
-    if (amountCents <= 0 || paidCents >= amountCents) summary.paid += span
+  const periods = new Map<number, { amount: number; paid: number }>()
+  for (const bill of bills) {
+    const range = ranges.get(bill.id) ?? { start: 1, end: 1, span: 1 }
+    const amount = toCents(bill.amount) / range.span
+    const paid = toCents(bill.paidAmount) / range.span
+    for (let period = range.start; period <= range.end; period += 1) {
+      const current = periods.get(period) ?? { amount: 0, paid: 0 }
+      current.amount += amount
+      current.paid += paid
+      periods.set(period, current)
+    }
+  }
+  return [...periods.values()].reduce((summary, period) => {
+    if (period.amount <= 0 || period.paid >= period.amount - 0.5) summary.paid += 1
     else {
-      summary.unpaid += span
-      if (paidCents > 0) summary.partial += span
+      summary.unpaid += 1
+      if (period.paid > 0) summary.partial += 1
     }
     return summary
   }, { paid: 0, unpaid: 0, partial: 0 })

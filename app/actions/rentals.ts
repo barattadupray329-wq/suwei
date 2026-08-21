@@ -227,10 +227,17 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     // 期数按自然月（日租按天）累计，而不是按账单条数：起租 3 个月 + 续租 1 个月 = 4 期
     const periodRanges = billPeriodRanges(bills, { anchorDate: row.startDate, unit: normalizeBillingUnit(row.billingType) })
     const periodPayments = billPaymentPeriodSummary(bills, periodRanges.ranges)
+    const paidThroughDate = bills
+      .filter((bill) => Number(bill.amount) <= 0 || Number(bill.paidAmount) >= Number(bill.amount))
+      .map((bill) => bill.periodEnd)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null
     return {
       ...row,
       quantity,
       endDate: effectiveEndDate,
+      paidThroughDate,
       periodCount: periodRanges.total,
       paidPeriodCount: periodPayments.paid,
       unpaidPeriodCount: periodPayments.unpaid,

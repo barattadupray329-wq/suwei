@@ -106,6 +106,20 @@ describe('期数按自然月累计', () => {
     const { ranges } = billPeriodRanges(bills, { anchorDate: '2026-03-01' })
     expect(billPaymentPeriodSummary(bills, ranges)).toEqual({ paid: 3, unpaid: 2, partial: 1 })
   })
+  it('相同账期的多项费用只统计一次期数', () => {
+    const bills = [
+      { ...bill(1, '2026-02-08', '2026-03-07'), amount: '320', paidAmount: '320' },
+      { ...bill(2, '2026-03-08', '2026-04-07'), amount: '320', paidAmount: '320' },
+      { ...bill(3, '2026-04-08', '2026-06-07'), amount: '480', paidAmount: '480' },
+      { ...bill(4, '2026-04-08', '2026-06-07'), amount: '80', paidAmount: '80' },
+      { ...bill(5, '2026-06-08', '2026-07-07'), amount: '320', paidAmount: '0' },
+      { ...bill(6, '2026-07-08', '2026-08-07'), amount: '320', paidAmount: '0' },
+    ]
+    const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-02-08' })
+    expect(ranges.get(3)).toEqual(ranges.get(4))
+    expect(total).toBe(6)
+    expect(billPaymentPeriodSummary(bills, ranges)).toEqual({ paid: 4, unpaid: 2, partial: 0 })
+  })
   it('不足整月的尾段仍算一期', () => expect(periodUnitsBetween('2026-03-01', '2026-03-20')).toBe(1))
   it('计费方式归一化', () => {
     expect(normalizeBillingUnit('日租')).toBe('daily')
