@@ -45,4 +45,16 @@ const nextConfig: NextConfig = {
 
 export default nextConfig
 
-import('@opennextjs/cloudflare').then(m => m.initOpenNextCloudflareForDev());
+// v0 项目变量曾以相反字段名写入；仅在开发代理启动前按值格式纠正，
+// 避免 Wrangler 把 API Token 当成 account ID 请求 edge-preview。
+if (
+  process.env.NODE_ENV !== 'production' &&
+  process.env.CLOUDFLARE_ACCOUNT_ID?.startsWith('cfat_') &&
+  /^[0-9a-fA-F]{32}$/.test(process.env.CLOUDFLARE_API_TOKEN ?? '')
+) {
+  const accountId = process.env.CLOUDFLARE_API_TOKEN
+  process.env.CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_ACCOUNT_ID
+  process.env.CLOUDFLARE_ACCOUNT_ID = accountId
+}
+
+import('@opennextjs/cloudflare').then((module) => module.initOpenNextCloudflareForDev())
