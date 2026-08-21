@@ -216,7 +216,7 @@ export async function confirmXiaoweiDueSms(token: string): Promise<XiaoweiSmsRes
   return { ok: sent > 0, summary: sent ? `已成功发送 ${sent} 条到期提醒短信` : '没有发送新短信，请查看各合同结果', details }
 }
 
-export async function askXiaowei(question: string, history: XiaoweiMessage[] = []): Promise<XiaoweiAnswer> {
+async function askXiaoweiInternal(question: string, history: XiaoweiMessage[] = []): Promise<XiaoweiAnswer> {
   const access = await getAccessContext('租赁操作')
   const text = question.trim()
   if (text.length < 2) throw new Error('请告诉小维你想查询什么')
@@ -253,4 +253,30 @@ export async function askXiaowei(question: string, history: XiaoweiMessage[] = [
       suggestions: ['哪些数据最需要我关注？', '当前逾期待收情况怎么样？', '给我一份今日经营建议'], remainingRequests, aiGenerated: true,
     }
   } catch (error) { aiUnavailable(error) }
+}
+
+function safeQuestionError(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  const isExpected = /^(请|当前店铺|客户|短信确认|今日 AI|小维 AI|到期提醒短信模板|.+没有已到期)/.test(message)
+  return isExpected ? message : '小维查询时遇到问题，请稍后重试'
+}
+
+export async function askXiaowei(question: string, history: XiaoweiMessage[] = []): Promise<XiaoweiAnswer> {
+  try {
+    return await askXiaoweiInternal(question, history)
+  } catch (error) {
+    const summary = safeQuestionError(error)
+    return {
+      title: '需要补充或核对信息',
+      summary,
+      facts: [],
+      scope: '本次请求未执行任何业务操作，也没有发送短信',
+      updatedAt: nowText(),
+      href: '/rentals',
+      hrefLabel: '查看租赁管理',
+      suggestions: summary.includes('客户姓名') ? ['陈江涛租了几台？', '发送给郑智铭到期通知'] : ['查看该客户有哪些合同', '换一个客户姓名查询'],
+      remainingRequests: 0,
+      aiGenerated: false,
+    }
+  }
 }
