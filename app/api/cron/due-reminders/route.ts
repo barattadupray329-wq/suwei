@@ -22,7 +22,17 @@ export async function POST(request: Request) {
   try {
     const userRows = await db.selectDistinct({ userId: rentals.userId }).from(rentals)
     const billing = []
-    for (const { userId } of userRows) billing.push({ userId, ...await ensureOverdueRentBills(userId) })
+    for (const { userId } of userRows) {
+      try {
+        const result = await ensureOverdueRentBills(userId)
+        billing.push({ userId, ok: true, ...result })
+        console.info('[v0] Automatic overdue billing completed', { userId, ...result })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '自动补账失败'
+        billing.push({ userId, ok: false, created: 0, amount: '0.00', message })
+        console.error('[v0] Automatic overdue billing failed for tenant', { userId, message })
+      }
+    }
     const [due, overdue] = await Promise.all([
       processAutomaticDueReminders(),
       processAutomaticOverdueReminders(),

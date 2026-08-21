@@ -20,7 +20,6 @@ import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayO
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
-import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -78,7 +77,6 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
 
 export async function getRentals(query = '', status = '全部', limit?: number) {
   const userId = await getUserId()
-  await ensureOverdueRentBills(userId)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')]
   if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
@@ -236,7 +234,6 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
-  await ensureOverdueRentBills(userId)
   const [[summary], [draftSummary]] = await Promise.all([
     db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
@@ -544,7 +541,7 @@ export async function reversePayment(paymentId: number, reason: string) {
     const [payment] = await tx.select().from(paymentRecords).where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.userId, userId)))
     if (!payment || Number(payment.amount) <= 0) throw new Error('原收款不存在或不可冲正')
     const existing = await tx.select().from(accountLedger).where(and(eq(accountLedger.paymentRecordId, paymentId), eq(accountLedger.entryType, '收款冲正'), eq(accountLedger.userId, userId)))
-    if (existing.length) throw new Error('该收款已冲正')
+    if (existing.length) return { ok: true, alreadyReversed: true }
     const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId)))
     if (!rental) throw new Error('合同不存在')
     const allocations = await tx.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId)))
@@ -576,7 +573,7 @@ export async function reversePayment(paymentId: number, reason: string) {
     }
     await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   }
-  revalidatePath('/')
+  return { ok: true, alreadyReversed: false }
 }
 
 export async function recordDepositAction(rentalId: number, entryType: '押金退还' | '押金抵扣欠租' | '押金抵扣赔偿', amount: number, entryDate: string, notes = '') {

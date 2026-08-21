@@ -422,6 +422,9 @@ export function Dashboard({
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
+  useEffect(() => {
+    if (linkedRental) setSelected(linkedRental);
+  }, [linkedRental]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
@@ -511,12 +514,7 @@ export function Dashboard({
     message: string,
   ) => run(fn, message, "detail");
   const openDetail = (r: Rental) => {
-    if (mode === "overview") {
-      router.push(`/rentals?rental=${r.id}`);
-      return;
-    }
-    setSelected(r);
-    setDialog("detail");
+    router.push(`/rentals?rental=${r.id}`);
   };
   const closeDetail = () => {
     if (searchParams.has("rental")) {
@@ -554,7 +552,7 @@ export function Dashboard({
     )
     .join("\n");
   const copyReminders = async () => {
-    if (!reminderText) return toast.error("请先选择合同");
+    if (!reminderText) return toast.error("请选择合同");
     await navigator.clipboard.writeText(reminderText);
     toast.success(`已复制 ${selectedRentals.length} 条提醒`);
   };
@@ -630,7 +628,7 @@ export function Dashboard({
   const expiredCount = rentals.filter((r) => displayStatus(r) === "已到期").length;
   return (
     <div className="bg-background">
-      <div className="p-4 md:p-6">
+      <div className={linkedRental ? "hidden" : "p-4 md:p-6"}>
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -1123,6 +1121,7 @@ export function Dashboard({
         title={selected?.contractNo || "租赁详情"}
         wide
         fixedHeight
+        embedded={Boolean(linkedRental)}
         onClose={closeDetail}
       >
         {selected && (
@@ -1245,6 +1244,7 @@ canViewFinance={canViewFinance}
         open={dialog === "change-guide"}
         title="办理租赁变更"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1259,6 +1259,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "delete-confirm"}
         title={selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"}
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1329,6 +1330,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "payment"}
         title="登记收款"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1346,6 +1348,7 @@ canViewFinance={canViewFinance}
         open={dialog === "renew"}
         title="办理部分设备续租"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1377,6 +1380,7 @@ canViewFinance={canViewFinance}
         open={dialog === "history"}
         title="客户历史记录"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && <CustomerHistory phone={selected.customerPhone} />}
@@ -1384,6 +1388,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "return"}
         title="办理设备退租"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1403,6 +1408,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "loss"}
         title="登记设备丢失"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1420,6 +1426,7 @@ canViewFinance={canViewFinance}
         open={dialog === "change"}
         title="变更配置与租金"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1439,6 +1446,7 @@ canViewFinance={canViewFinance}
         open={dialog === "repair"}
         title="登记维修单"
         wide
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1454,6 +1462,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "deposit"}
         title="押金退还或抵扣"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1473,6 +1482,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "exchange"}
         title="设备换机调拨"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -1491,6 +1501,7 @@ canViewFinance={canViewFinance}
       <Dialog
         open={dialog === "buyout"}
         title="办理部分买断"
+        embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
         {selected && (
@@ -2483,6 +2494,42 @@ function Detail(props: DetailProps) {
     { key: "manage", label: "合同与管理" },
   ];
 
+  const startOperation = (type: RentalOperationType) => {
+    setWizardOpen(false);
+    if (type === "renewal") onRenew();
+    else if (type === "return") onReturn();
+    else if (type === "buyout") onBuyout();
+    else if (type === "loss") onLoss();
+    else if (type === "exchange") onExchange();
+    else if (type === "repair") onRepair();
+    else if (type === "pricing_change") onChange();
+    else onRentalChange();
+  };
+
+  if (wizardOpen) {
+    return (
+      <RentalOperationWizard
+        embedded
+        contractNo={rental.contractNo}
+        customerName={rental.customerName}
+        customerPhone={rental.customerPhone}
+        endDate={rental.endDate}
+        items={rental.items.map((item) => ({
+          id: item.id,
+          name: `${item.deviceType} · ${item.deviceName}`,
+          code: item.deviceCode,
+          quantity: item.quantity,
+          boughtOutQuantity: item.boughtOutQuantity,
+          returnedQuantity: item.returnedQuantity,
+          lostQuantity: item.lostQuantity,
+          monthlyRent: Number(item.monthlyRent),
+        }))}
+        onClose={() => setWizardOpen(false)}
+        onStart={startOperation}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col">
       <section className="rounded-xl border bg-card p-4">
@@ -2610,36 +2657,6 @@ function Detail(props: DetailProps) {
           业务办理中心
         </button>
       </div>
-      {wizardOpen && (
-        <RentalOperationWizard
-          contractNo={rental.contractNo}
-          customerName={rental.customerName}
-          customerPhone={rental.customerPhone}
-          endDate={rental.endDate}
-          items={rental.items.map((item) => ({
-            id: item.id,
-            name: `${item.deviceType} · ${item.deviceName}`,
-            code: item.deviceCode,
-            quantity: item.quantity,
-            boughtOutQuantity: item.boughtOutQuantity,
-            returnedQuantity: item.returnedQuantity,
-            lostQuantity: item.lostQuantity,
-            monthlyRent: Number(item.monthlyRent),
-          }))}
-          onClose={() => setWizardOpen(false)}
-          onStart={(type: RentalOperationType) => {
-            setWizardOpen(false);
-            if (type === "renewal") onRenew();
-            else if (type === "return") onReturn();
-            else if (type === "buyout") onBuyout();
-            else if (type === "loss") onLoss();
-            else if (type === "exchange") onExchange();
-            else if (type === "repair") onRepair();
-            else if (type === "pricing_change") onChange();
-            else onRentalChange();
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -2712,7 +2729,19 @@ function DetailOverview({
       <section className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
         {rental.items.map((item) => {
-          const remain = item.quantity - item.boughtOutQuantity;
+          const remain = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const itemStatus =
+            remain > 0
+              ? item.boughtOutQuantity > 0 || item.returnedQuantity > 0 || item.lostQuantity > 0
+                ? "部分处理"
+                : "在租"
+              : item.boughtOutQuantity === item.quantity
+                ? "已买断"
+                : item.returnedQuantity === item.quantity
+                  ? "已退租"
+                  : item.lostQuantity === item.quantity
+                    ? "已丢失"
+                    : "已结束";
           return (
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-2 sm:flex-row">
@@ -2720,7 +2749,7 @@ function DetailOverview({
                   <p className="font-semibold">{item.deviceType} · {item.deviceName}</p>
                   <p className="text-sm text-muted-foreground">{item.deviceCode || ""}</p>
                 </div>
-                <Status value={remain === 0 ? "已买断" : item.boughtOutQuantity > 0 ? "部分买断" : "在租"} />
+                <Status value={itemStatus} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Info l="原数量" v={`${item.quantity} 台`} />
@@ -3080,7 +3109,19 @@ function LegacyDetail({
       <div className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
         {rental.items.map((item) => {
-          const remain = item.quantity - item.boughtOutQuantity;
+          const remain = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+          const itemStatus =
+            remain > 0
+              ? item.boughtOutQuantity > 0 || item.returnedQuantity > 0 || item.lostQuantity > 0
+                ? "部分处理"
+                : "在租"
+              : item.boughtOutQuantity === item.quantity
+                ? "已买断"
+                : item.returnedQuantity === item.quantity
+                  ? "已退租"
+                  : item.lostQuantity === item.quantity
+                    ? "已丢失"
+                    : "已结束";
           return (
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-2 sm:flex-row">
@@ -3092,15 +3133,7 @@ function LegacyDetail({
                     {item.deviceCode || ""}
                   </p>
                 </div>
-                <Status
-                  value={
-                    remain === 0
-                      ? "已买断"
-                      : item.boughtOutQuantity > 0
-                        ? "部分买断"
-                        : "在租"
-                  }
-                />
+                <Status value={itemStatus} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Info l="原数量" v={`${item.quantity} 台`} />
@@ -4563,6 +4596,7 @@ function Dialog({
   onClose,
   wide = false,
   fixedHeight = false,
+  embedded = false,
 }: {
   open: boolean;
   title: string;
@@ -4570,8 +4604,52 @@ function Dialog({
   onClose: () => void;
   wide?: boolean;
   fixedHeight?: boolean;
+  embedded?: boolean;
 }) {
   if (!open) return null;
+
+  const panel = (
+    <div
+      role={embedded ? "region" : "dialog"}
+      aria-modal={embedded ? undefined : "true"}
+      aria-label={title}
+      className={
+        embedded
+          ? "flex min-h-[calc(100svh-8rem)] w-full flex-col bg-background"
+          : `flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`
+      }
+    >
+      <div className={`flex shrink-0 items-center justify-between border-b ${embedded ? "bg-muted/30 px-4 py-3 md:px-6" : "bg-card p-4"}`}>
+        <div className="flex min-w-0 items-center gap-3">
+          {embedded && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 items-center gap-1 rounded-xl border bg-background px-3 text-sm font-medium hover:bg-muted"
+            >
+              <ChevronLeft className="size-4" />
+              返回
+            </button>
+          )}
+          <h2 className="truncate text-lg font-semibold">{title}</h2>
+        </div>
+        <button
+          type="button"
+          aria-label="关闭"
+          onClick={onClose}
+          className="rounded-lg p-2 hover:bg-muted"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      <div className={embedded ? "flex-1 p-4 md:p-6" : "min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"}>
+        <div className={embedded ? "mx-auto max-w-7xl" : undefined}>{children}</div>
+      </div>
+    </div>
+  );
+
+  if (embedded) return panel;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
@@ -4579,24 +4657,7 @@ function Dialog({
         if (e.currentTarget === e.target) onClose();
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={`flex max-h-[92svh] w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-xl ${wide ? "h-[92svh] max-w-5xl md:h-[min(760px,92svh)]" : "max-w-lg"} ${fixedHeight && !wide ? "h-[92svh] md:h-[min(760px,92svh)]" : ""}`}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b bg-card p-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            aria-label="关闭"
-            onClick={onClose}
-            className="rounded-lg p-2 hover:bg-muted"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
-      </div>
+      {panel}
     </div>
   );
 }
@@ -4718,7 +4779,7 @@ function Status({ value }: { value: string }) {
         ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
         : ["待审核", "待处理", "即将到期", "已到期"].includes(value)
           ? "bg-accent text-accent-foreground ring-1 ring-inset ring-border"
-          : ["买断", "已退租", "已关闭", "丢失"].includes(value)
+          : ["买断", "已退租", "已买断", "丢失"].includes(value)
             ? "bg-secondary text-secondary-foreground ring-1 ring-inset ring-border"
             : "bg-muted text-muted-foreground ring-1 ring-inset ring-border";
   return (
