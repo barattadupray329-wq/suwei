@@ -26,8 +26,8 @@ describe('发布新版本后旧分片失效的识别', () => {
 
 describe('自动刷新的防抖保护', () => {
   const now = 1_700_000_000_000
-  it('首次遇到失效构建允许刷新', () => expect(canAutoReload(now, null)).toBe(true))
-  it('窗口期内不重复刷新，避免无限重载', () => expect(canAutoReload(now, String(now - 1_000))).toBe(false))
+  it('首次遇到失效构建或生产 digest 错误允许刷新', () => expect(canAutoReload(now, null)).toBe(true))
+  it('窗口期内不重复刷新，避免持续性服务端错误造成无限重载', () => expect(canAutoReload(now, String(now - 1_000))).toBe(false))
   it('超过窗口期后允许再次刷新', () => expect(canAutoReload(now, String(now - STALE_BUILD_RELOAD_WINDOW_MS - 1))).toBe(true))
   it('存储值损坏时按首次处理', () => {
     expect(canAutoReload(now, 'abc')).toBe(true)

@@ -4,7 +4,8 @@ import { useEffect } from 'react'
 import { isStaleBuildError, reloadForStaleBuild } from '@/lib/stale-build'
 
 export default function GlobalError({ error }: { error: Error & { digest?: string }; reset: () => void }) {
-  useEffect(() => { if (isStaleBuildError(error)) reloadForStaleBuild() }, [error])
+  // Next.js 生产环境只向客户端暴露服务端错误 digest，因此首次遇到 digest 时也安全地整页恢复一次。
+  useEffect(() => { if (error.digest || isStaleBuildError(error)) reloadForStaleBuild() }, [error])
   return (
     <html lang="zh-CN">
       <body style={{ margin: 0, background: '#f5f7f6', color: '#17201d', fontFamily: 'system-ui, sans-serif' }}>
