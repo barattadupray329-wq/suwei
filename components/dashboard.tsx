@@ -262,6 +262,9 @@ type Summary = {
   overdueReceivable: string;
   upcomingReceivable: string;
   receivableContracts: number;
+  boughtOut: number;
+  returned: number;
+  deviceCounts: Record<string, number>;
   };
 const money = (n: string | number) =>
   new Intl.NumberFormat("zh-CN", {
@@ -338,14 +341,13 @@ const emptyRental = (): RentalInput => {
   };
 };
 
-export function BusinessOverview({ summary, rentals, canViewFinance }: { summary: Summary; rentals: Rental[]; canViewFinance: boolean }) {
+export function BusinessOverview({ summary, canViewFinance }: { summary: Summary; canViewFinance: boolean }) {
   const deviceTypes = ["台式机", "笔记本", "一体机", "显示器"];
-  const deviceCounts = Object.fromEntries(deviceTypes.map((type) => [type, rentals.reduce((total, rental) => total + rental.items.filter((item) => item.deviceType === type).reduce((sum, item) => sum + Math.max(0, item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity), 0), 0)]));
   const statusCards = [
     { label: "在租", value: summary.active, href: "/rentals?status=在租", tone: "border-primary/30 bg-primary/10 text-primary" },
     { label: "逾期", value: summary.overdue, href: "/rentals?status=逾期", tone: "border-destructive/30 bg-destructive/10 text-destructive" },
-    { label: "买断", value: rentals.filter((rental) => ["买断", "已买断"].includes(rental.status)).length, href: "/rentals?status=已买断", tone: "border-accent bg-accent text-accent-foreground" },
-    { label: "已退租", value: rentals.filter((rental) => rental.status === "已退租").length, href: "/rentals?status=已退租", tone: "border-border bg-muted text-foreground" },
+    { label: "买断", value: summary.boughtOut, href: "/rentals?status=已买断", tone: "border-accent bg-accent text-accent-foreground" },
+    { label: "已退租", value: summary.returned, href: "/rentals?status=已退租", tone: "border-border bg-muted text-foreground" },
   ];
   return <main className="bg-background p-4 md:p-6"><div className="mx-auto flex max-w-7xl flex-col gap-6">
     <header><p className="text-sm font-medium text-primary">经营分析中心</p><h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1><p className="mt-1 text-sm text-muted-foreground">查看财务、在租设备、合同状态和经营提醒；点击卡片可进入对应明细。</p></header>
@@ -358,7 +360,7 @@ export function BusinessOverview({ summary, rentals, canViewFinance }: { summary
       <Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 transition-colors hover:border-destructive"><Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} /></Link>
     </section>
     <section className="rounded-xl border bg-card p-4"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><p className="text-sm font-medium text-primary">应收作战台</p><h2 className="mt-1 text-xl font-bold text-balance">待收款清晰拆分，催收不漏单</h2><p className="mt-1 text-sm text-muted-foreground">只统计剩余应收大于 0 的正式合同；已结清合同不会进入待收明细。</p></div><Link href="/rentals?receivable=outstanding&sort=outstanding" className="primary-button">查看 {summary.receivableContracts} 份待收合同</Link></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Link href="/rentals?receivable=overdue&sort=outstanding" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 transition-colors hover:bg-destructive/10"><p className="text-sm font-semibold text-destructive">已到期应收</p><p className="mt-2 text-2xl font-bold text-destructive">{money(summary.overdueReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">优先联系逾期客户</p></Link><Link href="/rentals?receivable=upcoming&sort=due" className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">未到期待收</p><p className="mt-2 text-2xl font-bold">{money(summary.upcomingReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">尚未到合同到期日</p></Link><Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border bg-muted p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">全部待收</p><p className="mt-2 text-2xl font-bold">{money(summary.receivable)}</p><p className="mt-1 text-xs text-primary">按欠款金额查看明细</p></Link></div></section>
-    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">在租设备</h2><p className="text-sm text-muted-foreground">按设备类型统计当前仍在客户处的可用数量</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{deviceTypes.map((type) => <Link key={type} href={`/rentals?query=${encodeURIComponent(type)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm text-muted-foreground">{type}</p><p className="mt-2 text-2xl font-bold">{deviceCounts[type]} 台</p><p className="mt-1 text-xs text-primary">查看相关合同</p></Link>)}</div></section>
+    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">在租设备</h2><p className="text-sm text-muted-foreground">按设备类型统计当前仍在客户处的可用数量</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{deviceTypes.map((type) => <Link key={type} href={`/rentals?query=${encodeURIComponent(type)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm text-muted-foreground">{type}</p><p className="mt-2 text-2xl font-bold">{summary.deviceCounts[type] ?? 0} 台</p><p className="mt-1 text-xs text-primary">查看相关合同</p></Link>)}</div></section>
     <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">租赁状态</h2><p className="text-sm text-muted-foreground">点击彩色状态查看对应合同</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{statusCards.map((item) => <Link key={item.label} href={item.href} className={`rounded-xl border p-4 transition-opacity hover:opacity-80 ${item.tone}`}><p className="text-sm font-semibold">{item.label}</p><p className="mt-2 text-2xl font-bold">{item.value}</p></Link>)}</div></section>
     <section className="grid gap-3 md:grid-cols-3">{[{ label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期" }, { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due" }, { label: "维修处理中", value: summary.repairPending, href: "/rentals?query=维修" }].map((item) => <Link key={item.label} href={item.href} className="rounded-xl bg-muted p-4 transition-colors hover:bg-border"><p className="text-2xl font-bold">{item.value}</p><p className="mt-1 font-medium">{item.label}</p></Link>)}</section>
   </div></main>;
