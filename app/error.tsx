@@ -6,8 +6,9 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { isStaleBuildError, reloadForStaleBuild } from '@/lib/stale-build'
 
 export default function ErrorPage({ error }: { error: Error & { digest?: string }; reset: () => void }) {
-  // 发布新版本后旧标签页的 JS 分片已失效，这类报错直接整页刷新即可恢复，不需要打扰用户。
-  useEffect(() => { if (isStaleBuildError(error)) reloadForStaleBuild() }, [error])
+  // 生产环境会隐藏服务端异常文本，只保留 digest。首次遇到这类错误时整页刷新，
+  // 既能恢复发布后的旧 RSC 状态，也能跨过 Worker/D1 的瞬时故障；防抖逻辑会阻止无限重载。
+  useEffect(() => { if (error.digest || isStaleBuildError(error)) reloadForStaleBuild() }, [error])
   return (
     <main className="flex min-h-svh items-center justify-center bg-background p-4">
       <section className="flex w-full max-w-md flex-col items-center gap-5 rounded-2xl border bg-card p-8 text-center shadow-xl">
