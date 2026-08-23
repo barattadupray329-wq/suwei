@@ -36,3 +36,18 @@ test('多月续租按月创建独立账单并逐月分配即时收款', () => {
   expect(rentalActions).toContain('paymentAllocations).values(renewalBills.map')
   expect(rentalActions).not.toContain("periodStart: renewalPeriodStart, periodEnd: newEndDate")
 })
+
+test('本单全部收款冲正只处理尚未冲正的正数收款', () => {
+  expect(rentalActions).toContain('export async function reverseAllPayments(rentalId: number, reason: string)')
+  expect(rentalActions).toContain("eq(accountLedger.entryType, '收款冲正')")
+  expect(rentalActions).toContain('const activePayments = payments.filter((payment) => !reversedIds.has(payment.id))')
+  expect(rentalActions).toContain('for (const payment of activePayments) await reversePayment(payment.id, reason.trim())')
+  expect(rentalActions).toContain("action: '全部收款冲正'")
+})
+
+test('收款流水默认隐藏已冲正记录并提供历史切换', () => {
+  expect(dashboard).toContain('const [showReversalHistory, setShowReversalHistory] = useState(false)')
+  expect(dashboard).toContain('const displayedPayments = showReversalHistory ? rental.paymentRecords : activePayments')
+  expect(dashboard).toContain('查看冲正历史')
+  expect(dashboard).toContain('全部收款冲正')
+})
