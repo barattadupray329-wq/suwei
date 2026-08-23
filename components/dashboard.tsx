@@ -38,6 +38,7 @@ import {
   recordDepositAction,
   buyoutRentalItems,
   renewRentalItems,
+  reverseAllRenewals,
   reversePayment,
   updateRentalAssignee,
   type InitialCollectionInput,
@@ -152,6 +153,9 @@ type Renewal = {
   renewalAmount: string;
   renewalDate: string;
   notes: string | null;
+  status: string;
+  reversedAt: Date | string | null;
+  reversalReason: string | null;
   adjustments: RenewalAdjustment[];
 };
 type Payment = {
@@ -409,6 +413,7 @@ export function Dashboard({
     | "detail"
     | "renew"
     | "correct-renewal"
+    | "reverse-renewals"
     | "payment"
     | "buyout"
     | "history"
@@ -430,6 +435,7 @@ export function Dashboard({
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [renewalReversalReason, setRenewalReversalReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
@@ -1160,6 +1166,10 @@ canViewFinance={canViewFinance}
               setSelectedRenewal(record);
               setDialog("correct-renewal");
             }}
+            onReverseRenewals={() => {
+              setRenewalReversalReason("");
+              setDialog("reverse-renewals");
+            }}
             onBuyout={() => setDialog("buyout")}
             onHistory={() => setDialog("history")}
             onReturn={() => setDialog("return")}
@@ -1376,6 +1386,51 @@ canViewFinance={canViewFinance}
               runInDetail(() => correctRenewalPrice({ renewalRecordId: selectedRenewal.id, correctedUnitPrice, reason }), "续租价格已更正")
             }
           />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "reverse-renewals"}
+        title="全部冲正续租"
+        onClose={() => !pending && setDialog("detail")}
+      >
+        {selected && (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runInDetail(
+                () => reverseAllRenewals({ rentalId: selected.id, reason: renewalReversalReason }),
+                "续租已全部冲正，合同日期与账务已重新计算",
+              );
+            }}
+          >
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+              <p className="font-semibold text-destructive">此操作会一次性冲正全部有效续租</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                系统会保留历史记录并标记为“已冲正”，同时回滚关联账单、收款、设备租期、合同到期日和合同金额。任一关联数据无法核对时，整次操作不会修改任何数据。
+              </p>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div><dt className="text-muted-foreground">有效续租</dt><dd className="font-semibold">{selected.renewalRecords.filter((record) => record.status !== "已冲正").length} 笔</dd></div>
+                <div><dt className="text-muted-foreground">当前到期日</dt><dd className="font-semibold">{selected.endDate}</dd></div>
+              </dl>
+            </div>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              冲正原因
+              <textarea
+                required
+                minLength={2}
+                maxLength={200}
+                value={renewalReversalReason}
+                onChange={(event) => setRenewalReversalReason(event.target.value)}
+                placeholder="请说明为什么需要全部冲正"
+                className="min-h-24 rounded-xl border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={pending} onClick={() => setDialog("detail")} className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50">取消</button>
+              <button type="submit" disabled={pending || renewalReversalReason.trim().length < 2} className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50">{pending ? "正在核对并冲正…" : "确认全部冲正"}</button>
+            </div>
+          </form>
         )}
       </Dialog>
       <Dialog
@@ -2404,6 +2459,7 @@ type DetailProps = {
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
+  onReverseRenewals: () => void;
   onBuyout: () => void;
   onHistory: () => void;
   onReturn: () => void;
@@ -2433,6 +2489,7 @@ function Detail(props: DetailProps) {
     onPayment,
     onRenew,
     onCorrectRenewal,
+    onReverseRenewals,
     onBuyout,
     onHistory,
     onReturn,
@@ -2623,7 +2680,12 @@ function Detail(props: DetailProps) {
           />
         )}
         {tab === "records" && (
-          <DetailRecords rental={rental} role={role} onCorrectRenewal={onCorrectRenewal} />
+          <DetailRecords
+            rental={rental}
+            role={role}
+            onCorrectRenewal={onCorrectRenewal}
+            onReverseRenewals={onReverseRenewals}
+          />
         )}
         {tab === "manage" && (
           <DetailManage
@@ -2871,15 +2933,18 @@ function DetailRecords({
   rental,
   role,
   onCorrectRenewal,
+  onReverseRenewals,
 }: {
   rental: Rental;
   role: "super_admin" | "admin" | "employee";
   onCorrectRenewal: (record: Renewal) => void;
+  onReverseRenewals: () => void;
 }) {
+  const activeRenewals = rental.renewalRecords.filter((record) => record.status !== "已冲正");
   const records = [
     ...rental.renewalRecords.map((record) => {
       const item = rental.items.find((row) => row.id === record.renewedRentalItemId) || rental.items.find((row) => row.id === record.sourceRentalItemId);
-      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}`, operator: "系统记录", status: "已完成", renewal: record };
+      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}${record.status === "已冲正" && record.reversalReason ? ` · 冲正原因：${record.reversalReason}` : ""}`, operator: "系统记录", status: record.status === "已冲正" ? "已冲正" : "已完成", renewal: record };
     }),
     ...rental.events.map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, status: event.status, renewal: null })),
     ...rental.buyoutRecords.map((record) => ({ key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: "系统记录", status: "已完成", renewal: null })),
@@ -2887,9 +2952,14 @@ function DetailRecords({
   if (!records.length) return <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无续租、变更、维修或买断记录</p>;
   return (
     <section>
-      <div className="mb-4"><h3 className="font-semibold">业务时间轴</h3><p className="mt-1 text-sm text-muted-foreground">按发生时间统一查看续租、退租、买断、换机、维修和费用调整</p></div>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div><h3 className="font-semibold">业务时间轴</h3><p className="mt-1 text-sm text-muted-foreground">按发生时间统一查看续租、退租、买断、换机、维修和费用调整</p></div>
+        {role !== "employee" && activeRenewals.length > 0 && (
+          <button type="button" onClick={onReverseRenewals} className="rounded-lg border border-destructive px-3 py-2 text-xs font-semibold text-destructive">全部冲正续租</button>
+        )}
+      </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">
-        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}</div></article>)}
+        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && record.renewal.status !== "已冲正" && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}</div></article>)}
       </div>
     </section>
   );
