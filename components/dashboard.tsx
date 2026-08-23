@@ -429,9 +429,15 @@ export function Dashboard({
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
+  const detailRefreshStarted = useRef(false);
   useEffect(() => {
     if (linkedRental) setSelected(linkedRental);
   }, [linkedRental]);
+  useEffect(() => {
+    if (!linkedRental || detailRefreshStarted.current) return;
+    detailRefreshStarted.current = true;
+    router.refresh();
+  }, [linkedRental, router]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");

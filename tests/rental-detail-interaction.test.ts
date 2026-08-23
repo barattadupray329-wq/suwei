@@ -19,6 +19,11 @@ test('详情子流程成功后回到同一合同详情', () => {
   expect(dashboard).toMatch(/setDialog\(successDialog\);\s*router\.refresh\(\)/)
 })
 
+test('合同详情首次打开主动刷新且不会循环刷新', () => {
+  expect(dashboard).toContain('const detailRefreshStarted = useRef(false)')
+  expect(dashboard).toMatch(/if \(!linkedRental \|\| detailRefreshStarted\.current\) return;\s*detailRefreshStarted\.current = true;\s*router\.refresh\(\)/)
+})
+
 test('租赁管理桌面合同列表双击打开详情', () => {
   expect(dashboard).toMatch(/onDoubleClick=\{\(\) => openDetail\(r\)\}/)
   expect(records).toMatch(/onDoubleClick=\{\(\) => openDetail\(row\.id\)\}/)
