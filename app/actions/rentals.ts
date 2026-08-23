@@ -458,10 +458,37 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const renewalDate = new Date().toISOString().slice(0, 10)
       const renewalPeriodStart = addCalendarDays(oldEndDate, 1)
       const [renewal] = await tx.insert(renewalRecords).values({ userId, rentalId, sourceRentalItemId: item.id, renewedRentalItemId: renewedItemId, quantity: value.quantity, renewalMonths: value.billingUnit === 'month' ? value.duration : null, billingUnit: value.billingUnit, duration: value.duration, unitPrice: String(value.unitPrice), oldMonthlyRent: item.monthlyRent, newMonthlyRent: String(effectiveMonthlyRent), oldEndDate, newEndDate, renewalAmount: String(amount), renewalDate, notes: value.notes }).returning({ id: renewalRecords.id })
-      const [bill] = await tx.insert(receivableBills).values({ userId, rentalId, renewalRecordId: renewal.id, billNo: `RENEW-${rentalId}-${renewal.id}`, periodStart: renewalPeriodStart, periodEnd: newEndDate, dueDate: settlement.date, billType: '续租费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName} ${value.quantity} 台续租 ${value.duration}${value.billingUnit === 'month' ? '个月' : '天'}；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` }).returning({ id: receivableBills.id })
+      const periodAmount = Number(fromCents(value.quantity * toCents(value.unitPrice)))
+      const renewalBills: Array<{ id: number; amount: string }> = []
+      for (let periodIndex = 0; periodIndex < value.duration; periodIndex += 1) {
+        const periodStart = value.billingUnit === 'month'
+          ? addCalendarMonths(renewalPeriodStart, periodIndex)
+          : addCalendarDays(renewalPeriodStart, periodIndex)
+        const periodEnd = value.billingUnit === 'month'
+          ? addCalendarDays(addCalendarMonths(renewalPeriodStart, periodIndex + 1), -1)
+          : periodStart
+        const periodDueDate = value.billingUnit === 'month'
+          ? addCalendarMonths(settlement.date, periodIndex)
+          : addCalendarDays(settlement.date, periodIndex)
+        const [bill] = await tx.insert(receivableBills).values({
+          userId,
+          rentalId,
+          renewalRecordId: renewal.id,
+          billNo: `RENEW-${rentalId}-${renewal.id}-${periodIndex + 1}`,
+          periodStart,
+          periodEnd,
+          dueDate: periodDueDate,
+          billType: '续租费',
+          amount: String(periodAmount),
+          paidAmount: settlement.timing === 'now' ? String(periodAmount) : '0',
+          status: settlement.timing === 'now' ? '已结清' : '待收',
+          notes: `${item.deviceName} ${value.quantity} 台续租第 ${periodIndex + 1}/${value.duration} ${value.billingUnit === 'month' ? '月' : '天'}；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}`,
+        }).returning({ id: receivableBills.id })
+        renewalBills.push({ id: bill.id, amount: String(periodAmount) })
+      }
       if (settlement.timing === 'now') {
         const [payment] = await tx.insert(paymentRecords).values({ userId, rentalId, renewalRecordId: renewal.id, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '续租费', operatorName: access.actorName, notes: `${item.deviceName} ${value.quantity} 台续租即时收款` }).returning({ id: paymentRecords.id })
-        await tx.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: payment.id, billId: bill.id, amount: String(amount) })
+        await tx.insert(paymentAllocations).values(renewalBills.map((bill) => ({ userId, rentalId, paymentRecordId: payment.id, billId: bill.id, amount: bill.amount })))
       }
       await tx.insert(rentalEvents).values({ userId, rentalId, itemId: renewedItemId, eventType: '续租', status: '已完成', eventDate: renewalDate, beforeSnapshot: { quantity: value.quantity, endDate: oldEndDate, monthlyRent: item.monthlyRent }, afterSnapshot: { quantity: value.quantity, endDate: newEndDate, monthlyRent: String(effectiveMonthlyRent), settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes: value.notes })
     }
