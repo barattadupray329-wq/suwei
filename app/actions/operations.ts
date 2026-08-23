@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -11,7 +11,7 @@ import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { billsAfterReturnDate, effectiveRentBillTotalCents, fullReturnWaiver, hasEffectivePaymentAfterDate, isRentBillType, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -35,19 +35,29 @@ export async function returnRentalItems(input: ReturnInput[]) {
   if (new Set(values.map((value)=>value.rentalItemId)).size!==values.length) throw new Error('同一设备不能重复提交')
   const latestReturnDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
   await ensureOverdueRentBills(userId, latestReturnDate)
-  const [[rental],items,bills]=await Promise.all([
+  const [[rental],items,bills,payments,reversals]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select({ id: paymentRecords.id, paymentDate: paymentRecords.paymentDate, amount: paymentRecords.amount }).from(paymentRecords).where(and(eq(paymentRecords.userId,userId),eq(paymentRecords.rentalId,rentalId),gte(paymentRecords.amount,'0.01'))),
+    db.select({ paymentRecordId: accountLedger.paymentRecordId }).from(accountLedger).where(and(eq(accountLedger.userId,userId),eq(accountLedger.rentalId,rentalId),eq(accountLedger.entryType,'收款冲正'))),
   ])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
+  const reversedPaymentIds = new Set(reversals.flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]))
+  const earliestReturnDate = values.reduce((earliest, value) => value.date < earliest ? value.date : earliest, values[0].date)
+  if (hasEffectivePaymentAfterDate(payments, reversedPaymentIds, earliestReturnDate)) {
+    throw new Error(`存在 ${earliestReturnDate} 之后的有效收款，必须先在账务页执行“全部收款冲正”，再办理历史退租`)
+  }
   const byId=new Map(items.map((item)=>[item.id,item]))
   const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(rental.startDate,rental.endDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
   const finalItems=items.map((item)=>{const row=rows.find((entry)=>entry.item.id===item.id);return row?{...item,returnedQuantity:item.returnedQuantity+row.value.quantity}:item})
   const isFullWaivedReturn=finalItems.every((item)=>availableQuantity(item)===0)&&rows.every((row)=>row.value.billingMode==='waive')
-  const fullWaiver=isFullWaivedReturn?fullReturnWaiver(bills):{affected:[],adjustmentCents:0}
+  const fullWaiver=isFullWaivedReturn
+    ? fullReturnWaiver(billsAfterReturnDate(bills, earliestReturnDate))
+    : {affected:[],adjustmentCents:0}
   const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),periodAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),billingAdjustmentCents=isFullWaivedReturn?fullWaiver.adjustmentCents:periodAdjustmentCents,collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
-  const adjustedRentCents=toCents(rental.totalRent)-billingAdjustmentCents
+  const currentEffectiveRentCents = effectiveRentBillTotalCents(bills)
+  const adjustedRentCents=Math.max(0,currentEffectiveRentCents-billingAdjustmentCents)
   const rentRefundCents=Math.min(billingAdjustmentCents,Math.max(0,toCents(rental.paidAmount)-adjustedRentCents))
   const rentRefundNow=rentRefundCents>0&&values[0].rentRefundSettlement.timing==='now'
   const totalCents=adjustedRentCents+deductionCents,paidCents=toCents(rental.paidAmount)+collectedCents-(rentRefundNow?rentRefundCents:0)
@@ -94,7 +104,9 @@ export async function returnRentalItems(input: ReturnInput[]) {
     }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
   }
   if(rentRefundCents>0){const settlement=values[0].rentRefundSettlement;statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:settlement.timing==='now'?'租金退款':'租金待退',amount:fromCents(-rentRefundCents),entryDate:latestReturnDate,operatorName:name,notes:`退租租金退款；${settlement.timing==='now'?`已通过${settlement.method}退还`:'约定以后退还'}`}))}
-  statements.push(db.update(rentals).set({quantity:finalItems.reduce((sum,item)=>sum+availableQuantity(item),0),totalRent:fromCents(totalCents),paidAmount:fromCents(paidCents),paymentStatus:paymentStatusFromCents(totalCents,paidCents),status:rentalLifecycleStatus(finalItems),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
+  const lifecycleStatus = rentalLifecycleStatus(finalItems)
+  const isZeroSettlement = lifecycleStatus === '已退租' && totalCents === 0 && paidCents === 0
+  statements.push(db.update(rentals).set({quantity:finalItems.reduce((sum,item)=>sum+availableQuantity(item),0),totalRent:fromCents(totalCents),paidAmount:fromCents(paidCents),paymentStatus:isZeroSettlement?'零结算':paymentStatusFromCents(totalCents,paidCents),status:lifecycleStatus,updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
   await db.batch(statements as [typeof statements[number],...Array<typeof statements[number]>]);revalidatePath('/');revalidatePath('/audit-logs')
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
+import { billsAfterReturnDate, effectiveRentBillTotalCents, fullReturnWaiver, hasEffectivePaymentAfterDate, monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
   it('到期日立即进入首期，周期开始日当天不重复生成下一期', () => {
@@ -58,5 +58,24 @@ describe('逾期月租周期', () => {
     ])
     expect(result.adjustmentCents).toBe(56000)
     expect(result.affected.map((bill) => bill.id)).toEqual([1, 2, 4])
+  })
+
+  it('历史退租只关闭退租日覆盖的账期及之后账单', () => {
+    const bills = [
+      { id: 1, billType: '租金', periodStart: '2026-03-18', periodEnd: '2026-04-18', amount: '600.00', paidAmount: '0', status: '待收' },
+      { id: 2, billType: '续租费', periodStart: '2026-04-18', periodEnd: '2026-05-18', amount: '600.00', paidAmount: '0', status: '待收' },
+      { id: 3, billType: '押金', periodStart: '2026-03-18', periodEnd: '2026-03-18', amount: '4000.00', paidAmount: '0', status: '待收' },
+    ]
+    expect(billsAfterReturnDate(bills, '2026-03-18').map((bill) => bill.id)).toEqual([1, 2])
+    expect(effectiveRentBillTotalCents(bills)).toBe(120000)
+  })
+
+  it('历史退租日之后存在未冲正正数收款时必须阻止', () => {
+    const payments = [
+      { id: 10, paymentDate: '2026-03-18', amount: '600.00' },
+      { id: 11, paymentDate: '2026-04-18', amount: '600.00' },
+    ]
+    expect(hasEffectivePaymentAfterDate(payments, new Set<number>(), '2026-03-18')).toBe(true)
+    expect(hasEffectivePaymentAfterDate(payments, new Set([11]), '2026-03-18')).toBe(false)
   })
 })

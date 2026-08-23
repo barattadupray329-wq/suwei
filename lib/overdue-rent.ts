@@ -2,13 +2,36 @@ import { addCalendarMonths, toCents } from './rental-calculations'
 
 export type RentalDisposal = { rentalItemId: number; quantity: number; date: string }
 export type ReturnBillingMode = 'full_month' | 'daily' | 'waive'
-export type RentBillBalance = { id: number; billType: string; amount: string; paidAmount: string; notes?: string | null }
+export type RentBillBalance = { id: number; billType: string; amount: string; paidAmount: string; periodStart?: string; periodEnd?: string; status?: string; notes?: string | null }
+
+export function effectiveRentBillTotalCents(bills: RentBillBalance[]) {
+  return bills
+    .filter((bill) => isRentBillType(bill.billType) && bill.status !== '已冲正')
+    .reduce((sum, bill) => sum + toCents(bill.amount), 0)
+}
+
+export function billsAfterReturnDate(bills: RentBillBalance[], returnDate: string) {
+  return bills.filter((bill) => isRentBillType(bill.billType)
+  && bill.status !== '已冲正'
+  && Boolean(bill.periodEnd)
+  && bill.periodEnd! > returnDate)
+}
+
+export function hasEffectivePaymentAfterDate(
+  payments: Array<{ id: number; paymentDate: string; amount: string }>,
+  reversedPaymentIds: Set<number>,
+  returnDate: string,
+) {
+  return payments.some((payment) => toCents(payment.amount) > 0
+    && payment.paymentDate > returnDate
+    && !reversedPaymentIds.has(payment.id))
+}
 
 export function isRentBillType(billType: string) {
   return billType === '租金'
     || billType === '起租预收'
     || billType === '日租租金'
-    || billType.includes('续租租金')
+    || billType.includes('续租')
 }
 
 export function fullReturnWaiver(bills: RentBillBalance[]) {
