@@ -729,6 +729,38 @@ export async function reversePayment(paymentId: number, reason: string) {
   return { ok: true, alreadyReversed: false }
 }
 
+export async function reverseAllPayments(rentalId: number, reason: string) {
+  const userId = await getUserId()
+  if (reason.trim().length < 2) throw new Error('请填写冲正原因')
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))).limit(1)
+  if (!rental) throw new Error('合同不存在')
+  assertOfficialRental(rental)
+
+  const [payments, reversals] = await Promise.all([
+    db.select().from(paymentRecords).where(and(eq(paymentRecords.rentalId, rentalId), eq(paymentRecords.userId, userId), gte(paymentRecords.amount, '0.01'))).orderBy(asc(paymentRecords.createdAt), asc(paymentRecords.id)),
+    db.select({ paymentRecordId: accountLedger.paymentRecordId }).from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId), eq(accountLedger.entryType, '收款冲正'))),
+  ])
+  const reversedIds = new Set(reversals.flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]))
+  const activePayments = payments.filter((payment) => !reversedIds.has(payment.id))
+  if (!activePayments.length) return { ok: true, reversedCount: 0, alreadyReversed: true }
+
+  for (const payment of activePayments) await reversePayment(payment.id, reason.trim())
+
+  await db.insert(auditLogs).values({
+    userId,
+    actorUserId: userId,
+    actorName: '当前用户',
+    action: '全部收款冲正',
+    resourceType: '租赁合同',
+    resourceId: String(rentalId),
+    summary: `${rental.contractNo} 全部冲正 ${activePayments.length} 笔有效收款`,
+    metadata: { paymentIds: activePayments.map((payment) => payment.id), reason: reason.trim() },
+  })
+  revalidatePath('/')
+  revalidatePath('/audit-logs')
+  return { ok: true, reversedCount: activePayments.length, alreadyReversed: false }
+}
+
 export async function recordDepositAction(rentalId: number, entryType: '押金退还' | '押金抵扣欠租' | '押金抵扣赔偿', amount: number, entryDate: string, notes = '') {
   const userId = await getUserId()
   if (amount <= 0 || !entryDate) throw new Error('请填写有效金额和日期')

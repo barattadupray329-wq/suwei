@@ -38,6 +38,7 @@ import {
   recordDepositAction,
   buyoutRentalItems,
   renewRentalItems,
+  reverseAllPayments,
   reverseAllRenewals,
   reversePayment,
   updateRentalAssignee,
@@ -1186,6 +1187,9 @@ canViewFinance={canViewFinance}
             onExchange={() => setDialog("exchange")}
             onReverse={(paymentId) =>
               runInDetail(() => reversePayment(paymentId, "收款录入错误"), "收款已冲正")
+            }
+            onReverseAll={() =>
+              runInDetail(() => reverseAllPayments(selected.id, "本单全部收款录入错误，重新收款"), "全部有效收款已冲正")
             }
             onStatus={(s) =>
               runInDetail(() => changeStatus(selected.id, s), "状态已更新")
@@ -2424,7 +2428,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
   if (!scenario) return <div className="flex flex-col gap-5">
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史账目，不要直接覆盖或删除正式业务记录。</p></div>
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史项目，不要直接覆盖或删除正式业务记录。</p></div>
     <div className="grid gap-3 sm:grid-cols-2">
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
       <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
@@ -2475,6 +2479,7 @@ type DetailProps = {
   onDeposit: () => void;
   onExchange: () => void;
   onReverse: (paymentId: number) => void;
+  onReverseAll: () => void;
   onStatus: (s: string) => void;
 };
 
@@ -2503,9 +2508,10 @@ function Detail(props: DetailProps) {
     onChange,
     onRepair,
     onDeposit,
-    onExchange,
-    onReverse,
-    onStatus,
+  onExchange,
+  onReverse,
+  onReverseAll,
+  onStatus,
   } = props;
   const [tab, setTab] = useState<DetailTab>("overview");
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -2681,9 +2687,10 @@ function Detail(props: DetailProps) {
           <DetailFinance
             rental={rental}
             canViewFinance={canViewFinance}
-            onPayment={onPayment}
-            onReverse={onReverse}
-          />
+  onPayment={onPayment}
+  onReverse={onReverse}
+  onReverseAll={onReverseAll}
+  />
         )}
         {tab === "records" && (
           <DetailRecords
@@ -2850,12 +2857,15 @@ function DetailFinance({
   canViewFinance,
   onPayment,
   onReverse,
-}: {
+  onReverseAll,
+  }: {
   rental: Rental;
   canViewFinance: boolean;
   onPayment: (target: number | "all" | null) => void;
   onReverse: (paymentId: number) => void;
-}) {
+  onReverseAll: () => void;
+  }) {
+  const [showReversalHistory, setShowReversalHistory] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
   const rentBills = rental.bills.filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType));
@@ -2880,6 +2890,12 @@ function DetailFinance({
   const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
   const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
   const receivedAt = (value: Date | string) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  const reversedPaymentIds = new Set(rental.paymentRecords.flatMap((payment) => {
+    const match = payment.notes?.match(/冲正原收款 #(\d+)/);
+    return match ? [Number(match[1])] : [];
+  }));
+  const activePayments = rental.paymentRecords.filter((payment) => Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id));
+  const displayedPayments = showReversalHistory ? rental.paymentRecords : activePayments;
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-xl border bg-card">
@@ -2928,8 +2944,17 @@ function DetailFinance({
       {adjustmentBills.length > 0 && <section><h3 className="mb-3 font-semibold">减免与账务调整</h3><div className="flex flex-col gap-2">{adjustmentBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">{bill.dueDate} · 减少应收 {money(centsToMoney(Math.abs(Math.round(Number(bill.amount) * 100))))}</p>{bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}</div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">已调整</span></div>)}</div></section>}
       {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 约定日 {bill.dueDate}</p></div><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} /></div>)}</div></section>}
       <section>
-        <h3 className="mb-3 font-semibold">全部收款流水</h3>
-        {rental.paymentRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{rental.paymentRecords.map((payment) => <tr key={payment.id}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{canViewFinance && Number(payment.amount) > 0 && <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>}</td></tr>)}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无收款记录</p>}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">收款流水</h3>
+            <p className="mt-1 text-xs text-muted-foreground">默认仅显示当前有效收款，冲正历史可单独查看</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setShowReversalHistory((value) => !value)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">{showReversalHistory ? "仅看有效收款" : "查看冲正历史"}</button>
+            {canViewFinance && activePayments.length > 0 && <button type="button" onClick={() => { if (window.confirm(`确认冲正本单全部 ${activePayments.length} 笔有效收款？冲正后可重新收款。`)) onReverseAll(); }} className="rounded-lg border border-destructive px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10">全部收款冲正</button>}
+          </div>
+        </div>
+        {displayedPayments.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{displayedPayments.map((payment) => <tr key={payment.id}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{canViewFinance && Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id) && <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>}</td></tr>)}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{showReversalHistory ? "暂无收款记录" : "暂无有效收款，可点击“查看冲正历史”核对历史流水"}</p>}
       </section>
     </div>
   );
