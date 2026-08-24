@@ -2425,7 +2425,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   const routes = [
     { title: "客户少要或全部不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
     { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
-    { title: "只调整设备配置或租金", detail: "保留配置调整前后快照，并人工确认费用差额。", action: () => onNavigate("change") },
+    { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
   if (!scenario) return <div className="flex flex-col gap-5">
@@ -2433,6 +2433,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     <div className="grid gap-3 sm:grid-cols-2">
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
       <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
+      <button type="button" onClick={() => onNavigate("change")} className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-left hover:border-primary hover:bg-primary/10"><strong>租金变更</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">只调整设备月租，配置和数量保持不变；系统会按账期登记补差或减免。</span></button>
       <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
     </div>
     <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
@@ -4450,12 +4451,9 @@ function ChangeForm({
             required={false}
           />
         )}
-        <Field
-          label="当前月租（元）"
-          type="number"
-          value={value.monthlyRent}
-          onChange={(next) => update("monthlyRent", Number(next))}
-        />
+        <div className="sm:col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+          配置变更专门用于设备信息；租金请从上一步选择“租金变更”，避免把两类业务混在一次操作中。
+        </div>
         <Field
           label="赠送天数"
           type="number"
