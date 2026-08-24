@@ -12,6 +12,7 @@ import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { safeError } from '@/lib/errors'
 
 async function actor() {
   const context = await getAccessContext('租赁操作')
@@ -28,6 +29,17 @@ const returnSchema = operationSchema.extend({ condition:z.enum(['完好','轻微
 const lossSchema = operationSchema.extend({ unitCompensation:z.number().positive() })
 
 export async function returnRentalItems(input: ReturnInput[]) {
+  try {
+    await performRentalItemReturn(input)
+    return { ok: true as const }
+  } catch (error) {
+    console.error('[v0] 退租提交失败', error)
+    const result = safeError(error, '退租提交失败，请稍后重试')
+    return { ok: false as const, message: result.message }
+  }
+}
+
+async function performRentalItemReturn(input: ReturnInput[]) {
   const { userId, actorId, name } = await actor()
   const values = z.array(returnSchema).min(1).max(100).parse(input)
   const rentalId = values[0].rentalId
