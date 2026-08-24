@@ -48,9 +48,11 @@ export function monthlyRentPeriod(startDate: string, endDate: string, targetDate
   return overdueRentPeriods(endDate, targetDate).at(-1)
 }
 
-export function returnBillingAdjustment(input: { periodStart: string; returnDate: string; monthlyRent: string; quantity: number; mode: ReturnBillingMode }) {
+export function returnBillingAdjustment(input: { periodStart: string; periodEnd: string; returnDate: string; monthlyRent: string; quantity: number; mode: ReturnBillingMode }) {
   const fullAmountCents = toCents(input.monthlyRent) * input.quantity
-  const usedDays = Math.max(1, Math.ceil((Date.parse(`${input.returnDate}T00:00:00+08:00`) - Date.parse(`${input.periodStart}T00:00:00+08:00`)) / 86_400_000) + 1)
+  // 退租日当天不再计租：5/18–6/18，6/14退租，退 6/14–6/18 共4天，因此按26天收取。
+  const remainingDays = Math.max(0, Math.ceil((Date.parse(`${input.periodEnd}T00:00:00+08:00`) - Date.parse(`${input.returnDate}T00:00:00+08:00`)) / 86_400_000))
+  const usedDays = Math.max(0, Math.min(30, 30 - remainingDays))
   const chargedAmountCents = input.mode === 'full_month'
     ? fullAmountCents
     : input.mode === 'waive'

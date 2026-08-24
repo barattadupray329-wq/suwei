@@ -39,14 +39,14 @@ describe('逾期月租周期', () => {
   })
 
   it('退租默认整月收取，按天使用月租除以 30，本期不收则全额调整', () => {
-    const base = { periodStart: '2026-06-01', returnDate: '2026-06-05', monthlyRent: '300.00', quantity: 1 }
-    expect(returnBillingAdjustment({ ...base, mode: 'full_month' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 30000, adjustmentCents: 0, usedDays: 5 })
-    expect(returnBillingAdjustment({ ...base, mode: 'daily' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 5000, adjustmentCents: 25000, usedDays: 5 })
-    expect(returnBillingAdjustment({ ...base, mode: 'waive' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 0, adjustmentCents: 30000, usedDays: 5 })
+    const base = { periodStart: '2026-06-01', periodEnd: '2026-07-01', returnDate: '2026-06-05', monthlyRent: '300.00', quantity: 1 }
+    expect(returnBillingAdjustment({ ...base, mode: 'full_month' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 30000, adjustmentCents: 0, usedDays: 4 })
+    expect(returnBillingAdjustment({ ...base, mode: 'daily' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 4000, adjustmentCents: 26000, usedDays: 4 })
+    expect(returnBillingAdjustment({ ...base, mode: 'waive' })).toEqual({ fullAmountCents: 30000, chargedAmountCents: 0, adjustmentCents: 30000, usedDays: 4 })
   })
 
   it('多台设备按分计算并限制按天金额不超过整月', () => {
-    expect(returnBillingAdjustment({ periodStart: '2026-06-01', returnDate: '2026-06-30', monthlyRent: '199.99', quantity: 2, mode: 'daily' })).toEqual({ fullAmountCents: 39998, chargedAmountCents: 39998, adjustmentCents: 0, usedDays: 30 })
+    expect(returnBillingAdjustment({ periodStart: '2026-06-01', periodEnd: '2026-07-01', returnDate: '2026-06-30', monthlyRent: '199.99', quantity: 2, mode: 'daily' })).toEqual({ fullAmountCents: 39998, chargedAmountCents: 38665, adjustmentCents: 1333, usedDays: 29 })
   })
 
   it('全部退租且本期不收会取消当前及未来所有未收租金', () => {
