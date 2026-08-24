@@ -73,6 +73,7 @@ import { getDeviceConfigRows } from "@/lib/device-config";
 import { RentalOperationWizard } from "@/components/rental-operation-wizard";
 import type { RentalOperationType } from "@/lib/rental-operation-hub";
 import { addCalendarDays, billCoverageLabel, billPeriodLabel, billPeriodRanges, billState, nextOpenBill, normalizeBillingUnit } from "@/lib/rental-calculations";
+import { monthlyRentPeriod } from "@/lib/overdue-rent";
   import { rentalEndDate } from "@/lib/rental-calculations";
   import { calculateReturnRent } from "@/lib/return-settlement";
 import { buildRentalNumberPreview } from "@/lib/rental-numbers";
@@ -1127,7 +1128,7 @@ export function Dashboard({
                     } catch (error) {
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
-                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不���入经营与财务数据" : "正式租赁合同已创建");
+                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
                   sessionStorage.removeItem("suwei:new-rental-draft");
                   delete document.documentElement.dataset.unsavedRental;
                   setDialog(null);
@@ -2442,7 +2443,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   const [startDate, setStartDate] = useState(rental.startDate);
   const [endDate, setEndDate] = useState(rental.endDate);
   const routes = [
-    { title: "客户少要或全部不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
+    { title: "客户少要或部分不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
     { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
     { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
@@ -3559,7 +3560,7 @@ function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; p
         更正后金额 <strong>{money(correctedAmount)}</strong>，{difference > 0 ? "将新增待收补差账单" : difference < 0 ? "将生成续租减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原续租和收款记录不会被覆盖。
       </div>
       <label className="flex flex-col gap-2 text-sm font-medium"><span>更正原因 <span className="text-destructive">*</span></span><textarea required minLength={2} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：录入时误将月租填写为设备总价" /></label>
-      <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正���更正…" : "确认差额更正"}</button></div>
+      <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在更正…" : "确认差额更正"}</button></div>
     </form>
   );
 }
@@ -3990,11 +3991,13 @@ function OperationForm({
   const [settlementConfirmed, setSettlementConfirmed] = useState(false);
   const billingTrialByItem = new Map(selectedRows.map((row) => {
     const item = available.find((candidate) => candidate.id === row.itemId);
+    const monthlyPeriod = rental.billingType === "monthly" ? monthlyRentPeriod(rental.startDate, rental.endDate, date) : undefined;
     const currentBill = rental.bills
       .filter((bill) => bill.billType !== "押金" && Number(bill.amount) > 0 && bill.periodStart <= date && date < bill.periodEnd)
       .sort((a, b) => b.periodStart.localeCompare(a.periodStart))[0];
-    const periodStart = currentBill?.periodStart ?? rental.startDate;
-    const periodEnd = currentBill?.periodEnd ?? addMonths(periodStart, 1);
+    // 月租退租按自然月账期计算，不使用可能合并为季度的原始账单区间。
+    const periodStart = monthlyPeriod?.periodStart ?? currentBill?.periodStart ?? rental.startDate;
+    const periodEnd = monthlyPeriod?.periodEnd ?? currentBill?.periodEnd ?? addMonths(periodStart, 1);
     const inCurrentPeriod = rental.billingType === "monthly" && periodStart <= date && date < periodEnd;
     const fullAmount = inCurrentPeriod && item ? Math.round(Number(item.monthlyRent) * row.quantity * 100) / 100 : 0;
     const priorRent = Math.max(0, Number(rental.totalRent) - fullAmount);
