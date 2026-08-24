@@ -47,15 +47,19 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   if (new Set(values.map((value)=>value.rentalItemId)).size!==values.length) throw new Error('同一设备不能重复提交')
   const latestReturnDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
   await ensureOverdueRentBills(userId, latestReturnDate)
-  const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
+  const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts,ledgerEntries]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId),ne(receivableBills.status,'已冲正'))),
     db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
     db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
     db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
+    db.select({entryType:accountLedger.entryType,amount:accountLedger.amount}).from(accountLedger).where(and(eq(accountLedger.userId,userId),eq(accountLedger.rentalId,rentalId))),
   ])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
+  const depositBalanceCents = ledgerEntries.reduce((sum, entry) => sum + (entry.entryType === '押金收取' ? toCents(entry.amount) : entry.entryType.startsWith('押金') ? -Math.abs(toCents(entry.amount)) : 0), 0)
+  const depositRefundTotalCents = values.reduce((sum, value) => sum + toCents(value.depositRefund), 0)
+  if (depositRefundTotalCents > depositBalanceCents) throw new Error(`押金退还金额超过可用余额，当前可用押金余额为 ${fromCents(depositBalanceCents)} 元`)
   const byId=new Map(items.map((item)=>[item.id,item]))
   const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const itemStartDate=item.startDate??rental.startDate,itemEndDate=item.endDate??rental.endDate;const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(itemStartDate,itemEndDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,periodEnd:currentPeriod.periodEnd,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
   const finalItems=items.map((item)=>{const row=rows.find((entry)=>entry.item.id===item.id);return row?{...item,returnedQuantity:item.returnedQuantity+row.value.quantity}:item})
