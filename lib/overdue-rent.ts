@@ -1,4 +1,4 @@
-import { addCalendarMonths, toCents } from './rental-calculations'
+import { addCalendarDays, addCalendarMonths, toCents } from './rental-calculations'
 
 export type RentalDisposal = { rentalItemId: number; quantity: number; date: string }
 export type ReturnBillingMode = 'full_month' | 'daily' | 'waive'
@@ -22,8 +22,9 @@ export function fullReturnWaiver(bills: RentBillBalance[]) {
 
 export function overdueRentPeriods(endDate: string, today: string) {
   const periods: Array<{ periodStart: string; periodEnd: string }> = []
-  let periodStart = endDate
-  while (periodStart < today) {
+  // 合同 endDate 是最后一个已覆盖的自然日，续租账期必须从次日开始，避免重叠计费。
+  let periodStart = addCalendarDays(endDate, 1)
+  while (periodStart <= today) {
     const periodEnd = addCalendarMonths(periodStart, 1)
     periods.push({ periodStart, periodEnd })
     periodStart = periodEnd

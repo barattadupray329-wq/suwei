@@ -8,10 +8,12 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 
 export async function ensureOverdueRentBills(userId: string, today = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
-}).format(new Date())) {
+}).format(new Date()), rentalId?: number) {
+  const filters = [eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), eq(rentals.billingType, 'monthly'), notInArray(rentals.status, ['已关闭', '已完成']), lte(rentals.endDate, addCalendarDays(today, -1))]
+  if (rentalId) filters.push(eq(rentals.id, rentalId))
   const contracts = await db.select({ id: rentals.id, contractNo: rentals.contractNo, endDate: rentals.endDate, paidAmount: rentals.paidAmount })
     .from(rentals)
-    .where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), eq(rentals.billingType, 'monthly'), notInArray(rentals.status, ['已关闭', '已完成']), lte(rentals.endDate, addCalendarDays(today, -1))))
+    .where(and(...filters))
   if (!contracts.length) return { created: 0, amount: '0.00' }
 
   const rentalIds = contracts.map((contract) => contract.id)

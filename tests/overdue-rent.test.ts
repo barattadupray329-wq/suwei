@@ -2,21 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
-  it('到期日立即进入首期，周期开始日当天不重复生成下一期', () => {
-    expect(overdueRentPeriods('2026-06-01', '2026-06-01')).toEqual([])
-    expect(overdueRentPeriods('2026-06-01', '2026-06-05')).toEqual([
-      { periodStart: '2026-06-01', periodEnd: '2026-07-01' },
+  it('合同到期次日进入首期，并补齐到今天所在账期', () => {
+    expect(overdueRentPeriods('2026-06-17', '2026-06-17')).toEqual([])
+    expect(overdueRentPeriods('2026-06-17', '2026-06-18')).toEqual([
+      { periodStart: '2026-06-18', periodEnd: '2026-07-18' },
     ])
-    expect(overdueRentPeriods('2026-06-01', '2026-08-01')).toEqual([
-      { periodStart: '2026-06-01', periodEnd: '2026-07-01' },
-      { periodStart: '2026-07-01', periodEnd: '2026-08-01' },
+    expect(overdueRentPeriods('2026-06-17', '2026-08-24')).toEqual([
+      { periodStart: '2026-06-18', periodEnd: '2026-07-18' },
+      { periodStart: '2026-07-18', periodEnd: '2026-08-18' },
+      { periodStart: '2026-08-18', periodEnd: '2026-09-18' },
     ])
   })
 
-  it('月末周期使用目标月份最后一天', () => {
+  it('月末到期从次日即下月一日连续计费', () => {
     expect(overdueRentPeriods('2026-01-31', '2026-03-01')).toEqual([
-      { periodStart: '2026-01-31', periodEnd: '2026-02-28' },
-      { periodStart: '2026-02-28', periodEnd: '2026-03-28' },
+      { periodStart: '2026-02-01', periodEnd: '2026-03-01' },
+      { periodStart: '2026-03-01', periodEnd: '2026-04-01' },
     ])
   })
 

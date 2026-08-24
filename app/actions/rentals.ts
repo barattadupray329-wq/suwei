@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerCreditLedger, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
 import { billPaymentPeriodSummary, billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
@@ -20,6 +20,7 @@ import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayO
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
+import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -270,6 +271,7 @@ export async function getRentalById(id: number) {
   const userId = await getUserId()
   const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
   if (!row) return null
+  await ensureOverdueRentBills(userId, undefined, id)
   return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
@@ -527,7 +529,15 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId))).limit(1)
   if (!rental) throw new Error('合同不存在或不属于当前店铺')
   assertOfficialRental(rental)
-  const [latest] = await db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), eq(renewalAdjustments.renewalRecordId, renewal.id))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)).limit(1)
+  const [[latest], futureBills] = await Promise.all([
+    db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), eq(renewalAdjustments.renewalRecordId, renewal.id))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)).limit(1),
+    db.select().from(receivableBills).where(and(
+      eq(receivableBills.userId, userId),
+      eq(receivableBills.rentalId, renewal.rentalId),
+      gte(receivableBills.periodStart, renewal.newEndDate),
+      ne(receivableBills.status, '已冲正'),
+    )).orderBy(receivableBills.periodStart),
+  ])
   const previousUnitPrice = Number(latest?.correctedUnitPrice ?? renewal.unitPrice ?? renewal.newMonthlyRent)
   const duration = renewal.duration ?? renewal.renewalMonths ?? 1
   const previousAmount = Number(latest?.correctedAmount ?? renewal.renewalAmount)
@@ -535,17 +545,32 @@ export async function correctRenewalPrice(input: RenewalCorrectionInput) {
   const correctedAmount = Number(adjustment.correctedAmount)
   const differenceAmount = Number(adjustment.differenceAmount)
   if (toCents(previousUnitPrice) === toCents(value.correctedUnitPrice) || toCents(differenceAmount) === 0) throw new Error('正确价格与当前有效价格相同，无需更正')
-  const correctionDate = new Date().toISOString().slice(0, 10)
-  const newTotalRent = Number((Number(rental.totalRent) + differenceAmount).toFixed(2))
-  if (newTotalRent < 0) throw new Error('更正后合同总额不能小于 0')
-  const paymentStatus = Number(rental.paidAmount) >= newTotalRent ? '已结清' : Number(rental.paidAmount) > 0 ? '部分收款' : '待收款'
-  await db.batch([
+  const correctionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const recurringDeltaCents = (toCents(value.correctedUnitPrice) - toCents(previousUnitPrice)) * renewal.quantity
+  const recurringBills = futureBills.filter((bill) => bill.billType.includes('续租租金'))
+  const recurringDifferenceCents = recurringDeltaCents * recurringBills.length
+  const totalDifferenceCents = toCents(differenceAmount) + recurringDifferenceCents
+  const newTotalCents = toCents(rental.totalRent) + totalDifferenceCents
+  if (newTotalCents < 0) throw new Error('更正后合同总额不能小于 0')
+  const paymentStatus = paymentStatusFromCents(newTotalCents, toCents(rental.paidAmount))
+  const now = new Date()
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
     db.insert(renewalAdjustments).values({ userId, rentalId: renewal.rentalId, renewalRecordId: renewal.id, previousUnitPrice: fromCents(toCents(previousUnitPrice)), correctedUnitPrice: fromCents(toCents(value.correctedUnitPrice)), previousAmount: fromCents(toCents(previousAmount)), correctedAmount: fromCents(toCents(correctedAmount)), differenceAmount: fromCents(toCents(differenceAmount)), reason: value.reason, operatorUserId: access.actorId, operatorName: access.actorName }),
     db.insert(receivableBills).values({ userId, rentalId: renewal.rentalId, renewalRecordId: renewal.id, billNo: `RENEW-ADJ-${renewal.id}-${Date.now()}`, periodStart: renewal.oldEndDate, periodEnd: renewal.newEndDate, dueDate: correctionDate, billType: differenceAmount > 0 ? '续租补差' : '续租减免', amount: fromCents(toCents(differenceAmount)), paidAmount: '0', status: differenceAmount > 0 ? '待收' : '已调整', notes: `续租记录 #${renewal.id} 价格更正：${value.reason}` }),
-    db.insert(rentalEvents).values({ userId, rentalId: renewal.rentalId, itemId: renewal.renewedRentalItemId, eventType: '续租价格更正', status: '已完成', eventDate: correctionDate, beforeSnapshot: { unitPrice: previousUnitPrice, amount: previousAmount }, afterSnapshot: { unitPrice: value.correctedUnitPrice, amount: correctedAmount }, reason: value.reason, feeAdjustment: fromCents(toCents(differenceAmount)), operatorName: access.actorName, notes: differenceAmount > 0 ? '生成续租补差应收' : '生成续租减免调整' }),
-    db.update(rentals).set({ totalRent: fromCents(toCents(newTotalRent)), paymentStatus, updatedAt: new Date() }).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId))),
-    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '更正续租价格', resourceType: '续租记录', resourceId: String(renewal.id), summary: `${rental.contractNo} 续租单价 ${previousUnitPrice.toFixed(2)} 元更正为 ${value.correctedUnitPrice.toFixed(2)} 元，差额 ${differenceAmount.toFixed(2)} 元`, metadata: { rentalId: renewal.rentalId, previousUnitPrice, correctedUnitPrice: value.correctedUnitPrice, previousAmount, correctedAmount, differenceAmount, reason: value.reason } }),
-  ])
+    db.update(rentalItems).set({ monthlyRent: fromCents(toCents(value.correctedUnitPrice)), updatedAt: now }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, renewal.renewedRentalItemId))),
+    db.insert(rentalEvents).values({ userId, rentalId: renewal.rentalId, itemId: renewal.renewedRentalItemId, eventType: '续租价格更正', status: '已完成', eventDate: correctionDate, beforeSnapshot: { unitPrice: previousUnitPrice, amount: previousAmount }, afterSnapshot: { unitPrice: value.correctedUnitPrice, amount: correctedAmount, propagatedBillIds: recurringBills.map((bill) => bill.id) }, reason: value.reason, feeAdjustment: fromCents(totalDifferenceCents), operatorName: access.actorName, notes: `本期及以后账期统一调价；已传播 ${recurringBills.length} 期` }),
+    db.update(rentals).set({ monthlyRent: fromCents(toCents(rental.monthlyRent) + recurringDeltaCents), totalRent: fromCents(newTotalCents), paymentStatus, updatedAt: now }).where(and(eq(rentals.id, renewal.rentalId), eq(rentals.userId, userId))),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '更正续租价格', resourceType: '续租记录', resourceId: String(renewal.id), summary: `${rental.contractNo} 续租单价 ${previousUnitPrice.toFixed(2)} 元更正为 ${value.correctedUnitPrice.toFixed(2)} 元，并传播至以后 ${recurringBills.length} 期`, metadata: { rentalId: renewal.rentalId, previousUnitPrice, correctedUnitPrice: value.correctedUnitPrice, previousAmount, correctedAmount, differenceAmount, recurringDifference: fromCents(recurringDifferenceCents), propagatedBillIds: recurringBills.map((bill) => bill.id), reason: value.reason } }),
+  ]
+  for (const bill of recurringBills) {
+    if (toCents(bill.paidAmount) === 0) {
+      statements.push(db.update(receivableBills).set({ amount: fromCents(toCents(bill.amount) + recurringDeltaCents), notes: `${bill.notes ?? ''}${bill.notes ? '；' : ''}续租单价追溯调整：${value.reason}`, updatedAt: now }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+      continue
+    }
+    statements.push(db.insert(receivableBills).values({ userId, rentalId: renewal.rentalId, renewalRecordId: renewal.id, billNo: `RECURRING-ADJ-${renewal.id}-${bill.id}-${Date.now()}`, periodStart: bill.periodStart, periodEnd: bill.periodEnd, dueDate: correctionDate, billType: recurringDeltaCents > 0 ? '续租补差' : '续租减免', amount: fromCents(recurringDeltaCents), paidAmount: '0.00', status: recurringDeltaCents > 0 ? '待收' : '已调整', notes: `已收账期 ${bill.billNo} 追溯调价：${value.reason}` }))
+    if (recurringDeltaCents < 0) statements.push(db.insert(customerCreditLedger).values({ userId, customerPhone: rental.customerPhone, sourceRentalId: rental.id, entryType: '调价余额', amount: fromCents(-recurringDeltaCents), entryDate: correctionDate, operatorName: access.actorName, notes: `账单 ${bill.billNo} 降价形成客户余额，可抵扣或退款` }))
+  }
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
   revalidatePath('/rentals')
   revalidatePath('/audit-logs')
@@ -649,6 +674,7 @@ export type PaymentInput = z.infer<typeof paymentSchema>
 export async function collectPayment(id: number, input: PaymentInput) {
   const userId = await getUserId()
   const value = paymentSchema.parse(input)
+  await ensureOverdueRentBills(userId, value.paymentDate, id)
   const [row] = await db.select().from(rentals).where(and(eq(rentals.id, id), eq(rentals.userId, userId)))
   if (!row) throw new Error('记录不存在')
   assertOfficialRental(row)
