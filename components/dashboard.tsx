@@ -1431,7 +1431,7 @@ canViewFinance={canViewFinance}
               </dl>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
-              冲正���因
+              ���正���因
               <textarea
                 required
                 minLength={2}
@@ -2163,7 +2163,7 @@ function RentalForm({
                 {configTemplates[item.deviceType]?.length && (
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      常用配置��
+                      ��用配置��
                     </span>
                     {configTemplates[item.deviceType].map((template) => (
                       <button
@@ -4067,7 +4067,7 @@ function OperationForm({
       </section>
       <section className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期���金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
         <div className="grid grid-cols-2 gap-4">
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}
@@ -4395,12 +4395,15 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金" && !bill.billType.includes("补差") && !bill.billType.includes("减免"));
   const periodInfo = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: "monthly" });
-  // 按期号找到对应的账单，用于在下拉框和受影响列表里显示每期具体的账期起止日期。
-  const periodBills = new Map<number, (typeof rentBills)[number]>();
-  for (const bill of rentBills) {
-    const range = periodInfo.ranges.get(bill.id);
-    if (range) periodBills.set(range.start, bill);
-  }
+  // billPeriodRanges 当前按账期起始日、到期日和账单 ID 排序，并让每张月租账单独立占一期。
+  // 直接使用相同排序建立“期数 → 账单”关系，避免线上返回的账单 ID 类型不一致导致 Map 匹配失败、日期缺失。
+  const sortedPeriodBills = [...rentBills].sort(
+    (left, right) =>
+      left.periodStart.localeCompare(right.periodStart) ||
+      left.dueDate.localeCompare(right.dueDate) ||
+      Number(left.id) - Number(right.id),
+  );
+  const periodBills = new Map(sortedPeriodBills.map((bill, index) => [index + 1, bill]));
   const first = available[0];
   const [itemId, setItemId] = useState(first?.id ?? 0);
   const [startPeriod, setStartPeriod] = useState(Math.max(1, periodInfo.total));
