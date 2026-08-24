@@ -5,7 +5,8 @@ export const RENTAL_OPERATION_TYPES = [
   'loss',
   'exchange',
   'repair',
-  'pricing_change',
+  'configuration_change',
+  'rent_change',
   'contract_change',
 ] as const
 
@@ -42,7 +43,8 @@ export const OPERATION_DEFINITIONS: OperationDefinition[] = [
   { type: 'loss', label: '登记丢失', description: '减少在租设备并登记赔偿', group: '设备流转', risk: 'destructive', requiresDevice: true },
   { type: 'exchange', label: '设备换机', description: '保留合同并替换租赁设备', group: '设备流转', risk: 'normal', requiresDevice: true },
   { type: 'repair', label: '登记维修', description: '记录故障、处理结果及客户费用', group: '售后服务', risk: 'normal', requiresDevice: true, smsScene: 'repair-completed' },
-  { type: 'pricing_change', label: '配置 / 租金变更', description: '调整设备配置或后续租金', group: '合同调整', risk: 'financial', requiresDevice: true },
+  { type: 'configuration_change', label: '配置变更', description: '只调整设备型号、编号或配置，不修改租金', group: '合同调整', risk: 'normal', requiresDevice: true },
+  { type: 'rent_change', label: '租金变更', description: '选择生效期数并重算该期及后续租金', group: '合同调整', risk: 'financial', requiresDevice: true },
   { type: 'contract_change', label: '其他合同变更', description: '调整租期或客户联系资料', group: '合同调整', risk: 'normal', requiresDevice: false },
 ]
 
@@ -67,7 +69,7 @@ export function operationIdempotencyKey(input: {
 export function operationNumber(type: RentalOperationType, rentalId: number, now = new Date()) {
   const stamp = now.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const code: Record<RentalOperationType, string> = {
-    renewal: 'XR', return: 'TZ', buyout: 'MD', loss: 'DS', exchange: 'HJ', repair: 'WX', pricing_change: 'BG', contract_change: 'HT',
+    renewal: 'XR', return: 'TZ', buyout: 'MD', loss: 'DS', exchange: 'HJ', repair: 'WX', configuration_change: 'PZ', rent_change: 'ZJ', contract_change: 'HT',
   }
   return `${code[type]}-${stamp}-${rentalId}`
 }

@@ -1127,7 +1127,7 @@ export function Dashboard({
                     } catch (error) {
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
-                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不计入经营与财务数据" : "正式租赁合同已创建");
+                  } else toast.success(orderType === "draft" ? "草稿已保存，不计入经营与财务数据" : orderType === "test" ? "测试合同已创建，不���入经营与财务数据" : "正式租赁合同已创建");
                   sessionStorage.removeItem("suwei:new-rental-draft");
                   delete document.documentElement.dataset.unsavedRental;
                   setDialog(null);
@@ -1185,8 +1185,9 @@ canViewFinance={canViewFinance}
             onHistory={() => setDialog("history")}
             onReturn={() => setDialog("return")}
             onLoss={() => setDialog("loss")}
-            onChange={() => setDialog("change")}
-            onRepair={() => setDialog("repair")}
+  onChange={() => setDialog("change")}
+  onRentChange={() => setDialog("rent-change")}
+  onRepair={() => setDialog("repair")}
             onDeposit={() => setDialog("deposit")}
             onExchange={() => setDialog("exchange")}
             onReverse={(paymentId) =>
@@ -2495,6 +2496,7 @@ type DetailProps = {
   onReturn: () => void;
   onLoss: () => void;
   onChange: () => void;
+  onRentChange: () => void;
   onRepair: () => void;
   onDeposit: () => void;
   onExchange: () => void;
@@ -2526,6 +2528,7 @@ function Detail(props: DetailProps) {
     onReturn,
     onLoss,
     onChange,
+    onRentChange,
     onRepair,
     onDeposit,
   onExchange,
@@ -2589,9 +2592,10 @@ function Detail(props: DetailProps) {
     else if (type === "buyout") onBuyout();
     else if (type === "loss") onLoss();
     else if (type === "exchange") onExchange();
-    else if (type === "repair") onRepair();
-    else if (type === "pricing_change") onChange();
-    else onRentalChange();
+  else if (type === "repair") onRepair();
+  else if (type === "configuration_change") onChange();
+  else if (type === "rent_change") onRentChange();
+  else onRentalChange();
   };
 
   if (wizardOpen) {
@@ -3106,6 +3110,7 @@ function LegacyDetail({
   onReturn,
   onLoss,
   onChange,
+  onRentChange,
   onRepair,
   onDeposit,
   onExchange,
@@ -3130,6 +3135,7 @@ function LegacyDetail({
   onReturn: () => void;
   onLoss: () => void;
   onChange: () => void;
+  onRentChange: () => void;
   onRepair: () => void;
   onDeposit: () => void;
   onExchange: () => void;
@@ -3553,7 +3559,7 @@ function RenewalCorrectionForm({ record, pending, submit }: { record: Renewal; p
         更正后金额 <strong>{money(correctedAmount)}</strong>，{difference > 0 ? "将新增待收补差账单" : difference < 0 ? "将生成续租减免调整" : "价格没有变化"} <strong>{money(Math.abs(difference))}</strong>。原续租和收款记录不会被覆盖。
       </div>
       <label className="flex flex-col gap-2 text-sm font-medium"><span>更正原因 <span className="text-destructive">*</span></span><textarea required minLength={2} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：录入时误将月租填写为设备总价" /></label>
-      <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正在更正…" : "确认差额更正"}</button></div>
+      <div className="flex justify-end"><button type="submit" disabled={pending || !Number(correctedUnitPrice) || difference === 0 || reason.trim().length < 2} className="h-11 rounded-xl bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50">{pending ? "正���更正…" : "确认差额更正"}</button></div>
     </form>
   );
 }
