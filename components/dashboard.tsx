@@ -422,6 +422,7 @@ export function Dashboard({
     | "return"
     | "loss"
     | "change"
+    | "rent-change"
     | "repair"
     | "deposit"
   | "exchange"
@@ -903,7 +904,7 @@ export function Dashboard({
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
                     <p className="font-semibold">客户催收汇总</p>
-                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
+                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日期已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
                     <div><p className="text-xs text-muted-foreground">当前待催客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
@@ -1492,7 +1493,7 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "change"}
-        title="变更配置与租金"
+        title="配置变更"
         wide
         embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
@@ -1504,7 +1505,28 @@ canViewFinance={canViewFinance}
             submit={(values) =>
               runInDetail(
                 () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
-                "配置与应收已更新",
+                "配置变更已登记",
+              )
+            }
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "rent-change"}
+        title="租金变更"
+        wide
+        embedded={Boolean(linkedRental)}
+        onClose={() => setDialog("detail")}
+      >
+        {selected && (
+          <ChangeForm
+            rental={selected}
+            mode="rent"
+            pending={pending}
+            submit={(values) =>
+              runInDetail(
+                () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
+                "租金变更已登记",
               )
             }
           />
@@ -2078,8 +2100,8 @@ function RentalForm({
                   )}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <label className="flex flex-col gap-2 text-sm font-medium">
-                    设备类型
+  <label className="flex flex-col gap-2 text-sm font-medium">
+  设备类型
                     <select
                       className="h-10 rounded-lg border bg-background px-3"
                       value={item.deviceType}
@@ -2409,7 +2431,7 @@ type ChangeScenario = "客户资料变更" | "租期调整";
 function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   rental: Rental;
   pending: boolean;
-  onNavigate: (target: "return" | "exchange" | "change" | "renew" | "delete-confirm") => void;
+  onNavigate: (target: "return" | "exchange" | "change" | "rent-change" | "renew" | "delete-confirm") => void;
   submit: (value: ContractChangeInput) => void;
 }) {
   const [scenario, setScenario] = useState<ChangeScenario | null>(null);
@@ -2433,7 +2455,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     <div className="grid gap-3 sm:grid-cols-2">
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
       <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
-      <button type="button" onClick={() => onNavigate("change")} className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-left hover:border-primary hover:bg-primary/10"><strong>租金变更</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">只调整设备月租，配置和数量保持不变；系统会按账期登记补差或减免。</span></button>
+      <button type="button" onClick={() => onNavigate("rent-change")} className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-left hover:border-primary hover:bg-primary/10"><strong>租金变更</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">只调整设备月租，配置和数量保持不变；系统会按账期登记补差或减免。</span></button>
       <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
     </div>
     <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
@@ -3448,7 +3470,13 @@ function LegacyDetail({
           onClick={onChange}
           className="rounded-lg border px-3 py-2 text-sm font-medium"
         >
-          配置/租金变更
+          配置变更
+        </button>
+        <button
+          onClick={onRentalChange}
+          className="rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary"
+        >
+          租金变更
         </button>
         <button
           onClick={onRepair}
@@ -4343,10 +4371,12 @@ function ChangeForm({
   rental,
   submit,
   pending,
+  mode = "config",
 }: {
   rental: Rental;
   submit: (values: RentalChangeInput[]) => void;
   pending: boolean;
+  mode?: "config" | "rent";
 }) {
   const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
   const first = available[0];
@@ -4400,6 +4430,7 @@ function ChangeForm({
           value={value.reason}
           onChange={(next) => update("reason", next)}
         />
+        {mode === "config" && <>
         <label className="flex flex-col gap-2 text-sm font-medium">
           设备类型
           <select
@@ -4451,18 +4482,28 @@ function ChangeForm({
             required={false}
           />
         )}
-        <div className="sm:col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
-          配置变更专门用于设备信息；租金请从上一步选择“租金变更”，避免把两类业务混在一次操作中。
-        </div>
-        <Field
+        </>}
+        {mode === "rent" ? (
+          <Field
+            label="调整后月租（元）"
+            type="number"
+            value={value.monthlyRent}
+            onChange={(next) => update("monthlyRent", Number(next))}
+          />
+        ) : (
+          <div className="sm:col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+            本流程只修改设备配置，当前月租保持 {money(Number(selectedItem.monthlyRent))} 不变。
+          </div>
+        )}
+        {mode === "config" && <Field
           label="赠送天数"
           type="number"
           value={value.giftDays}
           onChange={(next) => update("giftDays", Math.max(0, Math.floor(Number(next))))}
           required={false}
-        />
+        />}
       </div>
-      <section className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3" aria-label="配置变更费用预览">
+      <section className="grid gap-3 rounded-xl border bg-muted p-4 sm:grid-cols-3" aria-label={mode === "rent" ? "租金变更费用预览" : "配置变更费用预览"}>
         <Info l="调整后月租" v={money(Number(value.monthlyRent))} />
         <Info l="本次配置补差" v={money(calculatedAdjustment)} />
         <Info l="调整后到期日" v={adjustedEndDate} />
