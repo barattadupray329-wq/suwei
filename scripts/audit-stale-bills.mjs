@@ -18,7 +18,8 @@ const returns = extractResults('/tmp/all_returns.json')
 const losses = extractResults('/tmp/all_losses.json')
 const buyouts = extractResults('/tmp/all_buyouts.json')
 const bills = extractResults('/tmp/all_active_bills.json')
-const monthlyRentalIds = new Set(extractResults('/tmp/all_monthly_rentals.json').map((r) => r.id))
+// 只审计仍在正常经营状态（未撤销、未移入回收站）的正式合同，回收站/已撤销合同不纳入统计范围
+const monthlyRentalIds = new Set(extractResults('/tmp/all_monthly_rentals.json').filter((r) => r.lifecycleStatus === 'active').map((r) => r.id))
 
 const disposals = [...returns, ...losses, ...buyouts]
 
