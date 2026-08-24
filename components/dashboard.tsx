@@ -903,7 +903,7 @@ export function Dashboard({
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
                     <p className="font-semibold">客户催收汇总</p>
-                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
+                    <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日期已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
                     <div><p className="text-xs text-muted-foreground">当前待催客户</p><p className="text-xl font-bold">{overdueCustomers.length}</p></div>
@@ -1492,7 +1492,7 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "change"}
-        title="变更配置与租金"
+        title="配置变更"
         wide
         embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
@@ -1504,7 +1504,7 @@ canViewFinance={canViewFinance}
             submit={(values) =>
               runInDetail(
                 () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
-                "配置与应收已更新",
+                "配置变更已登记",
               )
             }
           />
@@ -3448,7 +3448,13 @@ function LegacyDetail({
           onClick={onChange}
           className="rounded-lg border px-3 py-2 text-sm font-medium"
         >
-          配置/租金变更
+          配置变更
+        </button>
+        <button
+          onClick={onRentalChange}
+          className="rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary"
+        >
+          租金变更
         </button>
         <button
           onClick={onRepair}
