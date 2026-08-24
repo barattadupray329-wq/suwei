@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
+import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, recomputeUnpaidRentBills, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
   it('合同到期次日进入首期，并补齐到今天所在账期', () => {
@@ -47,6 +47,41 @@ describe('逾期月租周期', () => {
 
   it('多台设备按分计算并限制按天金额不超过整月', () => {
     expect(returnBillingAdjustment({ periodStart: '2026-06-01', periodEnd: '2026-07-01', returnDate: '2026-06-30', monthlyRent: '199.99', quantity: 2, mode: 'daily' })).toEqual({ fullAmountCents: 39998, chargedAmountCents: 38665, adjustmentCents: 1333, usedDays: 29 })
+  })
+
+  it('未来账单按剩余设备数量重算：必须叠加历史处置，否则第二次处置会漏算第一次', () => {
+    const items = [{ id: 10, quantity: 8, monthlyRent: '120.00' }]
+    const bills = [
+      { id: 1, billType: '逾期续租租金', amount: '960.00', paidAmount: '0', periodStart: '2026-07-18' },
+      { id: 2, billType: '逾期续租租金', amount: '960.00', paidAmount: '0', periodStart: '2026-08-18' },
+    ]
+    // 第一次退 2 台（历史记录）
+    const afterFirstReturn = recomputeUnpaidRentBills(items, bills, [{ rentalItemId: 10, quantity: 2, date: '2026-06-12' }], '2026-06-12')
+    expect(afterFirstReturn.map((r) => r.nextAmountCents)).toEqual([72000, 72000])
+
+    // 第二次再退 1 台：disposals 必须包含第一次的历史记录 + 本次记录，否则会把剩余台数错算成 8-1=7 台
+    const historicalPlusCurrent = [
+      { rentalItemId: 10, quantity: 2, date: '2026-06-12' },
+      { rentalItemId: 10, quantity: 1, date: '2026-07-20' },
+    ]
+    const afterSecondReturn = recomputeUnpaidRentBills(items, bills, historicalPlusCurrent, '2026-07-20')
+    // 剩余 8-2-1=5 台，只有账期开始日 >= 2026-07-20 的账单（即第 2 张）会被重算
+    expect(afterSecondReturn).toHaveLength(1)
+    expect(afterSecondReturn[0].bill.id).toBe(2)
+    expect(afterSecondReturn[0].nextAmountCents).toBe(60000)
+    expect(afterSecondReturn[0].reductionCents).toBe(36000)
+  })
+
+  it('已收款或金额未变化的账单不会被重算函数触碰', () => {
+    const items = [{ id: 10, quantity: 8, monthlyRent: '120.00' }]
+    const bills = [
+      { id: 1, billType: '逾期续租租金', amount: '720.00', paidAmount: '720.00', periodStart: '2026-07-18' },
+      { id: 2, billType: '押金', amount: '500.00', paidAmount: '0', periodStart: '2026-07-18' },
+      { id: 3, billType: '逾期续租租金', amount: '720.00', paidAmount: '0', periodStart: '2026-07-18' },
+    ]
+    const disposals = [{ rentalItemId: 10, quantity: 2, date: '2026-06-12' }]
+    const result = recomputeUnpaidRentBills(items, bills, disposals, '2026-06-12')
+    expect(result).toHaveLength(0)
   })
 
   it('全部退租且本期不收会取消当前及未来所有未收租金', () => {

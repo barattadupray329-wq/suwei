@@ -21,6 +21,7 @@ import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } fro
 import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
+import { recomputeUnpaidRentBills, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -969,9 +970,27 @@ export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInp
   const access=await getAccessContext('租赁操作'),userId=access.userId,settlement=settlementSchema.parse(settlementInput)
   const values=z.array(z.object({rentalId:z.number().int().positive(),itemId:z.number().int().positive(),quantity:z.number().int().positive(),price:z.number().positive(),date:z.string().min(1),notes:z.string().optional()})).min(1).max(100).parse(input),rentalId=values[0].rentalId
   if(values.some((v)=>v.rentalId!==rentalId))throw new Error('批量买断必须属于同一合同');if(new Set(values.map((v)=>v.itemId)).size!==values.length)throw new Error('同一设备不能重复提交')
-  const [[rental],items]=await Promise.all([db.select().from(rentals).where(and(eq(rentals.id,rentalId),eq(rentals.userId,userId))),db.select().from(rentalItems).where(and(eq(rentalItems.rentalId,rentalId),eq(rentalItems.userId,userId)))])
+  const latestBuyoutDate=values.reduce((latest,v)=>v.date>latest?v.date:latest,values[0].date)
+  await ensureOverdueRentBills(userId, latestBuyoutDate)
+  const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.id,rentalId),eq(rentals.userId,userId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.rentalId,rentalId),eq(rentalItems.userId,userId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
+    db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
+    db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
+  ])
   if(!rental)throw new Error('租赁合同不存在');assertOfficialRental(rental);const byId=new Map(items.map((i)=>[i.id,i]));const rows=values.map((value,index)=>{const item=byId.get(value.itemId);if(!item)throw new Error('包含不存在的设备');const remaining=availableQuantity(item);if(value.quantity>remaining)throw new Error(`${item.deviceName} 最多可买断 ${remaining} 台`);return{value,item,remaining,amountCents:toCents(value.price)*value.quantity,id:Date.now()*1000+index}})
-  const finalItems=items.map((item)=>{const row=rows.find((r)=>r.item.id===item.id);return row?{...item,boughtOutQuantity:item.boughtOutQuantity+row.value.quantity}:item}),amountCents=rows.reduce((s,r)=>s+r.amountCents,0),totalCents=toCents(rental.totalRent)+amountCents,paidCents=toCents(rental.paidAmount)+(settlement.timing==='now'?amountCents:0),statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  const finalItems=items.map((item)=>{const row=rows.find((r)=>r.item.id===item.id);return row?{...item,boughtOutQuantity:item.boughtOutQuantity+row.value.quantity}:item}),amountCents=rows.reduce((s,r)=>s+r.amountCents,0),statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  // 买断设备后，尚未收款的后续月租账单按剩余设备数量重算；已收账单不追溯修改。disposals 必须叠加全部历史退租/丢失/买断记录，避免第二次及以后的处置漏算之前的处置。
+  const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts, ...rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))]
+  let futureBillReductionCents = 0
+  for (const { bill, nextAmountCents, reductionCents } of recomputeUnpaidRentBills(items, bills, disposals, latestBuyoutDate)) {
+    futureBillReductionCents += reductionCents
+    statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；设备买断后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+  }
+  const totalCents=toCents(rental.totalRent)+amountCents-futureBillReductionCents,paidCents=toCents(rental.paidAmount)+(settlement.timing==='now'?amountCents:0)
+  if(totalCents<0)throw new Error('买断调整后合同总额不能小于 0')
   for(const row of rows){const v=row.value,next=row.item.boughtOutQuantity+v.quantity;statements.push(db.update(rentalItems).set({boughtOutQuantity:next,buyoutAmount:fromCents(toCents(row.item.buyoutAmount)+row.amountCents),updatedAt:new Date()}).where(and(eq(rentalItems.id,row.item.id),eq(rentalItems.userId,userId))),db.insert(buyoutRecords).values({id:row.id,userId,rentalId,rentalItemId:row.item.id,quantity:v.quantity,unitPrice:fromCents(toCents(v.price)),amount:fromCents(row.amountCents),buyoutDate:v.date,notes:v.notes}),db.insert(receivableBills).values({id:row.id,userId,rentalId,billNo:`BUYOUT-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:settlement.date,billType:'买断费',amount:fromCents(row.amountCents),paidAmount:settlement.timing==='now'?fromCents(row.amountCents):'0',status:settlement.timing==='now'?'已结清':'待收',notes:`${row.item.deviceName} ${v.quantity} 台买断`}),db.insert(rentalEvents).values({userId,rentalId,itemId:row.item.id,eventType:'买断',status:'已完成',eventDate:v.date,beforeSnapshot:{availableQuantity:row.remaining},afterSnapshot:{availableQuantity:row.remaining-v.quantity,boughtOutQuantity:next,settlement:settlement.timing},feeAdjustment:fromCents(row.amountCents),operatorName:access.actorName,notes:v.notes}),db.insert(auditLogs).values({userId,actorUserId:access.actorId,actorName:access.actorName,action:'办理买断',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 买断 ${row.item.deviceName} ${v.quantity} 台`,metadata:{rentalItemId:row.item.id,quantity:v.quantity,amount:fromCents(row.amountCents)}}));if(settlement.timing==='now'){const paymentId=row.id;statements.push(db.insert(paymentRecords).values({id:paymentId,userId,rentalId,buyoutRecordId:row.id,amount:fromCents(row.amountCents),paymentDate:settlement.date,paymentMethod:settlement.method,feeType:'买断费',operatorName:access.actorName,notes:`${row.item.deviceName} ${v.quantity} 台买断即时收款`}),db.insert(paymentAllocations).values({userId,rentalId,paymentRecordId:paymentId,billId:row.id,amount:fromCents(row.amountCents)}))}}
   statements.push(db.update(rentals).set({quantity:finalItems.reduce((s,i)=>s+availableQuantity(i),0),totalRent:fromCents(totalCents),paidAmount:fromCents(paidCents),status:rentalLifecycleStatus(finalItems),paymentStatus:paymentStatusFromCents(totalCents,paidCents),updatedAt:new Date()}).where(and(eq(rentals.id,rentalId),eq(rentals.userId,userId))));await db.batch(statements as [typeof statements[number],...Array<typeof statements[number]>]);revalidatePath('/');revalidatePath('/audit-logs')
 }

@@ -5,13 +5,13 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, customerCreditLedger, lossRecords, paymentAllocations, paymentRecords, receivableBills, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, returnSettlements } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, customerCreditLedger, lossRecords, paymentAllocations, paymentRecords, receivableBills, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, returnSettlements } from '@/lib/db/schema'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, remainingQuantityAsOf, returnBillingAdjustment, type RentalDisposal } from '@/lib/overdue-rent'
+import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, recomputeUnpaidRentBills, returnBillingAdjustment, type RentalDisposal } from '@/lib/overdue-rent'
 import { safeError } from '@/lib/errors'
 
 async function actor() {
@@ -47,10 +47,13 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   if (new Set(values.map((value)=>value.rentalItemId)).size!==values.length) throw new Error('同一设备不能重复提交')
   const latestReturnDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
   await ensureOverdueRentBills(userId, latestReturnDate)
-  const [[rental],items,bills]=await Promise.all([
+  const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
+    db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
+    db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
   ])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
   const byId=new Map(items.map((item)=>[item.id,item]))
@@ -61,7 +64,8 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),periodAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),billingAdjustmentCents=isFullWaivedReturn?fullWaiver.adjustmentCents:periodAdjustmentCents,collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
   const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
   // 退还设备后，所有尚未收款的后续月租账单按账期开始时的剩余设备数重算；已收账单不追溯修改。
-  const disposals: RentalDisposal[] = rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))
+  // disposals 必须叠加该合同全部历史退租/丢失/买断记录，否则设备第二次及以后被处置时会漏算之前的处置，导致未来账单金额算多。
+  const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts, ...rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))]
   // 先算出「当期」按比例调整涉及的账单 id：若退租日恰好等于某张未来账单的账期开始日，
   // 该账单会同时命中「当期」判定和下方「未来账单」的按数量重算，必须排除掉避免同一张账单被调整两次。
   const currentPeriodBillIds = new Set(rows
@@ -72,9 +76,8 @@ async function performRentalItemReturn(input: ReturnInput[]) {
     .filter((id): id is number => id !== undefined))
   let futureBillReductionCents = 0
   if (!isFullWaivedReturn) {
-    for (const bill of bills.filter((candidate) => isRentBillType(candidate.billType) && candidate.periodStart >= latestReturnDate && toCents(candidate.paidAmount) === 0 && !currentPeriodBillIds.has(candidate.id))) {
-      const nextAmountCents = items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, bill.periodStart, disposals), 0)
-      futureBillReductionCents += Math.max(0, toCents(bill.amount) - nextAmountCents)
+    for (const { bill, nextAmountCents, reductionCents } of recomputeUnpaidRentBills(items, bills, disposals, latestReturnDate, currentPeriodBillIds)) {
+      futureBillReductionCents += reductionCents
       statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；退租后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
     }
   }
@@ -132,8 +135,26 @@ async function performRentalItemReturn(input: ReturnInput[]) {
 export async function reportLostItems(input: LossInput[]) {
   const {userId,actorId,name}=await actor();const values=z.array(lossSchema).min(1).max(100).parse(input),rentalId=values[0].rentalId
   if(values.some((v)=>v.rentalId!==rentalId))throw new Error('批量丢失必须属于同一合同');if(new Set(values.map((v)=>v.rentalItemId)).size!==values.length)throw new Error('同一设备不能重复提交')
-  const [[rental],items]=await Promise.all([db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId)))])
-  if(!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active')throw new Error('仅正式有效合同可以登记丢失');const byId=new Map(items.map((i)=>[i.id,i]));const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的丢失日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可登记丢失 ${available} 台`);return{value,item,available,amountCents:toCents(value.unitCompensation)*value.quantity,id:Date.now()*1000+index}});const finalItems=items.map((item)=>{const row=rows.find((r)=>r.item.id===item.id);return row?{...item,lostQuantity:item.lostQuantity+row.value.quantity}:item});const totalCents=toCents(rental.totalRent)+rows.reduce((s,r)=>s+r.amountCents,0);const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  const latestLossDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
+  await ensureOverdueRentBills(userId, latestLossDate)
+  const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
+    db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
+    db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
+  ])
+  if(!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active')throw new Error('仅正式有效合同可以登记丢失');const byId=new Map(items.map((i)=>[i.id,i]));const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的丢失日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可登记丢失 ${available} 台`);return{value,item,available,amountCents:toCents(value.unitCompensation)*value.quantity,id:Date.now()*1000+index}});const finalItems=items.map((item)=>{const row=rows.find((r)=>r.item.id===item.id);return row?{...item,lostQuantity:item.lostQuantity+row.value.quantity}:item});const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  // 设备丢失后，尚未收款的后续月租账单按剩余设备数量重算；已收账单不追溯修改。disposals 必须叠加全部历史退租/丢失/买断记录，避免第二次及以后的处置漏算之前的处置。
+  const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts, ...rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))]
+  let futureBillReductionCents = 0
+  for (const { bill, nextAmountCents, reductionCents } of recomputeUnpaidRentBills(items, bills, disposals, latestLossDate)) {
+    futureBillReductionCents += reductionCents
+    statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；设备丢失后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+  }
+  const totalCents=toCents(rental.totalRent)+rows.reduce((s,r)=>s+r.amountCents,0)-futureBillReductionCents
+  if(totalCents<0)throw new Error('登记丢失调整后合同总额不能小于 0')
   for(const row of rows){const v=row.value,next=row.item.lostQuantity+v.quantity,operationNo=`${operationNumber('loss',rentalId)}-${row.id}`;statements.push(db.insert(rentalOperations).values({userId,rentalId,operationNo,operationType:'loss',status:'completed',idempotencyKey:operationIdempotencyKey({userId,rentalId,type:'loss',clientRequestId:crypto.randomUUID()}),actorUserId:actorId,actorName:name,summary:`${rental.contractNo} 登记丢失 ${row.item.deviceName} ${v.quantity} 台`,completedAt:new Date()}),db.update(rentalItems).set({lostQuantity:next,updatedAt:new Date()}).where(and(eq(rentalItems.userId,userId),eq(rentalItems.id,row.item.id))),db.insert(lossRecords).values({id:row.id,userId,rentalId,rentalItemId:row.item.id,quantity:v.quantity,lossDate:v.date,unitCompensation:fromCents(toCents(v.unitCompensation)),amount:fromCents(row.amountCents),notes:v.notes,operatorName:name}),db.insert(receivableBills).values({userId,rentalId,billNo:`LOSS-${rentalId}-${row.id}`,periodStart:v.date,periodEnd:v.date,dueDate:v.date,billType:'丢失赔偿',amount:fromCents(row.amountCents),paidAmount:'0',status:'待收',notes:`${row.item.deviceName} ${v.quantity} 台丢失赔偿`}),db.insert(rentalEvents).values({userId,rentalId,itemId:row.item.id,eventType:'设备丢失',status:'已完成',eventDate:v.date,beforeSnapshot:{availableQuantity:row.available},afterSnapshot:{availableQuantity:row.available-v.quantity,lostQuantity:next},feeAdjustment:fromCents(row.amountCents),operatorName:name,notes:v.notes}),db.insert(auditLogs).values({userId,actorUserId:actorId,actorName:name,action:'登记丢失',resourceType:'租赁合同',resourceId:String(rentalId),summary:`${rental.contractNo} 丢失 ${row.item.deviceName} ${v.quantity} 台`,metadata:{operationNo,rentalItemId:row.item.id,quantity:v.quantity,amount:fromCents(row.amountCents)}}))}
   statements.push(db.update(rentals).set({quantity:finalItems.reduce((s,i)=>s+availableQuantity(i),0),totalRent:fromCents(totalCents),status:rentalLifecycleStatus(finalItems),paymentStatus:paymentStatusFromCents(totalCents,toCents(rental.paidAmount)),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))));await db.batch(statements as [typeof statements[number],...Array<typeof statements[number]>]);revalidatePath('/');revalidatePath('/audit-logs')
 }
