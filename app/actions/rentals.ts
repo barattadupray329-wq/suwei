@@ -313,18 +313,41 @@ function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[]
   return buildChunkedInserts(receivableBills, bills.map((bill) => ({ ...bill, userId })))
 }
 
+// 月租起租预收按自然月拆成 duration 张独立账单（一张账单 = 一期，与 billPeriodRanges 的前提保持一致），
+// 约定还款日统一为起租日（一次性预收，只是分期记账，不是分期到期才收）；总金额按分拆分，余数计入最后一期。
 function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, duration: number) {
-  return [{
-    rentalId,
-    billNo: `${contractNo}-001`,
-    periodStart: startDate,
-    periodEnd: endDate,
-    dueDate: startDate,
-    amount: totalRent.toFixed(2),
-    billType: '起租预收',
-    status: '待收',
-    notes: `起租 ${duration} 个月一次预收`,
-  }]
+  if (duration <= 1) {
+    return [{
+      rentalId,
+      billNo: `${contractNo}-001`,
+      periodStart: startDate,
+      periodEnd: endDate,
+      dueDate: startDate,
+      amount: totalRent.toFixed(2),
+      billType: '起租预收',
+      status: '待收',
+      notes: '起租一次预收',
+    }]
+  }
+  const totalCents = toCents(totalRent)
+  const baseCents = Math.floor(totalCents / duration)
+  const remainderCents = totalCents - baseCents * duration
+  return Array.from({ length: duration }, (_, index) => {
+    const periodStart = addCalendarMonths(startDate, index)
+    const periodEnd = index === duration - 1 ? endDate : addCalendarDays(addCalendarMonths(startDate, index + 1), -1)
+    const cents = baseCents + (index === duration - 1 ? remainderCents : 0)
+    return {
+      rentalId,
+      billNo: `${contractNo}-${String(index + 1).padStart(3, '0')}`,
+      periodStart,
+      periodEnd,
+      dueDate: startDate,
+      amount: fromCents(cents),
+      billType: '起租预收',
+      status: '待收',
+      notes: `起租 ${duration} 个月一次预收，第 ${index + 1}/${duration} 期`,
+    }
+  })
 }
 
 async function createRentalOperation(input: RentalInput, orderType: RentalOrderType, initialCollection?: InitialCollectionInput) {
@@ -361,9 +384,9 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     const allBills = orderType === 'official' ? (value.deposit > 0 ? [...bills, { rentalId, billNo: `${contractNo}-DEP`, periodStart: value.startDate, periodEnd: value.startDate, dueDate: value.startDate, amount: value.deposit.toFixed(2), billType: '押金', status: '待收' }] : bills) : []
     const billBaseId = rentalId + 100
     const identifiedBills = allBills.map((bill, index) => ({ ...bill, id: billBaseId + index }))
-    const rentBill = identifiedBills.find((bill) => bill.billType !== '押金')
+    const rentBills = identifiedBills.filter((bill) => bill.billType !== '押金')
     const depositBill = identifiedBills.find((bill) => bill.billType === '押金')
-    const collectRent = Boolean(collection?.collectRent && rentBill)
+    const collectRent = Boolean(collection?.collectRent && rentBills.length)
     const collectDeposit = Boolean(collection?.collectDeposit && depositBill)
     const rentPaymentId = rentalId + 10
     const depositPaymentId = rentalId + 11
@@ -373,9 +396,10 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
-    if (collectRent && rentBill && collection) statements.push(
-      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: rentBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
-      db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: rentBill.id, amount: rentBill.amount }),
+    if (collectRent && rentBills.length && collection) statements.push(
+      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
+      // 一次性收款拆成多条分配记录，逐一对应拆分后的每期起租预收账单，保证每期各自结清。
+      ...rentBills.map((bill) => db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: bill.id, amount: bill.amount })),
     )
     if (collectDeposit && depositBill && collection) statements.push(
       db.insert(paymentRecords).values({ id: depositPaymentId, userId, rentalId, amount: depositBill.amount, paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '押金', operatorName: access.actorName, notes: '创建正式合同时即时收取押金' }),
