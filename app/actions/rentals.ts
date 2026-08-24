@@ -188,7 +188,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const where = and(...filters)
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
-  // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
+  // 这样分页后也不会出现逾期合同被金额或录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
     when (${isExpired}) and (${hasOutstanding}) then 0
     when ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)}) then 1
@@ -514,6 +514,72 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
   }
   revalidatePath('/')
   revalidatePath('/audit-logs')
+}
+
+const periodRentChangeSchema = z.object({
+  rentalId: z.number().int().positive(),
+  itemId: z.number().int().positive(),
+  startPeriod: z.number().int().positive(),
+  newMonthlyRent: z.number().nonnegative(),
+  reason: z.string().trim().min(2, '请填写至少 2 个字的变更原因').max(200),
+})
+export type PeriodRentChangeInput = z.infer<typeof periodRentChangeSchema>
+
+export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
+  const access = await getAccessContext('租赁操作')
+  const value = periodRentChangeSchema.parse(input)
+  const userId = access.userId
+  const [[rental], [item], bills] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId))).limit(1),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, value.itemId), eq(rentalItems.rentalId, value.rentalId))).limit(1),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, value.rentalId), ne(receivableBills.status, '已冲正'))).orderBy(asc(receivableBills.periodStart), asc(receivableBills.id)),
+  ])
+  if (!rental || !item) throw new Error('合同或设备不存在')
+  assertOfficialRental(rental)
+  if (rental.billingType !== 'monthly') throw new Error('按期调租仅适用于月租合同')
+  const availableCount = availableQuantity(item)
+  if (availableCount <= 0) throw new Error('该设备当前已无在租数量')
+  const previousRentCents = toCents(item.monthlyRent)
+  const newRentCents = toCents(value.newMonthlyRent)
+  if (previousRentCents === newRentCents) throw new Error('新月租与当前月租相同')
+  const rentBills = bills.filter((bill) => bill.billType !== '押金' && !bill.billType.includes('补差') && !bill.billType.includes('减免'))
+  const periodInfo = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: 'monthly' })
+  if (value.startPeriod > periodInfo.total) throw new Error(`当前合同最多只有 ${periodInfo.total} 期账单`)
+  const unitDeltaCents = newRentCents - previousRentCents
+  const now = new Date()
+  const eventDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+  let totalDeltaCents = 0
+  const affected: Array<{ billId: number; billNo: string; periods: number; deltaCents: number }> = []
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+  for (const bill of rentBills) {
+    const range = periodInfo.ranges.get(bill.id)
+    if (!range || range.end < value.startPeriod) continue
+    const affectedPeriods = range.end - Math.max(range.start, value.startPeriod) + 1
+    const deltaCents = unitDeltaCents * availableCount * affectedPeriods
+    if (!deltaCents) continue
+    totalDeltaCents += deltaCents
+    affected.push({ billId: bill.id, billNo: bill.billNo, periods: affectedPeriods, deltaCents })
+    if (toCents(bill.paidAmount) === 0) {
+      statements.push(db.update(receivableBills).set({ amount: fromCents(toCents(bill.amount) + deltaCents), status: '待收', notes: `${bill.notes ?? ''}${bill.notes ? '；' : ''}第 ${value.startPeriod} 期起月租调整：${value.reason}`, updatedAt: now }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+    } else {
+      statements.push(db.insert(receivableBills).values({ userId, rentalId: rental.id, billNo: `RENT-ADJ-${rental.id}-${bill.id}-${Date.now()}`, periodStart: bill.periodStart, periodEnd: bill.periodEnd, dueDate: eventDate, billType: deltaCents > 0 ? '租金补差' : '租金减免', amount: fromCents(deltaCents), paidAmount: '0.00', status: deltaCents > 0 ? '待收' : '已调整', notes: `账单 ${bill.billNo} 第 ${value.startPeriod} 期起追溯调租：${value.reason}` }))
+      if (deltaCents < 0) statements.push(db.insert(customerCreditLedger).values({ userId, customerPhone: rental.customerPhone, sourceRentalId: rental.id, entryType: '调价余额', amount: fromCents(-deltaCents), entryDate: eventDate, operatorName: access.actorName, notes: `账单 ${bill.billNo} 降价形成客户余额，可抵扣或退款` }))
+    }
+  }
+  if (!affected.length) throw new Error('所选期数之后没有可调整的租金账单')
+  const newTotalCents = toCents(rental.totalRent) + totalDeltaCents
+  if (newTotalCents < 0) throw new Error('调租后合同总应收不能小于 0')
+  statements.push(
+    db.update(rentalItems).set({ monthlyRent: fromCents(newRentCents), updatedAt: now }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, item.id))),
+    db.update(rentals).set({ monthlyRent: fromCents(toCents(rental.monthlyRent) + unitDeltaCents * availableCount), totalRent: fromCents(newTotalCents), paymentStatus: paymentStatusFromCents(newTotalCents, toCents(rental.paidAmount)), updatedAt: now }).where(and(eq(rentals.userId, userId), eq(rentals.id, rental.id))),
+    db.insert(rentalEvents).values({ userId, rentalId: rental.id, itemId: item.id, eventType: '租金变更', eventDate, beforeSnapshot: { monthlyRent: Number(item.monthlyRent), startPeriod: value.startPeriod }, afterSnapshot: { monthlyRent: value.newMonthlyRent, affected }, reason: value.reason, feeAdjustment: fromCents(totalDeltaCents), operatorName: access.actorName, notes: `第 ${value.startPeriod} 期起及以后账期统一调整` }),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '按期变更租金', resourceType: '租赁合同', resourceId: String(rental.id), summary: `${rental.contractNo} 第 ${value.startPeriod} 期起月租由 ${fromCents(previousRentCents)} 元调整为 ${fromCents(newRentCents)} 元`, metadata: { itemId: item.id, startPeriod: value.startPeriod, previousMonthlyRent: fromCents(previousRentCents), newMonthlyRent: fromCents(newRentCents), totalDifference: fromCents(totalDeltaCents), affected } }),
+  )
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/audit-logs')
+  return { ok: true }
 }
 
 const renewalCorrectionSchema = z.object({ renewalRecordId: z.number().int().positive(), correctedUnitPrice: z.number().positive(), reason: z.string().trim().min(2, '请填写至少 2 个字的更正原因').max(200) })
