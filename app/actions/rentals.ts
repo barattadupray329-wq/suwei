@@ -18,7 +18,7 @@ import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
-import { nonDepositPaymentCents, paymentStatusFromCents } from '@/lib/rental-reconciliation'
+import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 
 async function getUserId() {
@@ -108,11 +108,15 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const renewalMap = groupByRental(renewalsWithCorrections)
   const paymentMap = groupByRental(payments)
   const eventMap = groupByRental(events)
+  const ledgerMap = groupByRental(ledger)
+  const reversedPaymentIds = new Set(ledger.filter((entry) => entry.entryType === '收款冲正').flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]))
   const allocationsByBill = new Map<number, typeof allocations>()
-  for (const allocation of allocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  for (const allocation of allocations) {
+    if (reversedPaymentIds.has(allocation.paymentRecordId)) continue
+    allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  }
   const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
   const billMap = groupByRental(billsWithAllocations)
-  const ledgerMap = groupByRental(ledger)
   return rows.map((row) => {
     const rentalItemRows = itemMap.get(row.id) ?? []
     const rentalPayments = paymentMap.get(row.id) ?? []
@@ -688,74 +692,115 @@ export async function collectPayment(id: number, input: PaymentInput) {
 }
 
 export async function reversePayment(paymentId: number, reason: string) {
-  const userId = await getUserId()
-  if (reason.trim().length < 2) throw new Error('请填写冲正原因')
-  { const tx = db
-    const [payment] = await tx.select().from(paymentRecords).where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.userId, userId)))
-    if (!payment || Number(payment.amount) <= 0) throw new Error('原收款不存在或不可冲正')
-    const existing = await tx.select().from(accountLedger).where(and(eq(accountLedger.paymentRecordId, paymentId), eq(accountLedger.entryType, '收款冲正'), eq(accountLedger.userId, userId)))
-    if (existing.length) return { ok: true, alreadyReversed: true }
-    const [rental] = await tx.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId)))
-    if (!rental) throw new Error('合同不存在')
-    const allocations = await tx.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId)))
-    const [discount] = await tx.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.paymentRecordId, paymentId), eq(paymentDiscounts.userId, userId)))
-    if (discount?.reversedAt) throw new Error('该收款优惠已冲正')
-    const discountCents = discount ? moneyToCents(discount.amount) : 0
-    const allocatedBills = await Promise.all(allocations.map(async (allocation) => ({ allocation, bill: (await tx.select().from(receivableBills).where(and(eq(receivableBills.id, allocation.billId), eq(receivableBills.userId, userId))).limit(1))[0] })))
-    if (allocatedBills.some(({ bill }) => !bill)) throw new Error('原收款的账单分配记录不完整，禁止冲正')
-    const date = new Date().toISOString().slice(0, 10)
-    const reversalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
-    const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-      ...allocatedBills.map(({ allocation, bill }) => {
-        const nextPaidCents = Math.max(0, moneyToCents(bill!.paidAmount) - moneyToCents(allocation.amount))
-        return tx.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: nextPaidCents === 0 ? '待收' : '部分收款', updatedAt: new Date() }).where(and(eq(receivableBills.id, bill!.id), eq(receivableBills.userId, userId)))
-      }),
-      tx.insert(paymentRecords).values({ id: reversalId, userId, rentalId: payment.rentalId, amount: centsToMoney(-moneyToCents(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reason}` }),
-      tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '收款冲正', amount: centsToMoney(-moneyToCents(payment.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: '当前用户', notes: reason }),
-    ]
-    if (discount) {
-      statements.push(
-        tx.update(paymentDiscounts).set({ reversedAt: new Date() }).where(and(eq(paymentDiscounts.id, discount.id), eq(paymentDiscounts.userId, userId))),
-        tx.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '优惠冲正', amount: centsToMoney(discountCents), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: '当前用户', notes: reason }),
-      )
-    }
-    if (payment.feeType !== '押金') {
-      const paidCents = Math.max(0, moneyToCents(rental.paidAmount) - moneyToCents(payment.amount))
-      const totalCents = moneyToCents(rental.totalRent) + discountCents
-      statements.push(tx.update(rentals).set({ totalRent: centsToMoney(totalCents), paidAmount: centsToMoney(paidCents), paymentStatus: paidCents <= 0 ? '待收款' : paidCents >= totalCents ? '已结清' : '部分收款', updatedAt: new Date() }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId))))
-    }
-    await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
+  const reversalReason = reason.trim()
+  if (reversalReason.length < 2) throw new Error('请填写冲正原因')
+
+  const [payment] = await db.select().from(paymentRecords).where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.userId, userId))).limit(1)
+  if (!payment || moneyToCents(payment.amount) <= 0) throw new Error('原收款不存在或不可冲正')
+  const existing = await db.select({ id: accountLedger.id }).from(accountLedger).where(and(eq(accountLedger.paymentRecordId, paymentId), eq(accountLedger.entryType, '收款冲正'), eq(accountLedger.userId, userId))).limit(1)
+  if (existing.length) return { ok: true, alreadyReversed: true }
+
+  const [[rental], allocations, discounts] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.id, payment.rentalId), eq(rentals.userId, userId))).limit(1),
+    db.select().from(paymentAllocations).where(and(eq(paymentAllocations.paymentRecordId, paymentId), eq(paymentAllocations.userId, userId))),
+    db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.paymentRecordId, paymentId), eq(paymentDiscounts.userId, userId))),
+  ])
+  if (!rental) throw new Error('合同不存在')
+  assertOfficialRental(rental)
+  if (discounts.length > 1 || discounts[0]?.reversedAt) throw new Error('该收款优惠状态异常，禁止冲正')
+  if (!allocations.length) throw new Error('原收款缺少账单分配记录，禁止冲正')
+
+  const billIds = [...new Set(allocations.map((allocation) => allocation.billId))]
+  const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rental.id), inArray(receivableBills.id, billIds)))
+  if (bills.length !== billIds.length) throw new Error('原收款的账单分配记录不完整，禁止冲正')
+  const allocationsByBill = new Map<number, typeof allocations>()
+  for (const allocation of allocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+
+  const discount = discounts[0]
+  const nextContract = reversedContractAmounts({ total: rental.totalRent, paid: rental.paidAmount, payments: [payment], discountAmount: discount?.amount })
+  const now = new Date()
+  const date = now.toISOString().slice(0, 10)
+  const reversalId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+
+  for (const bill of bills) {
+    const nextPaidCents = reversedBillPaidCents(bill.paidAmount, allocationsByBill.get(bill.id) ?? [])
+    statements.push(db.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: normalizedBillStatus(bill.amount, centsToMoney(nextPaidCents)), updatedAt: now }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))))
   }
+  statements.push(
+    db.insert(paymentRecords).values({ id: reversalId, userId, rentalId: payment.rentalId, renewalRecordId: payment.renewalRecordId, buyoutRecordId: payment.buyoutRecordId, returnRecordId: payment.returnRecordId, lossRecordId: payment.lossRecordId, operatorName: access.actorName, amount: centsToMoney(-moneyToCents(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reversalReason}` }),
+    db.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '收款冲正', amount: centsToMoney(-moneyToCents(payment.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: access.actorName, notes: reversalReason }),
+  )
+  if (discount) statements.push(
+    db.update(paymentDiscounts).set({ reversedAt: now }).where(and(eq(paymentDiscounts.id, discount.id), eq(paymentDiscounts.userId, userId), sql`${paymentDiscounts.reversedAt} is null`)),
+    db.insert(accountLedger).values({ userId, rentalId: payment.rentalId, entryType: '优惠冲正', amount: centsToMoney(moneyToCents(discount.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: access.actorName, notes: reversalReason }),
+  )
+  if (payment.feeType !== '押金') statements.push(db.update(rentals).set({ totalRent: centsToMoney(nextContract.totalCents), paidAmount: centsToMoney(nextContract.paidCents), paymentStatus: nextContract.paymentStatus, updatedAt: now }).where(and(eq(rentals.id, rental.id), eq(rentals.userId, userId))))
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
   return { ok: true, alreadyReversed: false }
 }
 
 export async function reverseAllPayments(rentalId: number, reason: string) {
-  const userId = await getUserId()
-  if (reason.trim().length < 2) throw new Error('请填写冲正原因')
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
+  const reversalReason = reason.trim()
+  if (reversalReason.length < 2) throw new Error('请填写冲正原因')
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))).limit(1)
   if (!rental) throw new Error('合同不存在')
   assertOfficialRental(rental)
 
-  const [payments, reversals] = await Promise.all([
-    db.select().from(paymentRecords).where(and(eq(paymentRecords.rentalId, rentalId), eq(paymentRecords.userId, userId), gte(paymentRecords.amount, '0.01'))).orderBy(asc(paymentRecords.createdAt), asc(paymentRecords.id)),
+  const [payments, reversals, allocations, discounts, bills] = await Promise.all([
+    db.select().from(paymentRecords).where(and(eq(paymentRecords.rentalId, rentalId), eq(paymentRecords.userId, userId))).orderBy(asc(paymentRecords.createdAt), asc(paymentRecords.id)),
     db.select({ paymentRecordId: accountLedger.paymentRecordId }).from(accountLedger).where(and(eq(accountLedger.rentalId, rentalId), eq(accountLedger.userId, userId), eq(accountLedger.entryType, '收款冲正'))),
+    db.select().from(paymentAllocations).where(and(eq(paymentAllocations.rentalId, rentalId), eq(paymentAllocations.userId, userId))),
+    db.select().from(paymentDiscounts).where(and(eq(paymentDiscounts.rentalId, rentalId), eq(paymentDiscounts.userId, userId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId), ne(receivableBills.status, '已冲正'))),
   ])
-  const reversedIds = new Set(reversals.flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]))
-  const activePayments = payments.filter((payment) => !reversedIds.has(payment.id))
+  const activePayments = activePositivePayments(payments, reversals)
   if (!activePayments.length) return { ok: true, reversedCount: 0, alreadyReversed: true }
+  const activePaymentIds = new Set(activePayments.map((payment) => payment.id))
+  const activeAllocations = allocations.filter((allocation) => activePaymentIds.has(allocation.paymentRecordId))
+  if (new Set(activeAllocations.map((allocation) => allocation.paymentRecordId)).size !== activePayments.length) throw new Error('部分原收款缺少账单分配记录，全部冲正已停止，未修改任何数据')
+  const activeDiscounts = discounts.filter((discount) => activePaymentIds.has(discount.paymentRecordId))
+  if (activeDiscounts.some((discount) => discount.reversedAt)) throw new Error('部分收款优惠状态异常，全部冲正已停止，未修改任何数据')
 
-  for (const payment of activePayments) await reversePayment(payment.id, reason.trim())
+  const billsById = new Map(bills.map((bill) => [bill.id, bill]))
+  const allocationsByBill = new Map<number, typeof activeAllocations>()
+  for (const allocation of activeAllocations) {
+    if (!billsById.has(allocation.billId)) throw new Error(`收款 #${allocation.paymentRecordId} 的账单分配无效，全部冲正已停止，未修改任何数据`)
+    allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  }
+  const discountCents = activeDiscounts.reduce((sum, discount) => sum + moneyToCents(discount.amount), 0)
+  const nextContract = reversedContractAmounts({ total: rental.totalRent, paid: rental.paidAmount, payments: activePayments, discountAmount: centsToMoney(discountCents) })
+  const now = new Date()
+  const date = now.toISOString().slice(0, 10)
+  const idBase = Date.now() * 1000
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
 
-  await db.insert(auditLogs).values({
-    userId,
-    actorUserId: userId,
-    actorName: '当前用户',
-    action: '全部收款冲正',
-    resourceType: '租赁合同',
-    resourceId: String(rentalId),
-    summary: `${rental.contractNo} 全部冲正 ${activePayments.length} 笔有效收款`,
-    metadata: { paymentIds: activePayments.map((payment) => payment.id), reason: reason.trim() },
-  })
+  for (const [billId, billAllocations] of allocationsByBill) {
+    const bill = billsById.get(billId)!
+    const nextPaidCents = reversedBillPaidCents(bill.paidAmount, billAllocations)
+    statements.push(db.update(receivableBills).set({ paidAmount: centsToMoney(nextPaidCents), status: normalizedBillStatus(bill.amount, centsToMoney(nextPaidCents)), updatedAt: now }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))))
+  }
+  for (const [index, payment] of activePayments.entries()) {
+    const reversalId = idBase + index
+    statements.push(
+      db.insert(paymentRecords).values({ id: reversalId, userId, rentalId, renewalRecordId: payment.renewalRecordId, buyoutRecordId: payment.buyoutRecordId, returnRecordId: payment.returnRecordId, lossRecordId: payment.lossRecordId, operatorName: access.actorName, amount: centsToMoney(-moneyToCents(payment.amount)), paymentDate: date, paymentMethod: payment.paymentMethod, feeType: payment.feeType, notes: `冲正原收款 #${payment.id}：${reversalReason}` }),
+      db.insert(accountLedger).values({ userId, rentalId, entryType: '收款冲正', amount: centsToMoney(-moneyToCents(payment.amount)), entryDate: date, paymentRecordId: payment.id, relatedEntryId: reversalId, operatorName: access.actorName, notes: reversalReason }),
+    )
+  }
+  for (const discount of activeDiscounts) statements.push(
+    db.update(paymentDiscounts).set({ reversedAt: now }).where(and(eq(paymentDiscounts.id, discount.id), eq(paymentDiscounts.userId, userId), sql`${paymentDiscounts.reversedAt} is null`)),
+    db.insert(accountLedger).values({ userId, rentalId, entryType: '优惠冲正', amount: centsToMoney(moneyToCents(discount.amount)), entryDate: date, paymentRecordId: discount.paymentRecordId, operatorName: access.actorName, notes: reversalReason }),
+  )
+  statements.push(
+    db.update(rentals).set({ totalRent: centsToMoney(nextContract.totalCents), paidAmount: centsToMoney(nextContract.paidCents), paymentStatus: nextContract.paymentStatus, updatedAt: now }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '全部收款冲正', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} 全部冲正 ${activePayments.length} 笔有效收款`, metadata: { paymentIds: activePayments.map((payment) => payment.id), reason: reversalReason } }),
+  )
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
   revalidatePath('/')
   revalidatePath('/audit-logs')
   return { ok: true, reversedCount: activePayments.length, alreadyReversed: false }

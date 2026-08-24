@@ -2890,10 +2890,9 @@ function DetailFinance({
   const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
   const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
   const receivedAt = (value: Date | string) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
-  const reversedPaymentIds = new Set(rental.paymentRecords.flatMap((payment) => {
-    const match = payment.notes?.match(/冲正原收款 #(\d+)/);
-    return match ? [Number(match[1])] : [];
-  }));
+  const reversedPaymentIds = new Set(rental.ledger
+    .filter((entry) => entry.entryType === "收款冲正")
+    .flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]));
   const activePayments = rental.paymentRecords.filter((payment) => Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id));
   const displayedPayments = showReversalHistory ? rental.paymentRecords : activePayments;
   return (

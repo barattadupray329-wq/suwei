@@ -40,8 +40,9 @@ test('多月续租按月创建独立账单并逐月分配即时收款', () => {
 test('本单全部收款冲正只处理尚未冲正的正数收款', () => {
   expect(rentalActions).toContain('export async function reverseAllPayments(rentalId: number, reason: string)')
   expect(rentalActions).toContain("eq(accountLedger.entryType, '收款冲正')")
-  expect(rentalActions).toContain('const activePayments = payments.filter((payment) => !reversedIds.has(payment.id))')
-  expect(rentalActions).toContain('for (const payment of activePayments) await reversePayment(payment.id, reason.trim())')
+  expect(rentalActions).toContain('const activePayments = activePositivePayments(payments, reversals)')
+  expect(rentalActions).toContain('await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])')
+  expect(rentalActions).not.toContain('for (const payment of activePayments) await reversePayment')
   expect(rentalActions).toContain("action: '全部收款冲正'")
 })
 

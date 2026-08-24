@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { assertDateOrder, dateOnly, inclusiveDays, rentalEndDate } from '../lib/rental-calculations'
 import { assertQuantityInvariant, availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
-import { assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents } from '../lib/rental-reconciliation'
+import { activePositivePayments, assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '../lib/rental-reconciliation'
 
 describe('全流程业务不变量', () => {
   it('拒绝不存在的日期并正确处理闰年', () => {
@@ -50,6 +50,27 @@ describe('全流程业务不变量', () => {
       { amount: '-200.00', feeType: '续租费' },
       { amount: '500.00', feeType: '押金' },
     ])).toBe(420000)
+  })
+
+  it('仅返回未冲正的正数收款且不依赖备注文本', () => {
+    const payments = [
+      { id: 1, amount: '4000.00', feeType: '押金' },
+      { id: 2, amount: '660.00', feeType: '续租费' },
+      { id: 3, amount: '-4000.00', feeType: '押金' },
+    ]
+    expect(activePositivePayments(payments, [{ paymentRecordId: 1 }]).map((payment) => payment.id)).toEqual([2])
+  })
+
+  it('冲正严格回退账单已收，禁止静默截断异常余额', () => {
+    expect(reversedBillPaidCents('100.00', [{ amount: '40.00' }, { amount: '10.00' }])).toBe(5000)
+    expect(() => reversedBillPaidCents('40.00', [{ amount: '50.00' }])).toThrow('账单已收小于待冲正分配')
+    expect(() => reversedBillPaidCents('40.00', [])).toThrow('缺少有效的账单分配')
+  })
+
+  it('冲正租金恢复优惠并回退实收，押金不影响合同租金', () => {
+    expect(reversedContractAmounts({ total: '900.00', paid: '400.00', payments: [{ amount: '400.00', feeType: '原合同租金' }], discountAmount: '100.00' })).toEqual({ totalCents: 100000, paidCents: 0, paymentStatus: '待收款' })
+    expect(reversedContractAmounts({ total: '900.00', paid: '400.00', payments: [{ amount: '500.00', feeType: '押金' }] })).toEqual({ totalCents: 90000, paidCents: 40000, paymentStatus: '部分收款' })
+    expect(() => reversedContractAmounts({ total: '900.00', paid: '300.00', payments: [{ amount: '400.00', feeType: '续租费' }] })).toThrow('合同已收小于待冲正收款')
   })
 
   it('账单状态保留调整终态并正确推导普通账单', () => {
