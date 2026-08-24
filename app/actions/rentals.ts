@@ -168,7 +168,11 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const terminalStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '丢失']
   const businessToday = sql<string>`date('now', '+8 hours')`
   const isExpired = sql<boolean>`${rentals.endDate} < ${businessToday} and ${rentals.status} not in (${sql.join(terminalStatuses.map((status) => sql`${status}`), sql`, `)})`
-  const hasOutstanding = sql<boolean>`cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real)`
+  const terminalBillStatuses = ['已结清', '已冲正', '已减免', '已抵扣', '已调整', '已取消']
+  const openRentBillCondition = sql`b.billType <> '押金' and b.status not in (${sql.join(terminalBillStatuses.map((status) => sql`${status}`), sql`, `)}) and cast(b.amount as real) > cast(b.paidAmount as real)`
+  const outstandingAmount = sql<number>`coalesce((select sum(cast(b.amount as real) - cast(b.paidAmount as real)) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and ${openRentBillCondition}), 0)`
+  const overdueOutstandingAmount = sql<number>`coalesce((select sum(cast(b.amount as real) - cast(b.paidAmount as real)) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and ${openRentBillCondition} and b.dueDate <= ${businessToday}), 0)`
+  const hasOutstanding = sql<boolean>`${outstandingAmount} > 0`
   if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
   else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
@@ -181,7 +185,6 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
-  const outstandingAmount = sql<number>`cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real)`
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额/录入时间挤到后页，或已结清退租混在办理中合同之间。
@@ -195,9 +198,9 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
-      initialRentOutstanding: sql<string>`coalesce(sum(max(0, (select coalesce(sum(cast(b.amount as real)), 0) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType = '租金' and b.status <> '已冲正') - cast(${rentals.paidAmount} as real))), 0)`,
-      expectedReceivable: sql<string>`coalesce(sum(max(0, cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real))), 0)`,
-      overdueReceivable: sql<string>`coalesce(sum(case when (${isExpired}) and (${hasOutstanding}) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`,
+      initialRentOutstanding: sql<string>`coalesce(sum(coalesce((select sum(cast(b.amount as real) - cast(b.paidAmount as real)) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and b.billType in ('租金','起租预收','日租租金') and ${openRentBillCondition}), 0)), 0)`,
+      expectedReceivable: sql<string>`coalesce(sum(${outstandingAmount}), 0)`,
+      overdueReceivable: sql<string>`coalesce(sum(${overdueOutstandingAmount}), 0)`,
     }).from(rentals).where(where),
     db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
   ])
@@ -205,7 +208,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
     : []
   const billRows = rows.length
-    ? await db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rows.map((row) => row.id)), ne(receivableBills.status, '已冲正')))
+    ? await db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount, status: receivableBills.status }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rows.map((row) => row.id)), ne(receivableBills.status, '已冲正')))
     : []
   const itemsByRental = new Map<number, typeof itemRows>()
   for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
@@ -219,7 +222,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   }).format(new Date())
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
-    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0)
+    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0 && !terminalBillStatuses.includes(bill.status))
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
     const effectiveEndDate = [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1) ?? row.endDate

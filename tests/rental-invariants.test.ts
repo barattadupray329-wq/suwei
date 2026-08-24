@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { assertDateOrder, dateOnly, inclusiveDays, rentalEndDate } from '../lib/rental-calculations'
 import { assertQuantityInvariant, availableQuantity, rentalLifecycleStatus } from '../lib/rental-lifecycle'
-import { activePositivePayments, assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '../lib/rental-reconciliation'
+import { activePositivePayments, assertFinancialReconciliation, billsOutstandingCents, contractAvailableQuantity, isOpenRentBill, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, rentOutstandingCents, rentOverdueCents, reversedBillPaidCents, reversedContractAmounts } from '../lib/rental-reconciliation'
 
 describe('全流程业务不变量', () => {
   it('拒绝不存在的日期并正确处理闰年', () => {
@@ -71,6 +71,20 @@ describe('全流程业务不变量', () => {
     expect(reversedContractAmounts({ total: '900.00', paid: '400.00', payments: [{ amount: '400.00', feeType: '原合同租金' }], discountAmount: '100.00' })).toEqual({ totalCents: 100000, paidCents: 0, paymentStatus: '待收款' })
     expect(reversedContractAmounts({ total: '900.00', paid: '400.00', payments: [{ amount: '500.00', feeType: '押金' }] })).toEqual({ totalCents: 90000, paidCents: 40000, paymentStatus: '部分收款' })
     expect(() => reversedContractAmounts({ total: '900.00', paid: '300.00', payments: [{ amount: '400.00', feeType: '续租费' }] })).toThrow('合同已收小于待冲正收款')
+  })
+
+  it('待收与逾期只统计有效非押金账单', () => {
+    const bills = [
+      { amount: '100.00', paidAmount: '20.00', billType: '续租费', status: '部分收款', dueDate: '2026-01-01' },
+      { amount: '60.00', paidAmount: '0', billType: '续租费', status: '已减免', dueDate: '2026-01-01' },
+      { amount: '40.00', paidAmount: '0', billType: '续租费', status: '已抵扣', dueDate: '2026-01-01' },
+      { amount: '-20.00', paidAmount: '0', billType: '租金调整', status: '已调整', dueDate: '2026-01-01' },
+      { amount: '500.00', paidAmount: '0', billType: '押金', status: '待收', dueDate: '2026-01-01' },
+      { amount: '30.00', paidAmount: '0', billType: '丢失赔偿', status: '待收', dueDate: '2027-01-01' },
+    ]
+    expect(rentOutstandingCents(bills)).toBe(11000)
+    expect(rentOverdueCents(bills, '2026-08-24')).toBe(8000)
+    expect(bills.map(isOpenRentBill)).toEqual([true, false, false, false, false, true])
   })
 
   it('账单状态保留调整终态并正确推导普通账单', () => {

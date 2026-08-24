@@ -39,14 +39,39 @@ export function reversedContractAmounts(input: {
   return { totalCents, paidCents, paymentStatus: paymentStatusFromCents(totalCents, paidCents) }
 }
 
-const TERMINAL_ADJUSTMENT_STATUSES = new Set(['已调整', '已减免', '已取消'])
+export const TERMINAL_BILL_STATUSES = new Set(['已结清', '已冲正', '已减免', '已抵扣', '已调整', '已取消'])
+const PRESERVED_BILL_STATUSES = new Set(['已冲正', '已减免', '已抵扣', '已调整', '已取消'])
 
 export function isDepositType(value?: string) {
   return value === '押金'
 }
 
+export function isOpenBill(bill: Pick<ReconciliationBill, 'amount' | 'paidAmount' | 'status'>) {
+  if (bill.status && TERMINAL_BILL_STATUSES.has(bill.status)) return false
+  return moneyToCents(bill.amount) > moneyToCents(bill.paidAmount)
+}
+
+export function isOpenRentBill(bill: ReconciliationBill) {
+  return !isDepositType(bill.billType) && isOpenBill(bill)
+}
+
+export function billOutstandingStrictCents(bill: Pick<ReconciliationBill, 'amount' | 'paidAmount' | 'status'>) {
+  if (!isOpenBill(bill)) return 0
+  const outstanding = moneyToCents(bill.amount) - moneyToCents(bill.paidAmount)
+  if (outstanding <= 0) throw new Error('开放账单金额异常')
+  return outstanding
+}
+
+export function rentOutstandingCents(bills: ReconciliationBill[]) {
+  return bills.filter(isOpenRentBill).reduce((sum, bill) => sum + billOutstandingStrictCents(bill), 0)
+}
+
+export function rentOverdueCents(bills: Array<ReconciliationBill & { dueDate: string }>, today: string) {
+  return bills.filter((bill) => isOpenRentBill(bill) && bill.dueDate <= today).reduce((sum, bill) => sum + billOutstandingStrictCents(bill), 0)
+}
+
 export function normalizedBillStatus(amount: string | number, paidAmount: string | number, currentStatus?: string) {
-  if (currentStatus && TERMINAL_ADJUSTMENT_STATUSES.has(currentStatus)) return currentStatus
+  if (currentStatus && PRESERVED_BILL_STATUSES.has(currentStatus)) return currentStatus
   const amountCents = moneyToCents(amount)
   const paidCents = moneyToCents(paidAmount)
   if (amountCents <= 0 || paidCents >= amountCents) return '已结清' as const
@@ -59,12 +84,12 @@ export function contractAvailableQuantity(items: RentalItemQuantities[]) {
 }
 
 export function billsOutstandingCents(bills: ReconciliationBill[]) {
-  return bills.reduce((sum, bill) => sum + Math.max(0, moneyToCents(bill.amount) - moneyToCents(bill.paidAmount)), 0)
+  return bills.reduce((sum, bill) => sum + billOutstandingStrictCents(bill), 0)
 }
 
 export function billsReceivableCents(bills: ReconciliationBill[]) {
   return bills
-    .filter((bill) => !isDepositType(bill.billType))
+    .filter((bill) => !isDepositType(bill.billType) && !bill.status?.match(/^(已冲正|已减免|已抵扣|已取消)$/))
     .reduce((sum, bill) => sum + moneyToCents(bill.amount), 0)
 }
 

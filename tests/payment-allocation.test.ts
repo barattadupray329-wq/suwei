@@ -34,4 +34,14 @@ describe("收款分配", () => {
     expect(billOutstandingCents(settled)).toBe(0);
     expect(allocatePayment([settled, ...bills], 10)[0].billId).toBe(1);
   });
+
+  it("禁止向减免、抵扣、调整和负数账单分配收款", () => {
+    const unavailable = [
+      { id: 3, amount: "100.00", paidAmount: "0", dueDate: "2025-01-01", status: "已减免" },
+      { id: 4, amount: "100.00", paidAmount: "0", dueDate: "2025-01-01", status: "已抵扣" },
+      { id: 5, amount: "-20.00", paidAmount: "0", dueDate: "2025-01-01", status: "已调整" },
+    ];
+    expect(allocatePayment([...unavailable, ...bills], 10)[0].billId).toBe(1);
+    expect(() => allocatePayment(unavailable, 10)).toThrow("最多可收 0.00 元");
+  });
 });

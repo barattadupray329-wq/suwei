@@ -82,6 +82,7 @@ import { userErrorMessage } from "@/lib/errors";
   import { handleAuthExpired } from "@/lib/session-expiry";
 import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
 import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
+import { billOutstandingStrictCents, isOpenRentBill, rentOutstandingCents, rentOverdueCents } from "@/lib/rental-reconciliation";
 
 type Item = {
   id: number;
@@ -474,9 +475,9 @@ export function Dashboard({
     for (const rental of rentals) {
       const phone = rental.customerPhone.replace(/\D/g, "");
       const key = phone || rental.customerCompany?.trim().toLowerCase() || rental.customerName.trim().toLowerCase();
-      const bills = rental.bills.map((bill) => ({ ...bill, outstanding: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) }));
-      const dueBills = bills.filter((bill) => bill.dueDate <= todayValue && bill.outstanding > 0);
-      const dueAmount = dueBills.reduce((sum, bill) => sum + bill.outstanding, 0);
+      const bills = rental.bills.filter(isOpenRentBill).map((bill) => ({ ...bill, outstanding: billOutstandingStrictCents(bill) / 100 }));
+      const dueBills = bills.filter((bill) => bill.dueDate <= todayValue);
+      const dueAmount = rentOverdueCents(rental.bills, todayValue) / 100;
       const current = groups.get(key) ?? { key, name: rental.customerName, phone: rental.customerPhone, company: rental.customerCompany, dueAmount: 0, contracts: [] };
       if (rentalDisplayStatus(rental, todayValue) === "逾期" && dueAmount > 0) {
         current.dueAmount += dueAmount;
@@ -2428,7 +2429,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
   if (!scenario) return <div className="flex flex-col gap-5">
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史项目，不要直接覆盖或删除正式业务记录。</p></div>
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保���原合同和历史项目，不要直接覆盖或删除正式业务记录。</p></div>
     <div className="grid gap-3 sm:grid-cols-2">
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
       <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
@@ -2520,14 +2521,11 @@ function Detail(props: DetailProps) {
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
   const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
-  const netRentCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
-  const outstandingCents = Math.max(0, netRentCents - Math.round(Number(rental.paidAmount) * 100));
-  const outstandingBills = outstandingCents > 0 ? positiveRentBills.filter((bill) => billOutstandingCents(bill) > 0) : [];
-  const overdueBills = outstandingBills.filter(
-    (bill) => billState(bill.amount, bill.paidAmount, bill.dueDate, currentDate) === "逾期",
-  );
-  const nextBill = outstandingCents > 0 ? nextOpenBill(positiveRentBills) : null;
-  const settledBills = (outstandingCents === 0 ? positiveRentBills : positiveRentBills.filter((bill) => billOutstandingCents(bill) === 0))
+  const outstandingCents = rentOutstandingCents(rental.bills);
+  const outstandingBills = rental.bills.filter(isOpenRentBill);
+  const overdueBills = outstandingBills.filter((bill) => bill.dueDate <= currentDate);
+  const nextBill = nextOpenBill(outstandingBills);
+  const settledBills = positiveRentBills.filter((bill) => !isOpenRentBill(bill))
     .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
   const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
   const remainingDevices = rental.items.reduce(
@@ -2953,7 +2951,7 @@ function DetailFinance({
             {canViewFinance && activePayments.length > 0 && <button type="button" onClick={() => { if (window.confirm(`确认冲正本单全部 ${activePayments.length} 笔有效收款？冲正后可重新收款。`)) onReverseAll(); }} className="rounded-lg border border-destructive px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10">全部收款冲正</button>}
           </div>
         </div>
-        {displayedPayments.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{displayedPayments.map((payment) => <tr key={payment.id}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{canViewFinance && Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id) && <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>}</td></tr>)}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{showReversalHistory ? "暂无收款记录" : "暂无有效收款，可点击“查看冲正历史”核对历史流水"}</p>}
+        {displayedPayments.length > 0 ? <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">付款日期</th><th className="px-3 py-2.5">金额</th><th className="px-3 py-2.5">费用类型</th><th className="px-3 py-2.5">收款方式</th><th className="px-3 py-2.5">备注</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead><tbody className="divide-y">{displayedPayments.map((payment) => <tr key={payment.id}><td className="px-3 py-3">{payment.paymentDate}</td><td className="px-3 py-3 font-semibold">{money(payment.amount)}</td><td className="px-3 py-3">{payment.feeType}</td><td className="px-3 py-3">{payment.paymentMethod}</td><td className="max-w-52 truncate px-3 py-3 text-muted-foreground">{payment.notes || "—"}</td><td className="px-3 py-3 text-right">{canViewFinance && Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id) && <button type="button" onClick={() => onReverse(payment.id)} className="rounded-lg border px-3 py-1.5 text-destructive">冲正</button>}</td></tr>)}</tbody></table></div> : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{showReversalHistory ? "暂无收款记录" : "暂无��效收款，可点击“查看冲正历史”核对历史流水"}</p>}
       </section>
     </div>
   );
@@ -3196,9 +3194,9 @@ function LegacyDetail({
         <Info l="约定押金" v={money(rental.deposit)} />
       </div>
       {(() => {
-        const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
-        const nextBill = nextOpenBill(rentBills);
-        const settledBills = rentBills.filter((bill) => billOutstandingCents(bill) === 0).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+  const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
+  const nextBill = nextOpenBill(rentBills.filter(isOpenRentBill));
+  const settledBills = rentBills.filter((bill) => !isOpenRentBill(bill)).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
         const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
         return (
           <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
@@ -3238,7 +3236,7 @@ function LegacyDetail({
                 <Status value={itemStatus} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                <Info l="原数量" v={`${item.quantity} 台`} />
+                <Info l="���数量" v={`${item.quantity} 台`} />
                 <Info l="已买断" v={`${item.boughtOutQuantity} 台`} />
                 <Info l="剩余在租" v={`${remain} 台`} />
                 <Info l="买断金额" v={money(item.buyoutAmount)} />
@@ -3271,7 +3269,7 @@ function LegacyDetail({
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
-                <button type="button" disabled={!rental.bills.some((bill) => bill.billType !== "押金" && billOutstandingCents(bill) > 0)} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部</button>
+                <button type="button" disabled={!rental.bills.some(isOpenRentBill)} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部</button>
               </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -3285,7 +3283,7 @@ function LegacyDetail({
                   </div>
                   <div className="flex items-center gap-3 self-end sm:self-auto">
                     <BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, new Date().toISOString().slice(0, 10))} />
-                    {bill.billType !== "押金" && outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
+                    {isOpenRentBill(bill) && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-2 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}
                   </div>
                 </div>;
               })}
@@ -3755,7 +3753,7 @@ function RenewalForm({
   );
 }
 function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | null }) {
-  const eligibleBills = bills.filter((bill) => bill.billType !== "押金");
+  const eligibleBills = bills.filter(isOpenRentBill);
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
   const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
   const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), discountAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
