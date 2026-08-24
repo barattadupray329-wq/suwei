@@ -11,7 +11,7 @@ import {
 describe('统一租赁业务中心', () => {
   it('所有高风险业务都只有一个定义入口', () => {
     expect(new Set(OPERATION_DEFINITIONS.map((item) => item.type)).size).toBe(OPERATION_DEFINITIONS.length)
-    expect(OPERATION_DEFINITIONS.map((item) => item.type)).toEqual(expect.arrayContaining(['renewal', 'return', 'buyout', 'loss', 'exchange', 'repair', 'pricing_change', 'contract_change']))
+    expect(OPERATION_DEFINITIONS.map((item) => item.type)).toEqual(expect.arrayContaining(['renewal', 'return', 'buyout', 'loss', 'exchange', 'repair', 'configuration_change', 'rent_change', 'contract_change']))
   })
 
   it('可操作数量统一扣除所有历史处置', () => {
