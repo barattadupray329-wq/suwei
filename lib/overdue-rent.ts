@@ -8,6 +8,7 @@ export function isRentBillType(billType: string) {
   return billType === '租金'
     || billType === '起租预收'
     || billType === '日租租金'
+    || billType === '续租费'
     || billType.includes('续租租金')
 }
 

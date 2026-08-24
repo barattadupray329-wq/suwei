@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fullReturnWaiver, isRentBillType } from '../lib/overdue-rent'
 import { calculateReturnRent } from '../lib/return-settlement'
 
 const base = { periodStart: '2026-08-01', periodEnd: '2026-09-01', returnDate: '2026-08-10', fullAmount: 300 }
@@ -19,5 +20,17 @@ describe('退租租金结算', () => {
 
   test('退租日超出账期时剩余天数不为负数', () => {
     expect(calculateReturnRent({ ...base, returnDate: '2026-09-10', collectedAmount: 300, mode: 'daily' })).toMatchObject({ usedDays: 30, remainingDays: 0, refundAmount: 0 })
+  })
+
+  test('全部退租免租时续租费也纳入取消范围', () => {
+    expect(isRentBillType('续租费')).toBe(true)
+    const waiver = fullReturnWaiver([
+      { id: 1, billType: '续租费', amount: '600.00', paidAmount: '0' },
+      { id: 2, billType: '续租费', amount: '600.00', paidAmount: '0' },
+      { id: 3, billType: '续租费', amount: '600.00', paidAmount: '0' },
+      { id: 4, billType: '丢失赔偿', amount: '900.00', paidAmount: '0' },
+    ])
+    expect(waiver.affected.map((bill) => bill.id)).toEqual([1, 2, 3])
+    expect(waiver.adjustmentCents).toBe(180000)
   })
 })
