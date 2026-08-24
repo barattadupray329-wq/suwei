@@ -119,24 +119,17 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
   const sorted = [...bills].sort((left, right) => left.periodStart.localeCompare(right.periodStart) || (left.dueDate ?? '').localeCompare(right.dueDate ?? '') || left.id - right.id)
   const anchorDate = options.anchorDate ?? sorted[0]?.periodStart ?? null
   const ranges = new Map<number, BillPeriodRange>()
-  const rangesByDates = new Map<string, BillPeriodRange>()
   let cursor = 0
   let total = 0
   for (const bill of sorted) {
-    const datesKey = `${bill.periodStart}:${bill.periodEnd}`
-    const existingRange = rangesByDates.get(datesKey)
-    if (existingRange) {
-      ranges.set(bill.id, existingRange)
-      continue
-    }
+    // 每张账单都是独立一期；即使账期日期相同，也不能复用期数。
     let start = cursor + 1
     let end = start
     if (anchorDate) {
       try {
-        // 相同账期的多台设备或多项费用复用同一期；不同账期仍按顺序递增，
-        // 兼容历史续租账单与上一账期首尾重叠一天的情况。
-        start = Math.max(cursor + 1, elapsedUnits(anchorDate, bill.periodStart, unit) + 1)
-        end = Math.max(start, coveredUnits(anchorDate, addCalendarDays(bill.periodEnd, 1), unit))
+        // 每张月租账单独立占一期；日租账单仍按实际天数占用多天。
+        start = cursor + 1
+        end = unit === 'daily' ? start + Math.max(0, elapsedUnits(bill.periodStart, bill.periodEnd, unit)) : start
       } catch {
         start = cursor + 1
         end = start
@@ -144,7 +137,6 @@ export function billPeriodRanges<T extends { id: number; periodStart: string; pe
     }
     const range = { start, end, span: end - start + 1 }
     ranges.set(bill.id, range)
-    rangesByDates.set(datesKey, range)
     cursor = Math.max(cursor, end)
     total = Math.max(total, end)
   }

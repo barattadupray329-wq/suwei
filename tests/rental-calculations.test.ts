@@ -57,14 +57,14 @@ describe('期数按自然月累计', () => {
     expect(periodUnitsBetween('2026-03-01', '2026-04-01')).toBe(1)
     expect(periodUnitsBetween('2026-03-01', '2026-06-01')).toBe(3)
   })
-  it('起租 3 期 + 续租 1 期得到第 4 期而不是第 2 期', () => {
+  it('每张账单按独立顺序编号', () => {
     const bills = [bill(1, '2026-03-01', '2026-05-31'), bill(2, '2026-06-01', '2026-06-30')]
     const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-03-01' })
-    expect(ranges.get(1)).toEqual({ start: 1, end: 3, span: 3 })
-    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
-    expect(total).toBe(4)
-    expect(billPeriodLabel(ranges.get(1))).toBe('第 1-3 期')
-    expect(billPeriodLabel(ranges.get(2))).toBe('第 4 期')
+    expect(ranges.get(1)).toEqual({ start: 1, end: 1, span: 1 })
+    expect(ranges.get(2)).toEqual({ start: 2, end: 2, span: 1 })
+    expect(total).toBe(2)
+    expect(billPeriodLabel(ranges.get(1))).toBe('第 1 期')
+    expect(billPeriodLabel(ranges.get(2))).toBe('第 2 期')
   })
   it('逐月出账时期号与账单条数一致', () => {
     const bills = [bill(1, '2026-03-01', '2026-03-31'), bill(2, '2026-04-01', '2026-04-30'), bill(3, '2026-05-01', '2026-05-31')]
@@ -78,24 +78,25 @@ describe('期数按自然月累计', () => {
     expect(total).toBe(10)
     expect(billPeriodLabel(ranges.get(1), 'daily')).toBe('第 1-10 天')
   })
-  it('续租账期与上一期重叠一天时仍是第 4 期', () => {
+  it('重叠账期仍按下一张独立账单编号', () => {
     // 历史数据里续租起始日取的是上一期最后一天（05-01~07-31 与 07-31~08-31 重叠一天）
     const bills = [bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')]
     const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-05-01' })
-    expect(ranges.get(1)).toEqual({ start: 1, end: 3, span: 3 })
-    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
-    expect(total).toBe(4)
-    expect(billPeriodLabel(ranges.get(2))).toBe('第 4 期')
+    expect(ranges.get(1)).toEqual({ start: 1, end: 1, span: 1 })
+    expect(ranges.get(2)).toEqual({ start: 2, end: 2, span: 1 })
+    expect(total).toBe(2)
+    expect(billPeriodLabel(ranges.get(2))).toBe('第 2 期')
   })
-  it('续租 2 个月显示为区间', () => {
+  it('每张账单独立一期，不因账期跨度显示区间', () => {
     const bills = [bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-08-01', '2026-09-30')]
     const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-05-01' })
-    expect(billPeriodLabel(ranges.get(2))).toBe('第 4-5 期')
-    expect(total).toBe(5)
+    expect(ranges.get(1)).toEqual({ start: 1, end: 1, span: 1 })
+    expect(ranges.get(2)).toEqual({ start: 2, end: 2, span: 1 })
+    expect(total).toBe(2)
   })
   it('缺少起租日时以首笔账期为锚点', () => {
     const { ranges } = billPeriodRanges([bill(1, '2026-05-01', '2026-07-31'), bill(2, '2026-07-31', '2026-08-31')])
-    expect(ranges.get(2)).toEqual({ start: 4, end: 4, span: 1 })
+    expect(ranges.get(2)).toEqual({ start: 2, end: 2, span: 1 })
   })
   it('按账期跨度汇总已付、未付和部分付款期数', () => {
     const bills = [
@@ -104,9 +105,9 @@ describe('期数按自然月累计', () => {
       { ...bill(3, '2026-07-01', '2026-07-31'), amount: '300', paidAmount: '0' },
     ]
     const { ranges } = billPeriodRanges(bills, { anchorDate: '2026-03-01' })
-    expect(billPaymentPeriodSummary(bills, ranges)).toEqual({ paid: 3, unpaid: 2, partial: 1 })
+    expect(billPaymentPeriodSummary(bills, ranges)).toEqual({ paid: 1, unpaid: 2, partial: 1 })
   })
-  it('相同账期的多项费用只统计一次期数', () => {
+  it('相同账期的多项费用也各自占用独立期数', () => {
     const bills = [
       { ...bill(1, '2026-02-08', '2026-03-07'), amount: '320', paidAmount: '320' },
       { ...bill(2, '2026-03-08', '2026-04-07'), amount: '320', paidAmount: '320' },
@@ -116,7 +117,7 @@ describe('期数按自然月累计', () => {
       { ...bill(6, '2026-07-08', '2026-08-07'), amount: '320', paidAmount: '0' },
     ]
     const { ranges, total } = billPeriodRanges(bills, { anchorDate: '2026-02-08' })
-    expect(ranges.get(3)).toEqual(ranges.get(4))
+    expect(ranges.get(3)).not.toEqual(ranges.get(4))
     expect(total).toBe(6)
     expect(billPaymentPeriodSummary(bills, ranges)).toEqual({ paid: 4, unpaid: 2, partial: 0 })
   })

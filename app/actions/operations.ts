@@ -11,7 +11,7 @@ import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, returnBillingAdjustment } from '@/lib/overdue-rent'
+import { fullReturnWaiver, isRentBillType, monthlyRentPeriod, remainingQuantityAsOf, returnBillingAdjustment, type RentalDisposal } from '@/lib/overdue-rent'
 import { safeError } from '@/lib/errors'
 
 async function actor() {
@@ -59,12 +59,23 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   const isFullWaivedReturn=finalItems.every((item)=>availableQuantity(item)===0)&&rows.every((row)=>row.value.billingMode==='waive')
   const fullWaiver=isFullWaivedReturn?fullReturnWaiver(bills):{affected:[],adjustmentCents:0}
   const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),periodAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),billingAdjustmentCents=isFullWaivedReturn?fullWaiver.adjustmentCents:periodAdjustmentCents,collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
-  const adjustedRentCents=toCents(rental.totalRent)-billingAdjustmentCents
+  const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
+  // 退还设备后，所有尚未收款的后续月租账单按账期开始时的剩余设备数重算；已收账单不追溯修改。
+  const disposals: RentalDisposal[] = rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))
+  let futureBillReductionCents = 0
+  if (!isFullWaivedReturn) {
+    for (const bill of bills.filter((candidate) => isRentBillType(candidate.billType) && candidate.periodStart >= latestReturnDate && toCents(candidate.paidAmount) === 0)) {
+      const nextAmountCents = items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, bill.periodStart, disposals), 0)
+      futureBillReductionCents += Math.max(0, toCents(bill.amount) - nextAmountCents)
+      statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；退租后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+    }
+  }
+  const adjustedRentCents=toCents(rental.totalRent)-billingAdjustmentCents-futureBillReductionCents
   const rentRefundCents=Math.min(billingAdjustmentCents,Math.max(0,toCents(rental.paidAmount)-adjustedRentCents))
   const rentRefundNow=rentRefundCents>0&&values[0].rentRefundSettlement.timing==='now'
-  const totalCents=adjustedRentCents+deductionCents,paidCents=toCents(rental.paidAmount)+collectedCents-(rentRefundNow?rentRefundCents:0)
+  const totalCents=adjustedRentCents+deductionCents
+  const paidCents=toCents(rental.paidAmount)+collectedCents-(rentRefundNow?rentRefundCents:0)
   if(totalCents<0)throw new Error('退租调整后合同总额不能小于 0')
-  const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
   if(isFullWaivedReturn){
     for(const bill of fullWaiver.affected){
       statements.push(db.update(receivableBills).set({
