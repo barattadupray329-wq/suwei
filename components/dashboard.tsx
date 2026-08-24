@@ -906,7 +906,7 @@ export function Dashboard({
               <div className="flex flex-col gap-3 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
-                    <p className="font-semibold">客���催收汇总</p>
+                    <p className="font-semibold">客户催收汇总</p>
                     <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日期已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
@@ -1431,7 +1431,7 @@ canViewFinance={canViewFinance}
               </dl>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
-              ���正���因
+              全部冲正原因
               <textarea
                 required
                 minLength={2}
@@ -2163,7 +2163,7 @@ function RentalForm({
                 {configTemplates[item.deviceType]?.length && (
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      ��用配置��
+                      常用配置：
                     </span>
                     {configTemplates[item.deviceType].map((template) => (
                       <button
@@ -2444,7 +2444,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   const [endDate, setEndDate] = useState(rental.endDate);
   const routes = [
     { title: "客户少要或部分不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
-    { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和��金走配置变更。", action: () => onNavigate("exchange") },
+    { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
     { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
@@ -3057,7 +3057,7 @@ function DetailManage({
         </button>
         <button type="button" onClick={onDeposit} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
           <WalletCards className="size-4 text-primary" />
-          ��金处理
+          押金处理
         </button>
       </section>
       {!["在租", "买断"].includes(rental.status) && (
@@ -3205,7 +3205,7 @@ function LegacyDetail({
         </section>
       )}
       <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
-        <Info l="订单来源人" v={rental.sourceName || "历���订单"} />
+        <Info l="订单来源人" v={rental.sourceName || "历史订单"} />
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
@@ -4067,7 +4067,7 @@ function OperationForm({
       </section>
       <section className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期���金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
         <div className="grid grid-cols-2 gap-4">
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}

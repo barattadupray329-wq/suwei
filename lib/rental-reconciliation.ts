@@ -40,7 +40,9 @@ export function reversedContractAmounts(input: {
 }
 
 export const TERMINAL_BILL_STATUSES = new Set(['已结清', '已冲正', '已减免', '已抵扣', '已调整', '已取消'])
-const PRESERVED_BILL_STATUSES = new Set(['已冲正', '已减免', '已抵扣', '已调整', '已取消'])
+// 与 TERMINAL_BILL_STATUSES 的区别：不含「已结清」——已结清代表正常付清的真实账期，
+// 期数展示（已付/未付/合计）必须把它计入，只有冲正/减免/抵扣/调整/取消这些「作废或非真实账期」的账单才应被剔除。
+export const PRESERVED_BILL_STATUSES = new Set(['已冲正', '已减免', '已抵扣', '已调整', '已取消'])
 
 export function isDepositType(value?: string) {
   return value === '押金'

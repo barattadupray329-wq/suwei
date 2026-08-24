@@ -18,7 +18,7 @@ import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
-import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
+import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 import { recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
@@ -224,7 +224,10 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   }).format(new Date())
   const normalizedRows = rows.map((row) => {
     const items = itemsByRental.get(row.id) ?? []
-    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0 && !terminalBillStatuses.includes(bill.status))
+    // 注意：这里只能剔除冲正/减免/抵扣/调整/取消这类作废账单，不能用 terminalBillStatuses
+    // （它还包含「已结清」）——已结清是正常付清的真实账期，剔除会导致已买断/已结清合同的
+    // 期数、已付/未付统计全部显示成 0。
+    const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0 && !PRESERVED_BILL_STATUSES.has(bill.status))
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
     const effectiveEndDate = [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1) ?? row.endDate
