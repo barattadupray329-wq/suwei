@@ -983,7 +983,7 @@ export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInp
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.id,rentalId),eq(rentals.userId,userId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.rentalId,rentalId),eq(rentalItems.userId,userId))),
-    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId),ne(receivableBills.status,'已冲正'))),
     db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
     db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
     db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),

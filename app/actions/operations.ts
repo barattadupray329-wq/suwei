@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
@@ -50,7 +50,7 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
-    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId),ne(receivableBills.status,'已冲正'))),
     db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
     db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
     db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
@@ -140,7 +140,7 @@ export async function reportLostItems(input: LossInput[]) {
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
-    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId,userId),eq(receivableBills.rentalId,rentalId),ne(receivableBills.status,'已冲正'))),
     db.select({rentalItemId:returnRecords.rentalItemId,quantity:returnRecords.quantity,date:returnRecords.returnDate}).from(returnRecords).where(and(eq(returnRecords.userId,userId),eq(returnRecords.rentalId,rentalId))),
     db.select({rentalItemId:lossRecords.rentalItemId,quantity:lossRecords.quantity,date:lossRecords.lossDate}).from(lossRecords).where(and(eq(lossRecords.userId,userId),eq(lossRecords.rentalId,rentalId))),
     db.select({rentalItemId:buyoutRecords.rentalItemId,quantity:buyoutRecords.quantity,date:buyoutRecords.buyoutDate}).from(buyoutRecords).where(and(eq(buyoutRecords.userId,userId),eq(buyoutRecords.rentalId,rentalId))),
