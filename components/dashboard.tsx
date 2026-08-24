@@ -4376,6 +4376,12 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金" && !bill.billType.includes("补差") && !bill.billType.includes("减免"));
   const periodInfo = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: "monthly" });
+  // 按期号找到对应的账单，用于在下拉框和受影响列表里显示每期具体的账期起止日期。
+  const periodBills = new Map<number, (typeof rentBills)[number]>();
+  for (const bill of rentBills) {
+    const range = periodInfo.ranges.get(bill.id);
+    if (range) periodBills.set(range.start, bill);
+  }
   const first = available[0];
   const [itemId, setItemId] = useState(first?.id ?? 0);
   const [startPeriod, setStartPeriod] = useState(Math.max(1, periodInfo.total));
@@ -4385,7 +4391,8 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可调整的月租账期。</p>;
   const activeQuantity = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
   const deltaPerPeriod = (newMonthlyRent - Number(item.monthlyRent)) * activeQuantity;
-  const affectedPeriods = periodInfo.total - startPeriod + 1;
+  const affectedPeriodList = Array.from({ length: periodInfo.total }, (_, index) => index + 1).filter((period) => period >= startPeriod);
+  const affectedPeriods = affectedPeriodList.length;
   const estimatedDifference = deltaPerPeriod * affectedPeriods;
   return (
     <form onSubmit={(event) => { event.preventDefault(); submit({ rentalId: rental.id, itemId, startPeriod, newMonthlyRent, reason }); }} className="flex flex-col gap-5">
@@ -4395,7 +4402,7 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm font-medium">租赁设备<select className="h-10 rounded-lg border bg-background px-3" value={itemId} onChange={(event) => { const nextId = Number(event.target.value); const nextItem = available.find((row) => row.id === nextId); setItemId(nextId); setNewMonthlyRent(Number(nextItem?.monthlyRent ?? 0)); }}>{available.map((row) => <option key={row.id} value={row.id}>{row.deviceName} · 当前 {money(Number(row.monthlyRent))}/月</option>)}</select></label>
-        <label className="flex flex-col gap-2 text-sm font-medium">开始生效期<select className="h-10 rounded-lg border bg-background px-3" value={startPeriod} onChange={(event) => setStartPeriod(Number(event.target.value))}>{Array.from({ length: periodInfo.total }, (_, index) => index + 1).map((period) => <option key={period} value={period}>第 {period} 期{period === periodInfo.total ? "（当前最新期）" : ""}</option>)}</select></label>
+        <label className="flex flex-col gap-2 text-sm font-medium">开始生效期<select className="h-10 rounded-lg border bg-background px-3" value={startPeriod} onChange={(event) => setStartPeriod(Number(event.target.value))}>{Array.from({ length: periodInfo.total }, (_, index) => index + 1).map((period) => { const bill = periodBills.get(period); return <option key={period} value={period}>第 {period} 期{bill ? `（${billCoverageLabel(bill.periodStart, bill.periodEnd)}）` : ""}{period === periodInfo.total ? " · 当前最新期" : ""}</option>; })}</select></label>
         <Field label="调整后月租（元/月）" type="number" value={newMonthlyRent} onChange={(next) => setNewMonthlyRent(Number(next))} />
         <Field label="变更原因" value={reason} onChange={setReason} />
       </div>
@@ -4405,6 +4412,27 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
         <Info l="影响期数" v={`${affectedPeriods} 期`} />
         <Info l="预计应收变化" v={money(estimatedDifference)} />
         <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-4">未收账单直接重算；已收账单如涨价生成补收，如降价转为客户余额。未来自动生成的账单继续使用新月租。</p>
+      </section>
+      <section className="rounded-xl border" aria-label="本次关联的受影响账单">
+        <div className="border-b bg-muted/40 px-4 py-2.5"><p className="text-sm font-medium">本次将关联调整以下 {affectedPeriods} 期账单</p></div>
+        <ul className="divide-y">
+          {affectedPeriodList.map((period) => {
+            const bill = periodBills.get(period);
+            if (!bill) return <li key={period} className="px-4 py-2.5 text-sm text-muted-foreground">第 {period} 期账单尚未生成，实际生效后按新月租补收</li>;
+            const paidCents = Math.round(Number(bill.paidAmount) * 100);
+            const settled = paidCents >= Math.round(Number(bill.amount) * 100) && Math.round(Number(bill.amount) * 100) > 0;
+            return (
+              <li key={period} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <div>
+                  <span className="font-medium">第 {period} 期</span>
+                  <span className="ml-2 text-muted-foreground">{billCoverageLabel(bill.periodStart, bill.periodEnd)}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">账单 {bill.billNo}</span>
+                </div>
+                <span className={settled ? "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" : "rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"}>{settled ? "已收 · 将生成补收/余额" : "未收 · 直接重算"}</span>
+              </li>
+            );
+          })}
+        </ul>
       </section>
       <button disabled={pending || !reason.trim() || newMonthlyRent < 0 || newMonthlyRent === Number(item.monthlyRent)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : `确认从第 ${startPeriod} 期变更租金`}</button>
     </form>

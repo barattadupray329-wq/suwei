@@ -21,7 +21,7 @@ import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } fro
 import { activePositivePayments, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { recomputeUnpaidRentBills, type RentalDisposal } from '@/lib/overdue-rent'
+import { recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -554,10 +554,13 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   const access = await getAccessContext('租赁操作')
   const value = periodRentChangeSchema.parse(input)
   const userId = access.userId
-  const [[rental], [item], bills] = await Promise.all([
+  const [[rental], [item], bills, historicalReturns, historicalLosses, historicalBuyouts] = await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, value.rentalId))).limit(1),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, value.itemId), eq(rentalItems.rentalId, value.rentalId))).limit(1),
     db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, value.rentalId), ne(receivableBills.status, '已冲正'))).orderBy(asc(receivableBills.periodStart), asc(receivableBills.id)),
+    db.select({ rentalItemId: returnRecords.rentalItemId, quantity: returnRecords.quantity, date: returnRecords.returnDate }).from(returnRecords).where(and(eq(returnRecords.userId, userId), eq(returnRecords.rentalId, value.rentalId))),
+    db.select({ rentalItemId: lossRecords.rentalItemId, quantity: lossRecords.quantity, date: lossRecords.lossDate }).from(lossRecords).where(and(eq(lossRecords.userId, userId), eq(lossRecords.rentalId, value.rentalId))),
+    db.select({ rentalItemId: buyoutRecords.rentalItemId, quantity: buyoutRecords.quantity, date: buyoutRecords.buyoutDate }).from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), eq(buyoutRecords.rentalId, value.rentalId))),
   ])
   if (!rental || !item) throw new Error('合同或设备不存在')
   assertOfficialRental(rental)
@@ -573,6 +576,10 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   const unitDeltaCents = newRentCents - previousRentCents
   const now = new Date()
   const eventDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+  // 每张账单要用「该账期当时实际在租的设备数量」而不是当前设备数量来算差额：
+  // 如果这台设备在此次调租前的某个时间点发生过退租/丢失/买断，较早的账期实际数量会比现在多，
+  // 用当前数量统一乘算会把较早账期的差额算错。
+  const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts]
   let totalDeltaCents = 0
   const affected: Array<{ billId: number; billNo: string; periods: number; deltaCents: number }> = []
   const statements: Array<Parameters<typeof db.batch>[0][number]> = []
@@ -580,7 +587,8 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
     const range = periodInfo.ranges.get(bill.id)
     if (!range || range.end < value.startPeriod) continue
     const affectedPeriods = range.end - Math.max(range.start, value.startPeriod) + 1
-    const deltaCents = unitDeltaCents * availableCount * affectedPeriods
+    const billQuantity = remainingQuantityAsOf(item.quantity, item.id, bill.periodStart, disposals)
+    const deltaCents = unitDeltaCents * billQuantity * affectedPeriods
     if (!deltaCents) continue
     totalDeltaCents += deltaCents
     affected.push({ billId: bill.id, billNo: bill.billNo, periods: affectedPeriods, deltaCents })
