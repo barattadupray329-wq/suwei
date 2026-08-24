@@ -6,11 +6,11 @@ const base = { periodStart: '2026-08-01', periodEnd: '2026-09-01', returnDate: '
 
 describe('退租租金结算', () => {
   test('整期收取不退款，未收齐时显示应补', () => {
-    expect(calculateReturnRent({ ...base, collectedAmount: 100, mode: 'full_month' })).toMatchObject({ usedDays: 9, remainingDays: 22, collectAmount: 200, refundAmount: 0 })
+    expect(calculateReturnRent({ ...base, collectedAmount: 100, mode: 'full_month' })).toMatchObject({ usedDays: 9, remainingDays: 22, collectAmount: 0, refundAmount: 0, chargeAmount: 100 })
   })
 
   test('3月18日租三个月，6月14日退租按5月18日至6月18日本期计算', () => {
-    expect(calculateReturnRent({ periodStart: '2026-05-18', periodEnd: '2026-06-18', returnDate: '2026-06-14', fullAmount: 240, collectedAmount: 0, mode: 'full_month' })).toMatchObject({ usedDays: 27, remainingDays: 4, collectAmount: 240, refundAmount: 0 })
+    expect(calculateReturnRent({ periodStart: '2026-05-18', periodEnd: '2026-06-18', returnDate: '2026-06-14', fullAmount: 240, collectedAmount: 0, mode: 'full_month' })).toMatchObject({ usedDays: 27, remainingDays: 4, collectAmount: 0, refundAmount: 0, chargeAmount: 0 })
     expect(calculateReturnRent({ periodStart: '2026-05-18', periodEnd: '2026-06-18', returnDate: '2026-06-14', fullAmount: 240, collectedAmount: 240, mode: 'daily' })).toMatchObject({ usedDays: 27, remainingDays: 4, chargeAmount: 216, refundAmount: 24 })
   })
 

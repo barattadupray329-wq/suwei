@@ -906,7 +906,7 @@ export function Dashboard({
               <div className="flex flex-col gap-3 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl bg-muted p-4">
                   <div>
-                    <p className="font-semibold">客户催收汇总</p>
+                    <p className="font-semibold">客���催收汇总</p>
                     <p className="mt-1 text-sm text-muted-foreground">按手机号归并客户，只统计付款日期已到且尚未结清的账单；未来付款日账单不会提前催收。</p>
                   </div>
                   <div className="flex gap-6 text-right">
@@ -1431,7 +1431,7 @@ canViewFinance={canViewFinance}
               </dl>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
-              冲正原因
+              冲正���因
               <textarea
                 required
                 minLength={2}
@@ -2163,7 +2163,7 @@ function RentalForm({
                 {configTemplates[item.deviceType]?.length && (
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      常用配置：
+                      常用配置��
                     </span>
                     {configTemplates[item.deviceType].map((template) => (
                       <button
@@ -3205,7 +3205,7 @@ function LegacyDetail({
         </section>
       )}
       <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
-        <Info l="订单来源人" v={rental.sourceName || "历史订单"} />
+        <Info l="订单��源人" v={rental.sourceName || "历史订单"} />
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
@@ -4051,13 +4051,13 @@ function OperationForm({
               <input type="checkbox" checked={selected} onChange={() => toggleItem(item)} className="mt-1 size-4 accent-primary" />
               <span className="min-w-0 flex-1"><strong>{item.deviceType} · {item.deviceName}</strong><span className="block text-xs text-muted-foreground">{item.deviceCode || "未编号"} · 可处理 {max} 台</span></span>
             </label>
-            {selected && <div className="mt-3 flex flex-col gap-3"><label className="flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>{mode === "return" && (() => { const trial = billingTrialByItem.get(item.id); const billingMode = billingModes[item.id] ?? "full_month"; return <div className="rounded-lg border bg-background p-3"><fieldset className="flex flex-col gap-2"><legend className="text-sm font-semibold">本期租金怎么处理？</legend><div className="grid gap-2 sm:grid-cols-3">{([{ value: "full_month", title: "整期收取", detail: trial && trial.collectedAmount < trial.fullAmount ? "未收部分保留欠款" : "本期不退租金" }, { value: "daily", title: "退剩余天数", detail: trial && trial.collectedAmount < trial.fullAmount ? "仅收已用天数" : "固定按 30 天折算" }, { value: "waive", title: "退本期全额", detail: trial && trial.collectedAmount < trial.fullAmount ? "未收部分全部免收" : "最多退本期实收" }] as const).map((option) => <label key={option.value} className={`cursor-pointer rounded-lg border p-3 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}><input type="radio" name={`billing-${item.id}`} value={option.value} checked={billingMode === option.value} onChange={() => { setBillingModes((current) => ({ ...current, [item.id]: option.value })); setSettlementConfirmed(false); }} className="mr-2 accent-primary"/><strong className="text-sm">{option.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{option.detail}</span></label>)}</div></fieldset>{trial && <div className={`mt-3 rounded-lg border p-3 text-sm leading-6 ${trial.fullAmount > 0 ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"}`}>{trial.fullAmount > 0 ? <><p className="text-xs text-muted-foreground">本期账期：{trial.periodStart} 至 {trial.periodEnd}（结束日不含）</p><p className="text-xs text-muted-foreground">整期 {money(trial.fullAmount)} · 已收 {money(trial.collectedAmount)} · 已用 {trial.usedDays} 天 · 剩余 {trial.remainingDays} 天 · 日租金 {money(trial.dailyAmount)}</p><p className="mt-1 font-semibold text-foreground">{billingMode === "daily" ? `退剩余 ${trial.remainingDays} 天：应退 ${money(trial.refundAmount)}` : billingMode === "waive" ? `退本期全额：应退 ${money(trial.refundAmount)}` : trial.collectAmount > 0 ? `整期收取：还应补 ${money(trial.collectAmount)}` : "整期收取：无需补退租金"}</p></> : <p className="font-medium text-destructive">未找到归还日期对应的租金账期，请检查归还日期或账单后再提交。</p>}</div>}{billingMode !== "full_month" && <label className="mt-3 flex flex-col gap-2 text-sm font-medium">协商说明<span className="text-xs text-destructive">必填</span><textarea value={billingReasons[item.id] ?? ""} onChange={(event) => setBillingReasons((current) => ({ ...current, [item.id]: event.target.value }))} className="min-h-16 rounded-lg border bg-background p-3" placeholder="填写退款或减免原因，便于后续核对" /></label>}</div>; })()}</div>}
+            {selected && <div className="mt-3 flex flex-col gap-3"><label className="flex items-center gap-3 text-sm font-medium">本次数量<input type="number" min={1} max={max} value={rows[item.id]} onChange={(event) => setRows((current) => ({ ...current, [item.id]: Number(event.target.value) }))} className="h-10 w-24 rounded-lg border bg-background px-3" /><span className="text-muted-foreground">最多 {max} 台</span></label>{mode === "return" && (() => { const trial = billingTrialByItem.get(item.id); const billingMode = billingModes[item.id] ?? "full_month"; return <div className="rounded-lg border bg-background p-3"><fieldset className="flex flex-col gap-2"><legend className="text-sm font-semibold">本期租金怎么处理？</legend><div className="grid gap-2 sm:grid-cols-3">{([{ value: "full_month", title: "整期收取", detail: "本期不退、不补" }, { value: "daily", title: "退剩余天数", detail: trial && trial.collectedAmount < trial.fullAmount ? "仅收已用天数" : "固定按 30 天折算" }, { value: "waive", title: "退本期全额", detail: "只退本期已收租金" }] as const).map((option) => <label key={option.value} className={`cursor-pointer rounded-lg border p-3 ${billingMode === option.value ? "border-primary bg-primary/5" : "bg-card"}`}><input type="radio" name={`billing-${item.id}`} value={option.value} checked={billingMode === option.value} onChange={() => { setBillingModes((current) => ({ ...current, [item.id]: option.value })); setSettlementConfirmed(false); }} className="mr-2 accent-primary"/><strong className="text-sm">{option.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{option.detail}</span></label>)}</div></fieldset>{trial && <div className={`mt-3 rounded-lg border p-3 text-sm leading-6 ${trial.fullAmount > 0 ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"}`}>{trial.fullAmount > 0 ? <><p className="text-xs text-muted-foreground">本期账期：{trial.periodStart} 至 {trial.periodEnd}（结束日不含）</p><p className="text-xs text-muted-foreground">整期 {money(trial.fullAmount)} · 已收 {money(trial.collectedAmount)} · 已用 {trial.usedDays} 天 · 剩余 {trial.remainingDays} 天 · 日租金 {money(trial.dailyAmount)}</p><p className="mt-1 font-semibold text-foreground">{billingMode === "daily" ? `退剩余 ${trial.remainingDays} 天：应退 ${money(trial.refundAmount)}` : billingMode === "waive" ? `退本期全额：应退 ${money(trial.refundAmount)}` : trial.collectAmount > 0 ? `整期收取：还应补 ${money(trial.collectAmount)}` : "整期收取：无需补退租金"}</p></> : <p className="font-medium text-destructive">未找到归还日期对应的租金账期，请检查归还日期或账单后再提交。</p>}</div>}{billingMode !== "full_month" && <label className="mt-3 flex flex-col gap-2 text-sm font-medium">协商说明<span className="text-xs text-destructive">必填</span><textarea value={billingReasons[item.id] ?? ""} onChange={(event) => setBillingReasons((current) => ({ ...current, [item.id]: event.target.value }))} className="min-h-16 rounded-lg border bg-background p-3" placeholder="填写退款或减免原因，便于后续核对" /></label>}</div>; })()}</div>}
           </article>;
         })}
       </section>
       <section className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选���备；数量可在每台设备中单独覆盖。</p>
         <div className="grid grid-cols-2 gap-4">
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}
