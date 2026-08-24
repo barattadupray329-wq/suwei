@@ -53,6 +53,7 @@ export function returnBillingAdjustment(input: { periodStart: string; periodEnd:
   // 退租日当天不再计租：5/18–6/18，6/14退租，退 6/14–6/18 共4天，因此按26天收取。
   const remainingDays = Math.max(0, Math.ceil((Date.parse(`${input.periodEnd}T00:00:00+08:00`) - Date.parse(`${input.returnDate}T00:00:00+08:00`)) / 86_400_000))
   const usedDays = Math.max(0, Math.min(30, 30 - remainingDays))
+  // 整期收取不改变本期账单：不退、不补；按天才按已用天数重算。
   const chargedAmountCents = input.mode === 'full_month'
     ? fullAmountCents
     : input.mode === 'waive'

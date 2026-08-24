@@ -17,14 +17,17 @@ export function calculateReturnRent(input: {
   const remainingDays = Math.max(0, Math.ceil((Date.parse(`${input.periodEnd}T00:00:00+08:00`) - Date.parse(`${input.returnDate}T00:00:00+08:00`)) / DAY_MS))
   const full = cents(Math.max(0, input.fullAmount))
   const collected = Math.min(full, cents(Math.max(0, input.collectedAmount)))
-  const charge = input.mode === 'full_month' ? full : input.mode === 'daily' ? Math.min(full, Math.round(full * usedDays / 30)) : 0
+  // 整期收取只保留本期原状：不退款，也不追收未收部分。
+  // 退本期全额只退本期实际已收租金，不能把未收金额当成退款。
+  const charge = input.mode === 'full_month' ? collected : input.mode === 'daily' ? Math.min(full, Math.round(full * usedDays / 30)) : 0
+  const refund = input.mode === 'waive' ? collected : input.mode === 'daily' ? Math.max(0, collected - charge) : 0
   return {
     usedDays,
     remainingDays,
     dailyAmount: full / 30 / 100,
     chargeAmount: charge / 100,
-    refundAmount: Math.max(0, Math.min(collected, collected - charge)) / 100,
-    collectAmount: Math.max(0, charge - collected) / 100,
-    adjustmentAmount: (full - charge) / 100,
+    refundAmount: refund / 100,
+    collectAmount: 0,
+    adjustmentAmount: input.mode === 'waive' || input.mode === 'daily' ? Math.max(0, collected - charge) / 100 : 0,
   }
 }
