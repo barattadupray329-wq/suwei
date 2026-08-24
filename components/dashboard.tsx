@@ -1431,7 +1431,7 @@ canViewFinance={canViewFinance}
               </dl>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
-              冲正���因
+              冲正原因
               <textarea
                 required
                 minLength={2}
@@ -2163,7 +2163,7 @@ function RentalForm({
                 {configTemplates[item.deviceType]?.length && (
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      常用配置��
+                      常用配置项
                     </span>
                     {configTemplates[item.deviceType].map((template) => (
                       <button
@@ -3205,7 +3205,7 @@ function LegacyDetail({
         </section>
       )}
       <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted p-4 text-sm sm:grid-cols-4">
-        <Info l="订单���源人" v={rental.sourceName || "历史订单"} />
+        <Info l="订单来源人" v={rental.sourceName || "历史订单"} />
         <Info l="非当天起租原因" v={rental.startDateReason || "—"} />
         <Info l="维护负责人" v={rental.assigneeName || "未分配"} />
         <Info l="客户公司" v={rental.customerCompany || "个人客户"} />
@@ -4057,7 +4057,7 @@ function OperationForm({
       </section>
       <section className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-3 text-sm font-semibold">批量默认值</p>
-        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台��备中单独覆盖。</p>
+        <p className="mb-4 text-xs leading-5 text-muted-foreground">下列日期、金额和备注默认应用到所有已选设备；数量可在每台设备中单独覆盖。</p>
         <div className="grid grid-cols-2 gap-4">
         <Field
           label={mode === "return" ? "归还日期" : "发生日期"}

@@ -54,7 +54,7 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   ])
   if (!rental||rental.orderType!=='official'||rental.lifecycleStatus!=='active') throw new Error('仅正式有效合同可以办理退租')
   const byId=new Map(items.map((item)=>[item.id,item]))
-  const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(rental.startDate,rental.endDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,periodEnd:currentPeriod.periodEnd,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
+  const rows=values.map((value,index)=>{const item=byId.get(value.rentalItemId);if(!item)throw new Error('包含不存在的设备');dateOnly(value.date);if(item.startDate&&value.date<item.startDate)throw new Error(`${item.deviceName} 的退租日期不能早于起租日期`);const available=availableQuantity(item);if(value.quantity>available)throw new Error(`${item.deviceName} 最多可退 ${available} 台`);if(value.billingMode!=='full_month'&&!value.billingReason.trim())throw new Error(`${item.deviceName} 选择按天收取或本期不收时必须填写协商说明`);const itemStartDate=item.startDate??rental.startDate,itemEndDate=item.endDate??rental.endDate;const currentPeriod=rental.billingType==='monthly'?monthlyRentPeriod(itemStartDate,itemEndDate,value.date):undefined;const billing=currentPeriod?returnBillingAdjustment({periodStart:currentPeriod.periodStart,periodEnd:currentPeriod.periodEnd,returnDate:value.date,monthlyRent:item.monthlyRent,quantity:value.quantity,mode:value.billingMode}):{fullAmountCents:0,chargedAmountCents:0,adjustmentCents:0,usedDays:0};return{value,item,available,currentPeriod,billing,id:Date.now()*1000+index}})
   const finalItems=items.map((item)=>{const row=rows.find((entry)=>entry.item.id===item.id);return row?{...item,returnedQuantity:item.returnedQuantity+row.value.quantity}:item})
   const isFullWaivedReturn=finalItems.every((item)=>availableQuantity(item)===0)&&rows.every((row)=>row.value.billingMode==='waive')
   const fullWaiver=isFullWaivedReturn?fullReturnWaiver(bills):{affected:[],adjustmentCents:0}
@@ -62,9 +62,17 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
   // 退还设备后，所有尚未收款的后续月租账单按账期开始时的剩余设备数重算；已收账单不追溯修改。
   const disposals: RentalDisposal[] = rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))
+  // 先算出「当期」按比例调整涉及的账单 id：若退租日恰好等于某张未来账单的账期开始日，
+  // 该账单会同时命中「当期」判定和下方「未来账单」的按数量重算，必须排除掉避免同一张账单被调整两次。
+  const currentPeriodBillIds = new Set(rows
+    .filter((row) => !isFullWaivedReturn && row.currentPeriod && row.billing.adjustmentCents > 0)
+    .map((row) => bills
+      .filter((candidate) => isRentBillType(candidate.billType) && toCents(candidate.amount) > 0 && candidate.periodStart <= row.value.date && row.value.date < candidate.periodEnd)
+      .sort((left, right) => right.periodStart.localeCompare(left.periodStart))[0]?.id)
+    .filter((id): id is number => id !== undefined))
   let futureBillReductionCents = 0
   if (!isFullWaivedReturn) {
-    for (const bill of bills.filter((candidate) => isRentBillType(candidate.billType) && candidate.periodStart >= latestReturnDate && toCents(candidate.paidAmount) === 0)) {
+    for (const bill of bills.filter((candidate) => isRentBillType(candidate.billType) && candidate.periodStart >= latestReturnDate && toCents(candidate.paidAmount) === 0 && !currentPeriodBillIds.has(candidate.id))) {
       const nextAmountCents = items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, bill.periodStart, disposals), 0)
       futureBillReductionCents += Math.max(0, toCents(bill.amount) - nextAmountCents)
       statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；退租后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
