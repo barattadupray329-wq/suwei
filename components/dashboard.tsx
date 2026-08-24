@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import {
   buyoutRentalItem,
   changeStatus,
+  changeRentFromPeriod,
   collectPayment,
   confirmDraftsAsOfficial,
   correctRenewalPrice,
@@ -47,6 +48,7 @@ import {
   type RentalAssignee,
   type RentalInput,
   type RentalItemInput,
+  type PeriodRentChangeInput,
   type RenewalInput,
   type SettlementInput,
 } from "@/app/actions/rentals";
@@ -1519,16 +1521,10 @@ canViewFinance={canViewFinance}
         onClose={() => setDialog("detail")}
       >
         {selected && (
-          <ChangeForm
+          <RentChangeForm
             rental={selected}
-            mode="rent"
             pending={pending}
-            submit={(values) =>
-              runInDetail(
-                () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
-                "租金变更已登记",
-              )
-            }
+            submit={(value) => runInDetail(() => changeRentFromPeriod(value), "租金变更已登记")}
           />
         )}
       </Dialog>
@@ -4367,6 +4363,45 @@ function itemToChange(item: Item): RentalChangeInput {
     totalRent: Number(item.totalRent),
   };
 }
+function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (value: PeriodRentChangeInput) => void; pending: boolean }) {
+  const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
+  const rentBills = rental.bills.filter((bill) => bill.billType !== "押金" && !bill.billType.includes("补差") && !bill.billType.includes("减免"));
+  const periodInfo = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: "monthly" });
+  const first = available[0];
+  const [itemId, setItemId] = useState(first?.id ?? 0);
+  const [startPeriod, setStartPeriod] = useState(Math.max(1, periodInfo.total));
+  const [newMonthlyRent, setNewMonthlyRent] = useState(Number(first?.monthlyRent ?? 0));
+  const [reason, setReason] = useState("");
+  const item = available.find((row) => row.id === itemId) ?? first;
+  if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可调整的月租账期。</p>;
+  const activeQuantity = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
+  const deltaPerPeriod = (newMonthlyRent - Number(item.monthlyRent)) * activeQuantity;
+  const affectedPeriods = periodInfo.total - startPeriod + 1;
+  const estimatedDifference = deltaPerPeriod * affectedPeriods;
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); submit({ rentalId: rental.id, itemId, startPeriod, newMonthlyRent, reason }); }} className="flex flex-col gap-5">
+      <div className="rounded-xl border bg-muted p-4">
+        <p className="font-medium">从指定期开始统一执行新月租</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">例如选择第 3 期并将月租从 120 元改为 90 元，第 3 期及以后所有账单和待收款都会按 90 元计算。</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-2 text-sm font-medium">租赁设备<select className="h-10 rounded-lg border bg-background px-3" value={itemId} onChange={(event) => { const nextId = Number(event.target.value); const nextItem = available.find((row) => row.id === nextId); setItemId(nextId); setNewMonthlyRent(Number(nextItem?.monthlyRent ?? 0)); }}>{available.map((row) => <option key={row.id} value={row.id}>{row.deviceName} · 当前 {money(Number(row.monthlyRent))}/月</option>)}</select></label>
+        <label className="flex flex-col gap-2 text-sm font-medium">开始生效期<select className="h-10 rounded-lg border bg-background px-3" value={startPeriod} onChange={(event) => setStartPeriod(Number(event.target.value))}>{Array.from({ length: periodInfo.total }, (_, index) => index + 1).map((period) => <option key={period} value={period}>第 {period} 期{period === periodInfo.total ? "（当前最新期）" : ""}</option>)}</select></label>
+        <Field label="调整后月租（元/月）" type="number" value={newMonthlyRent} onChange={(next) => setNewMonthlyRent(Number(next))} />
+        <Field label="变更原因" value={reason} onChange={setReason} />
+      </div>
+      <section className="grid gap-3 rounded-xl border p-4 sm:grid-cols-4" aria-label="租金变更影响预览">
+        <Info l="原月租" v={`${money(Number(item.monthlyRent))}/月`} />
+        <Info l="新月租" v={`${money(newMonthlyRent)}/月`} />
+        <Info l="影响期数" v={`${affectedPeriods} 期`} />
+        <Info l="预计应收变化" v={money(estimatedDifference)} />
+        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-4">未收账单直接重算；已收账单如涨价生成补收，如降价转为客户余额。未来自动生成的账单继续使用新月租。</p>
+      </section>
+      <button disabled={pending || !reason.trim() || newMonthlyRent < 0 || newMonthlyRent === Number(item.monthlyRent)} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : `确认从第 ${startPeriod} 期变更租金`}</button>
+    </form>
+  );
+}
+
 function ChangeForm({
   rental,
   submit,
