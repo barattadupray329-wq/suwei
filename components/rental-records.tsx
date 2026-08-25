@@ -548,6 +548,7 @@ export function RentalRecords({
                         <Link
                           className="font-semibold text-primary hover:underline"
                           href={`/rentals?rental=${row.id}`}
+                          prefetch={false}
                         >
                           查看详情
                         </Link>
@@ -606,6 +607,7 @@ export function RentalRecords({
                   <Link
                     className="secondary-button mt-4 w-full"
                     href={`/rentals?rental=${row.id}`}
+                    prefetch={false}
                   >
                     查看合同详情
                   </Link>

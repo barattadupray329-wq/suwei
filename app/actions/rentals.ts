@@ -77,14 +77,17 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   )
 }
 
-export async function getRentals(query = '', status = '全部', limit?: number) {
+export async function getRentals(query = '', status = '全部', limit?: number, skipOverdueHeal = false) {
   const userId = await getUserId()
   // 每日定时任务在 Cloudflare scheduled 里以 ctx.waitUntil 后台方式补生成逾期账单，
   // 一旦该后台调用失败（网络抖动/冷启动等），列表页永远不会自己重试，逾期账单就会"凑巧"漏生成。
   // 这里在读列表时兜底再跑一次同一个幂等函数（已生成过的账期会被 onConflictDoNothing 跳过），
   // 保证只要有人打开合同列表，逾期账单就一定是最新的，不再依赖定时任务是否真的跑成功。
   // 用 Safely 版本：列表页会被 Next.js 预加载并发触发多次，写入互相冲突时不能让整页崩掉。
-  await ensureOverdueRentBillsSafely(userId)
+  // skipOverdueHeal：调用方（如合同详情页）已经针对目标合同单独做过这次自愈扫描时传 true，
+  // 避免同一个请求里再对该商户全部在租合同重复扫一遍——这个全账户扫描本身有实打实的
+  // DB 读取和 JS 计算开销，重复跑会白白叠加 CPU 消耗，在并发高峰更容易撑爆 Worker 资源限制。
+  if (!skipOverdueHeal) await ensureOverdueRentBillsSafely(userId)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')]
   if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
@@ -295,7 +298,9 @@ export async function getRentalById(id: number) {
   if (!row) return null
   // 详情页也会被 Next.js 悬停预取并发触发（同一时刻多个 rental=... 请求），同样要用 Safely 版本兜底。
   await ensureOverdueRentBillsSafely(userId, undefined, id)
-  return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
+  // 上面已经针对这一张合同单独做过自愈，这里传 skipOverdueHeal 跳过 getRentals 内部
+  // 对该商户全部在租合同的重复扫描，避免同一个请求里白白多算一遍。
+  return (await getRentals(row.contractNo, '全部', 1, true))[0] ?? null
 }
 
 export async function getDashboard() {
@@ -604,7 +609,7 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   const eventDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
   // 每张账单要用「该账期当时实际在租的设备数量」而不是当前设备数量来算差额：
   // 如果这台设备在此次调租前的某个时间点发生过退租/丢失/买断，较早的账期实际数量会比现在多，
-  // 拿当前数量统一乘算会把较早账期的差额算错。
+  // 拿当前数量统��乘算会把较早账期的差额算错。
   const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts]
   let totalDeltaCents = 0
   const affected: Array<{ billId: number; billNo: string; periods: number; deltaCents: number }> = []
