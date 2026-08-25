@@ -245,9 +245,21 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       .filter(Boolean)
       .sort()
       .at(-1) ?? null
+    // 按设备类型分别汇总数量，避免"台式机、显示器 共2台"这种混合设备时看不出具体是几台
+    // 台式机、几台显示器的歧义——展示成"台式机×1、显示器×1"，一眼看清构成。
+    const typeQuantities = new Map<string, number>()
+    for (const item of items) {
+      const itemQuantity = availableQuantity(item)
+      if (itemQuantity <= 0) continue
+      typeQuantities.set(item.deviceType, (typeQuantities.get(item.deviceType) ?? 0) + itemQuantity)
+    }
+    const deviceBreakdown = typeQuantities.size
+      ? Array.from(typeQuantities.entries()).map(([type, qty]) => `${type}×${qty}`).join('、')
+      : `${row.deviceName || '设备'}×${quantity}`
     return {
       ...row,
       quantity,
+      deviceBreakdown,
       endDate: effectiveEndDate,
       paidThroughDate,
       periodCount: periodRanges.total,
@@ -1171,7 +1183,7 @@ export async function restoreRental(id: number) {
   if (!rental) throw new Error('回收站中不存在该订单')
   await db.batch([
     db.update(rentals).set({ lifecycleStatus: 'active', deletedAt: null, deletedBy: null, deleteReason: null, updatedAt: new Date() }).where(and(eq(rentals.id, id), eq(rentals.userId, access.userId))),
-    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '恢复', resourceType: '租赁合同', resourceId: String(id), summary: `从回收站恢复合同 ${rental.contractNo}`, metadata: { orderType: rental.orderType } }),
+    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: '恢复', resourceType: '租��合同', resourceId: String(id), summary: `从回收站恢复合同 ${rental.contractNo}`, metadata: { orderType: rental.orderType } }),
   ])
   revalidatePath('/rentals')
 }

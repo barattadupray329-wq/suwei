@@ -28,9 +28,15 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
   const summaryFor = (contract: Contract) => {
     const items = itemsFor(contract.id)
     const totalQty = items.length ? items.reduce((sum, item) => sum + item.quantity, 0) : contract.quantity
-    const deviceNames = items.length ? Array.from(new Set(items.map((item) => item.deviceName))).join('、') : contract.deviceName
+    // 按设备类型分别汇总数量，而不是"设备名、设备名 · 共2台"——混租多种设备时看不出
+    // 具体是几台台式机、几台显示器，展示成"台式机×1、显示器×1"更直观。
+    const typeQuantities = new Map<string, number>()
+    for (const item of items) typeQuantities.set(item.deviceType, (typeQuantities.get(item.deviceType) ?? 0) + item.quantity)
+    const deviceBreakdown = typeQuantities.size
+      ? Array.from(typeQuantities.entries()).map(([type, qty]) => `${type}×${qty}`).join('、')
+      : `${contract.deviceName}×${contract.quantity}`
     const configSummary = items.length ? getDeviceConfigSummary(items[0]) : getDeviceConfigSummary(contract)
-    return { items, totalQty, deviceNames, configSummary }
+    return { items, totalQty, deviceBreakdown, configSummary }
   }
 
   const totalDevices = data.contracts.reduce((sum, contract) => sum + summaryFor(contract).totalQty, 0)
@@ -68,12 +74,12 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
       {data.contracts.length ? <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
         <div className="flex flex-col divide-y">
           {data.contracts.map((contract) => {
-            const { totalQty, deviceNames, configSummary } = summaryFor(contract)
+            const { deviceBreakdown, configSummary } = summaryFor(contract)
             const owed = outstanding(contract)
             return <button key={contract.id} type="button" onClick={() => setSelectedId(contract.id)} className="flex items-center gap-3 p-4 text-left transition-colors hover:bg-muted/50 active:bg-muted">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-semibold">{contract.contractNo}</span><span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{deviceNames} · 共 {totalQty} 台{configSummary ? ` · ${configSummary}` : ''}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{deviceBreakdown}{configSummary ? ` · ${configSummary}` : ''}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">至 {contract.endDate} 到期</p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">

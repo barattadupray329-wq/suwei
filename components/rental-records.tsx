@@ -23,6 +23,7 @@ type Row = {
   customerName: string;
   customerPhone: string;
   deviceName: string;
+  deviceBreakdown: string;
   quantity: number;
   startDate: string;
   endDate: string;
@@ -401,7 +402,7 @@ export function RentalRecords({
             {money(overdueReceivable)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            当前查询中已逾期仍未收
+            当���查询中已逾期仍未收
           </p>
         </article>
       </section>
@@ -466,12 +467,7 @@ export function RentalRecords({
                           {row.customerName} · {row.customerPhone}
                         </p>
                       </td>
-                      <td className="p-3">
-                        {row.deviceName}
-                        <p className="text-xs text-muted-foreground">
-                          共 {row.quantity} 台
-                        </p>
-                      </td>
+                <td className="p-3">{row.deviceBreakdown}</td>
                       <td className="p-3">
                         {row.startDate}
                         <p className="text-xs font-medium text-primary">
