@@ -79,6 +79,11 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
 
 export async function getRentals(query = '', status = '全部', limit?: number) {
   const userId = await getUserId()
+  // 每日定时任务在 Cloudflare scheduled 里以 ctx.waitUntil 后台方式补生成逾期账单，
+  // 一旦该后台调用失败（网络抖动/冷启动等），列表页永远不会自己重试，逾期账单就会"凑巧"漏生成。
+  // 这里在读列表时兜底再跑一次同一个幂等函数（已生成过的账期会被 onConflictDoNothing 跳过），
+  // 保证只要有人打开合同列表，逾期账单就一定是最新的，不再依赖定时任务是否真的跑成功。
+  await ensureOverdueRentBills(userId)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')]
   if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
@@ -293,6 +298,9 @@ export async function getRentalById(id: number) {
 
 export async function getDashboard() {
   const userId = await getUserId()
+  // 看板的应收/逾期应收统计依赖 rentals.totalRent，而 totalRent 只有在逾期账单生成后才会被
+  // ensureOverdueRentBills 重新汇总更新，同样需要兜底自愈，否则会和列表页一样漏算当天到期的逾期租金。
+  await ensureOverdueRentBills(userId)
   const [[summary], [draftSummary], deviceRows] = await Promise.all([
     db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
