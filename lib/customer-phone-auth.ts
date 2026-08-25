@@ -220,10 +220,22 @@ async function sessionPhone() {
   return session ? { phone: session.phone, shopId: session.shopId } : null
 }
 
+// 供客户本人登录后使用（凭手机短信验证码建立的会话），只能读取自己的数据。
 export async function getCustomerActiveRentals() {
   const customerSession = await sessionPhone()
   if (!customerSession?.shopId) return null
-  const { phone, shopId } = customerSession
+  return buildActiveRentalsPayload(customerSession.shopId, customerSession.phone)
+}
+
+// 供商家后台「客户服务」页面使用：管理员已通过 getAccessContext 鉴权，
+// 直接以自己的 ownerId 作为 shopId 查看名下某个客户的数据，
+// 用来在后台原样预览客户登录后会看到的内容，不依赖客户的验证码会话。
+// 返回结构与 getCustomerActiveRentals 完全一致，因此可以复用同一个展示组件。
+export async function getCustomerActiveRentalsForOwner(ownerId: string, phone: string) {
+  return buildActiveRentalsPayload(ownerId, phone)
+}
+
+async function buildActiveRentalsPayload(shopId: string, phone: string) {
   const [customer] = await db.select({ name: customerPortals.customerName, assigneeUserId: customerPortals.assigneeUserId }).from(customerPortals).where(and(eq(customerPortals.userId, shopId), eq(customerPortals.phone, phone), eq(customerPortals.status, 'active'))).limit(1)
   if (!customer) return null
   const [[shop], [assignee]] = await Promise.all([

@@ -6,6 +6,7 @@ import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { customerPhoneSessions, customerPortals, rentals } from '@/lib/db/schema'
 import { getAccessContext } from '@/lib/access'
+import { getCustomerActiveRentalsForOwner } from '@/lib/customer-phone-auth'
 
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
@@ -48,6 +49,15 @@ export async function setCustomerPortalStatus(phone: string, status: 'active' | 
   await db.update(customerPortals).set({ status, sessionVersion: sql`${customerPortals.sessionVersion} + 1`, updatedAt: new Date() }).where(and(eq(customerPortals.userId, ownerId), eq(customerPortals.phone, normalizedPhone)))
   if (status === 'paused') await db.delete(customerPhoneSessions).where(and(eq(customerPhoneSessions.shopId, ownerId), eq(customerPhoneSessions.phone, normalizedPhone)))
   revalidatePath('/customer-portals')
+}
+
+// 供「客户服务」页面的“预览客户视图”按钮使用：管理员只能在自己名下（ownerId 已由 getAccessContext 鉴权确定）
+// 预览客户登录后看到的画面，无法越权查看其他商家的客户数据。返回数据结构与客户本人登录时完全一致。
+export async function getCustomerPreview(phone: string) {
+  const { userId: ownerId } = await getAccessContext('系统设置')
+  const data = await getCustomerActiveRentalsForOwner(ownerId, normalizePhone(phone))
+  if (!data) throw new Error('该客户当前没有可预览的在租合同')
+  return data
 }
 
 export async function revokeCustomerSessions(phone: string) {
