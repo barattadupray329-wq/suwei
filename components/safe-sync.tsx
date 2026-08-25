@@ -4,9 +4,14 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type SyncState = { version: string; state: string; overdueReceivable: number; outstandingReceivable: number }
-type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线'
+type SyncStatus = '已同步' | '正在同步' | '操作中，暂停更新' | '离线' | '待命'
 
 const POLL_INTERVAL = 15_000
+// 页面开着但用户 5 分钟内没有任何操作（鼠标/键盘/触摸/滚动）时，认为进入待命状态，
+// 把轮询间隔拉长到 2 分钟，大幅降低数据库读取次数；一旦检测到任何操作，立即唤醒并
+// 恢复到 15 秒的高频轮询，保证「有人在用」时依然能快速感知到别处的变更。
+const IDLE_THRESHOLD = 5 * 60_000
+const IDLE_POLL_INTERVAL = 2 * 60_000
 const QUIET_PERIOD = 3_000
 
 function hasActiveWork() {
@@ -24,6 +29,8 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
   const baseline = useRef<SyncState | null>(null)
   const lastInteraction = useRef(Date.now())
   const refreshing = useRef(false)
+  const usingIdleInterval = useRef(false)
+  const wakeUp = useRef<() => void>(() => {})
   const [status, setStatus] = useState<SyncStatus>('已同步')
   const [displayVersion, setDisplayVersion] = useState(initialVersion)
   const [overdueReceivable, setOverdueReceivable] = useState<number | null>(null)
@@ -32,8 +39,16 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
   const protectedByOperator = useCallback(() => hasActiveWork() || Date.now() - lastInteraction.current < QUIET_PERIOD, [])
 
   useEffect(() => {
-    const markInteraction = () => { lastInteraction.current = Date.now() }
-    const events: (keyof DocumentEventMap)[] = ['input', 'change', 'keydown', 'pointerdown', 'submit']
+    const markInteraction = () => {
+      lastInteraction.current = Date.now()
+      // 当前轮询处于「待命」慢频状态时，任何操作都应立即唤醒并恢复到高频轮询，
+      // 而不是等到下一次 2 分钟的慢周期才响应。
+      if (usingIdleInterval.current) {
+        usingIdleInterval.current = false
+        wakeUp.current()
+      }
+    }
+    const events: (keyof DocumentEventMap)[] = ['input', 'change', 'keydown', 'pointerdown', 'submit', 'mousemove', 'wheel', 'touchstart']
     events.forEach((event) => document.addEventListener(event, markInteraction, true))
     return () => events.forEach((event) => document.removeEventListener(event, markInteraction, true))
   }, [])
@@ -43,11 +58,18 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
 
-    const schedule = () => { timer = setTimeout(check, POLL_INTERVAL) }
+    const isIdleNow = () => Date.now() - lastInteraction.current >= IDLE_THRESHOLD
+    const idleStatus = (operatorIsBusy: boolean) => (operatorIsBusy ? '操作中，暂停更新' : isIdleNow() ? '待命' : '已同步')
+    const schedule = () => {
+      // 用「即将调度的这一次」是否处于待命态来决定间隔：5 分钟无操作则降频到 2 分钟一次，
+      // 有操作时保持 15 秒一次；markInteraction 里会在 usingIdleInterval 为 true 时立即唤醒。
+      usingIdleInterval.current = isIdleNow()
+      timer = setTimeout(check, usingIdleInterval.current ? IDLE_POLL_INTERVAL : POLL_INTERVAL)
+    }
     const check = async () => {
       if (stopped) return
       if (document.hidden || !navigator.onLine) {
-        setStatus(navigator.onLine ? '已同步' : '离线')
+        setStatus(navigator.onLine ? idleStatus(false) : '离线')
         schedule()
         return
       }
@@ -61,7 +83,7 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
         if (!baseline.current) {
           baseline.current = next
           setDisplayVersion(next.version)
-          setStatus(operatorIsBusy ? '操作中，暂停更新' : '已同步')
+          setStatus(idleStatus(operatorIsBusy))
         } else if ((next.state !== baseline.current.state || next.version !== baseline.current.version) && !refreshing.current) {
           if (next.version !== baseline.current.version) {
             // 发布版本升级必须优先于「正在编辑」判断：旧 JS 已经失效，继续停留只会在下次跳转时报错。
@@ -78,17 +100,19 @@ export function SafeSync({ initialVersion }: { initialVersion: string }) {
             setStatus('正在同步')
             baseline.current = next
             router.refresh()
-            window.setTimeout(() => { refreshing.current = false; setStatus('已同步') }, 1500)
+            window.setTimeout(() => { refreshing.current = false; setStatus(idleStatus(false)) }, 1500)
           }
         } else {
-          setStatus(operatorIsBusy ? '操作中，暂停更新' : '已同步')
+          setStatus(idleStatus(operatorIsBusy))
         }
       } catch {
-        setStatus(navigator.onLine ? '已同步' : '离线')
+        setStatus(navigator.onLine ? idleStatus(false) : '离线')
       }
       schedule()
     }
-    const onVisible = () => { if (!document.hidden) check() }
+    const wake = () => { clearTimeout(timer); check() }
+    wakeUp.current = wake
+    const onVisible = () => { if (!document.hidden) wake() }
     document.addEventListener('visibilitychange', onVisible)
     check()
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
