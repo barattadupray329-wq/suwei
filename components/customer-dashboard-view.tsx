@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { AlertTriangle, ArrowLeft, CalendarDays, ChevronRight, CircleUserRound, Eye, Layers, LogOut, Monitor, Phone, ReceiptText, Store, Wallet, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, ArrowLeft, CalendarDays, ChevronRight, CircleUserRound, Eye, Layers, LogOut, Monitor, Phone, ReceiptText, Store, Wallet } from 'lucide-react'
 import Link from 'next/link'
 import { formatDeviceConfig, getDeviceConfigSummary } from '@/lib/device-config'
 import type { getCustomerActiveRentals } from '@/lib/customer-phone-auth'
@@ -86,23 +86,39 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
       </section> : <section className="rounded-2xl border border-dashed bg-card p-10 text-center"><Monitor className="mx-auto size-10 text-muted-foreground" /><h2 className="mt-4 font-semibold">暂无当前在租信息</h2><p className="mt-2 text-sm text-muted-foreground">已退租或已结束的合同不会在这里显示。</p></section>}
     </div>
 
-    {/* 点击某一行弹出的完整明细：从底部滑出的浮层，点击遮罩或关闭按钮收起 */}
-    {selectedContract && <ContractDetailSheet contract={selectedContract} items={itemsFor(selectedContract.id)} onClose={() => setSelectedId(null)} />}
+    {/* 点击某一行后打开的完整明细：不是弹窗浮层，而是整块顶替当前内容的详情页（类似手机端"点进去看"的
+        钻取导航），避免在已经是预览弹窗的场景里出现"弹窗叠弹窗"的悬浮卡片。 */}
+    {selectedContract && <ContractDetailPage contract={selectedContract} items={itemsFor(selectedContract.id)} onClose={() => setSelectedId(null)} />}
   </main>
 }
 
-function ContractDetailSheet({ contract, items, onClose }: { contract: Contract; items: RentalItem[]; onClose: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/40 sm:items-center sm:p-4" onClick={onClose}>
-    <div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
-      <div className="flex items-center justify-between gap-3 border-b p-5">
-        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="font-bold">合同 {contract.contractNo}</h2><span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div><p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{contract.startDate} 至 {contract.endDate}</p></div>
-        <button type="button" aria-label="关闭详情" onClick={onClose} className="shrink-0 rounded-full border p-2 text-muted-foreground"><X className="size-4" /></button>
-      </div>
-      <div className="overflow-y-auto">
-        <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4"><Summary label="月租金" value={money(contract.monthlyRent)} /><Summary label="合同总额" value={money(contract.totalRent)} /><Summary label="已支付" value={money(contract.paidAmount)} /><Summary label="押金" value={money(contract.deposit)} /></div>
-        <section className="flex flex-col gap-3 p-5"><h3 className="flex items-center gap-2 font-semibold"><Layers className="size-4 text-primary" />设备明细</h3>{items.length ? items.map((item) => <div key={item.id} className="rounded-xl border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.deviceName}</p><p className="mt-1 text-sm text-muted-foreground">{item.deviceType}{item.deviceCode ? ` · 设备编号 ${item.deviceCode}` : ''}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-sm">× {item.quantity}</span></div><p className="mt-3 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(item) || '配置详情请联系负责人'}</p><div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>租期：{item.startDate || contract.startDate} 至 {item.endDate || contract.endDate}</span><span>月租：{money(item.monthlyRent)}</span><span>合计：{money(item.totalRent)}</span></div></div>) : <div className="rounded-xl bg-muted p-4"><div className="flex items-start justify-between gap-3"><p className="font-medium">{contract.deviceName} · {contract.deviceType} · 共 {contract.quantity} 台</p></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(contract) || '配置详情请联系负责人'}</p></div>}</section>
-        {contract.notes ? <footer className="flex items-start gap-2 border-t bg-muted/50 px-5 py-4 text-sm text-muted-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>{contract.notes}</span></footer> : null}
-      </div>
+function ContractDetailPage({ contract, items, onClose }: { contract: Contract; items: RentalItem[]; onClose: () => void }) {
+  // 挂载后一帧再把 translate-y-full 去掉，形成从底部滑入的过渡；关闭时先滑出再真正卸载，
+  // 这样整块详情页顶替内容区，而不是悬浮在页面正中间的独立卡片。
+  const [entered, setEntered] = useState(false)
+  const [closing, setClosing] = useState(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setEntered(true))
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      cancelAnimationFrame(frame)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
+  const handleClose = () => {
+    setClosing(true)
+    setTimeout(onClose, 200)
+  }
+  return <div className={`fixed inset-0 z-50 flex flex-col overflow-y-auto bg-background transition-transform duration-200 ease-out ${entered && !closing ? 'translate-y-0' : 'translate-y-full'}`}>
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur">
+      <button type="button" aria-label="返回列表" onClick={handleClose} className="shrink-0 rounded-full border p-2 text-muted-foreground"><ArrowLeft className="size-4" /></button>
+      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-bold">合同 {contract.contractNo}</h2><span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div><p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{contract.startDate} 至 {contract.endDate}</p></div>
+    </div>
+    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 py-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Summary label="月租金" value={money(contract.monthlyRent)} /><Summary label="合同总额" value={money(contract.totalRent)} /><Summary label="已支付" value={money(contract.paidAmount)} /><Summary label="押金" value={money(contract.deposit)} /></div>
+      <section className="mt-4 flex flex-col gap-3"><h3 className="flex items-center gap-2 font-semibold"><Layers className="size-4 text-primary" />设备明细</h3>{items.length ? items.map((item) => <div key={item.id} className="rounded-xl border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.deviceName}</p><p className="mt-1 text-sm text-muted-foreground">{item.deviceType}{item.deviceCode ? ` · 设备编号 ${item.deviceCode}` : ''}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-sm">× {item.quantity}</span></div><p className="mt-3 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(item) || '配置详情请联系负责人'}</p><div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>租期：{item.startDate || contract.startDate} 至 {item.endDate || contract.endDate}</span><span>月租：{money(item.monthlyRent)}</span><span>合计：{money(item.totalRent)}</span></div></div>) : <div className="rounded-xl border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><p className="font-medium">{contract.deviceName} · {contract.deviceType} · 共 {contract.quantity} 台</p></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(contract) || '配置详情请联系负责人'}</p></div>}</section>
+      {contract.notes ? <footer className="mt-4 flex items-start gap-2 rounded-xl border bg-muted/50 p-4 text-sm text-muted-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>{contract.notes}</span></footer> : null}
     </div>
   </div>
 }
