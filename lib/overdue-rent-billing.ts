@@ -6,6 +6,30 @@ import { addCalendarDays, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
+// getRentals / getDashboard / 合同详情页都会在"页面被加载"时被动触发 ensureOverdueRentBills 做自愈，
+// 而 Next.js 的链接预加载（hover 预取、同屏多个 tab 同时预取）会在同一瞬间对同一用户并发发起
+// 好几个这样的调用。D1 底层是 SQLite，写操作全局互斥，一旦这些并发调用都撞上"确实有账单要补生成"
+// 的窗口，其中一个的批量写入就可能因为锁冲突而抛异常——如果不做防护，这个异常会直接冒泡炸穿整个页面
+// （Next.js 错误边界会把整页替换成"页面暂时无法加载"）。
+// 这里做成"尽力而为"：失败先重试一次（短暂随机延迟避开瞬时锁冲突），仍失败则只打日志、不抛出，
+// 让页面照常用已有数据渲染——自愈这次没跑成功，最多是账单still暂时没补上，绝不能因为这个后台兜底
+// 逻辑本身的失败去拖垮一个原本只是"读数据"的页面。
+export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await ensureOverdueRentBills(userId, today, rentalId)
+    } catch (error) {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 80 + Math.floor(Math.random() * 160)))
+        continue
+      }
+      console.error('[v0] ensureOverdueRentBillsSafely 自愈失败，跳过本次补生成:', error)
+      return { created: 0, amount: '0.00' }
+    }
+  }
+  return { created: 0, amount: '0.00' }
+}
+
 export async function ensureOverdueRentBills(userId: string, today = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date()), rentalId?: number) {
