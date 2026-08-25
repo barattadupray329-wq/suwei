@@ -42,6 +42,13 @@ jobs:
       - name: 运行测试
         run: pnpm test
 
+      # 之前没有任何步骤设置 APP_VERSION，导致每次部署都回退成固定的 "dev"，
+      # 界面上的版本号永远不变——不仅没法用来判断线上是否是最新代码，
+      # SafeSync 组件也因此永远检测不到版本变化，无法在部署后自动刷新用户页面。
+      # 这里用北京时间生成一个「构建时间」作为版本号，两个问题一起解决。
+      - name: 生成构建版本号（北京时间）
+        run: echo "APP_VERSION=$(TZ='Asia/Shanghai' date +'%y%m%d.%H%M')" >> "$GITHUB_ENV"
+
       # 部署前必须成功通过类型检查和全部测试，任何一步失败都会中止，
       # 绝不会把有问题的代码部署上线。
       - name: 构建并部署到 Cloudflare
@@ -52,3 +59,4 @@ jobs:
           # Better Auth 在模块加载（也就是构建阶段）就会校验这个值非空，
           # 缺失会导致 `next build` 直接失败，必须在这里显式传入。
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          APP_VERSION: ${{ env.APP_VERSION }}
