@@ -1,11 +1,17 @@
-import { AlertTriangle, ArrowLeft, CalendarDays, ChevronDown, CircleUserRound, Eye, Layers, LogOut, Monitor, Phone, ReceiptText, Store, Wallet } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
+import { AlertTriangle, ArrowLeft, CalendarDays, ChevronRight, CircleUserRound, Eye, Layers, LogOut, Monitor, Phone, ReceiptText, Store, Wallet, X } from 'lucide-react'
 import Link from 'next/link'
 import { formatDeviceConfig, getDeviceConfigSummary } from '@/lib/device-config'
 import type { getCustomerActiveRentals } from '@/lib/customer-phone-auth'
 
 export type CustomerDashboardData = NonNullable<Awaited<ReturnType<typeof getCustomerActiveRentals>>>
+type Contract = CustomerDashboardData['contracts'][number]
+type RentalItem = CustomerDashboardData['items'][number]
+
 const money = (value: string) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value))
-const outstanding = (contract: CustomerDashboardData['contracts'][number]) => Math.max(0, Number(contract.totalRent) - Number(contract.paidAmount))
+const outstanding = (contract: Contract) => Math.max(0, Number(contract.totalRent) - Number(contract.paidAmount))
 const statusTone = (status: string) => status === '逾期' ? 'border-destructive/30 bg-destructive/10 text-destructive' : status === '即将到期' ? 'border-accent/40 bg-accent/15 text-foreground' : 'border-primary/30 bg-primary/10 text-primary'
 
 // mode="live"：客户本人通过短信验证码登录后看到的真实页面（/customer）。
@@ -13,13 +19,24 @@ const statusTone = (status: string) => status === '逾期' ? 'border-destructive
 // 用来确认客户登录后到底能看到什么，而不需要客户提供验证码。两种模式渲染逻辑完全一致，
 // 唯一区别是顶部导航——预览模式下没有真实登录会话，因此隐藏「退出」按钮，改为提示条。
 export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerDashboardData; mode?: 'live' | 'preview' }) {
+  // 合同列表默认只展示一行摘要（台数/是否到期/待付款/简要配置），点某一行才弹出完整明细，
+  // 避免像手风琴逐条展开那样占用大量竖向空间，客户扫一眼列表就能看懂整体情况。
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
   const maskedPhone = `${data.phone.slice(0, 3)}****${data.phone.slice(-4)}`
-  const totalDevices = data.contracts.reduce((sum, contract) => {
-    const items = data.items.filter((item) => item.rentalId === contract.id)
-    return sum + (items.length ? items.reduce((s, item) => s + item.quantity, 0) : contract.quantity)
-  }, 0)
+  const itemsFor = (contractId: number) => data.items.filter((item) => item.rentalId === contractId)
+  const summaryFor = (contract: Contract) => {
+    const items = itemsFor(contract.id)
+    const totalQty = items.length ? items.reduce((sum, item) => sum + item.quantity, 0) : contract.quantity
+    const deviceNames = items.length ? Array.from(new Set(items.map((item) => item.deviceName))).join('、') : contract.deviceName
+    const configSummary = items.length ? getDeviceConfigSummary(items[0]) : getDeviceConfigSummary(contract)
+    return { items, totalQty, deviceNames, configSummary }
+  }
+
+  const totalDevices = data.contracts.reduce((sum, contract) => sum + summaryFor(contract).totalQty, 0)
   const totalOutstanding = data.contracts.reduce((sum, contract) => sum + outstanding(contract), 0)
   const dueSoonCount = data.contracts.filter((contract) => contract.status === '即将到期' || contract.status === '逾期').length
+  const selectedContract = data.contracts.find((contract) => contract.id === selectedId) ?? null
 
   return <main className="min-h-svh bg-background pb-10">
     {mode === 'preview' && <div className="flex items-center justify-center gap-2 bg-accent px-4 py-2 text-center text-sm font-medium text-foreground"><Eye className="size-4" />以下画面与客户登录后看到的内容完全一致（只读预览）</div>}
@@ -47,39 +64,47 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
         {data.assignee.phone ? <a className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-primary" href={`tel:${data.assignee.phone}`}><Phone className="size-4" />{data.assignee.phone}</a> : <p className="text-sm text-muted-foreground">联系电话暂未设置</p>}
       </article>}
 
-      {/* 每份合同默认只显示摘要（状态、设备数量与简要配置、到期日、应付金额），点击可展开查看完整明细 */}
-      {data.contracts.length ? <section className="flex flex-col gap-3">
-        {data.contracts.map((contract) => {
-          const items = data.items.filter((item) => item.rentalId === contract.id)
-          const deviceSummary = items.length
-            ? items.map((item) => `${item.deviceName} × ${item.quantity}`).join('、')
-            : `${contract.deviceName} × ${contract.quantity}`
-          const configSummary = items.length
-            ? getDeviceConfigSummary(items[0])
-            : getDeviceConfigSummary(contract)
-          const owed = outstanding(contract)
-          return <details key={contract.id} className="group overflow-hidden rounded-2xl border bg-card shadow-sm">
-            <summary className="flex cursor-pointer list-none flex-col gap-3 p-5 [&::-webkit-details-marker]:hidden sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2"><h2 className="font-bold">合同 {contract.contractNo}</h2><span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div>
-                <p className="mt-1.5 truncate text-sm text-muted-foreground">{deviceSummary}{configSummary ? ` · ${configSummary}` : ''}</p>
-                <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{contract.startDate} 至 {contract.endDate}</p>
+      {/* 紧凑列表：每份合同一行，扫一眼就能看清台数/到期状态/待付款，点击整行才弹出完整明细 */}
+      {data.contracts.length ? <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <div className="flex flex-col divide-y">
+          {data.contracts.map((contract) => {
+            const { totalQty, deviceNames, configSummary } = summaryFor(contract)
+            const owed = outstanding(contract)
+            return <button key={contract.id} type="button" onClick={() => setSelectedId(contract.id)} className="flex items-center gap-3 p-4 text-left transition-colors hover:bg-muted/50 active:bg-muted">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-semibold">{contract.contractNo}</span><span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{deviceNames} · 共 {totalQty} 台{configSummary ? ` · ${configSummary}` : ''}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">至 {contract.endDate} 到期</p>
               </div>
-              <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-1">
-                <div className="text-left sm:text-right"><p className="text-xs text-muted-foreground">{owed > 0 ? '待支付' : '付款状态'}</p><p className={`font-semibold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
-                <ChevronDown className="size-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+              <div className="flex shrink-0 items-center gap-1.5">
+                <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待支付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
+                <ChevronRight className="size-4 text-muted-foreground" />
               </div>
-            </summary>
-            <div className="border-t">
-              <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4"><Summary label="月租金" value={money(contract.monthlyRent)} /><Summary label="合同总额" value={money(contract.totalRent)} /><Summary label="已支付" value={money(contract.paidAmount)} /><Summary label="押金" value={money(contract.deposit)} /></div>
-              <section className="flex flex-col gap-3 p-5"><h3 className="flex items-center gap-2 font-semibold"><Layers className="size-4 text-primary" />设备明细</h3>{items.length ? items.map((item) => <div key={item.id} className="rounded-xl border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.deviceName}</p><p className="mt-1 text-sm text-muted-foreground">{item.deviceType}{item.deviceCode ? ` · 设备编号 ${item.deviceCode}` : ''}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-sm">× {item.quantity}</span></div><p className="mt-3 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(item) || '配置详情请联系负责人'}</p><div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>租期：{item.startDate || contract.startDate} 至 {item.endDate || contract.endDate}</span><span>月租：{money(item.monthlyRent)}</span><span>合计：{money(item.totalRent)}</span></div></div>) : <div className="rounded-xl bg-muted p-4"><div className="flex items-start justify-between gap-3"><p className="font-medium">{contract.deviceName} · {contract.deviceType} · 共 {contract.quantity} 台</p></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(contract) || '配置详情请联系负责人'}</p></div>}</section>
-              {contract.notes ? <footer className="flex items-start gap-2 border-t bg-muted/50 px-5 py-4 text-sm text-muted-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>{contract.notes}</span></footer> : null}
-            </div>
-          </details>
-        })}
+            </button>
+          })}
+        </div>
       </section> : <section className="rounded-2xl border border-dashed bg-card p-10 text-center"><Monitor className="mx-auto size-10 text-muted-foreground" /><h2 className="mt-4 font-semibold">暂无当前在租信息</h2><p className="mt-2 text-sm text-muted-foreground">已退租或已结束的合同不会在这里显示。</p></section>}
     </div>
+
+    {/* 点击某一行弹出的完整明细：从底部滑出的浮层，点击遮罩或关闭按钮收起 */}
+    {selectedContract && <ContractDetailSheet contract={selectedContract} items={itemsFor(selectedContract.id)} onClose={() => setSelectedId(null)} />}
   </main>
+}
+
+function ContractDetailSheet({ contract, items, onClose }: { contract: Contract; items: RentalItem[]; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/40 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="flex items-center justify-between gap-3 border-b p-5">
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="font-bold">合同 {contract.contractNo}</h2><span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div><p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{contract.startDate} 至 {contract.endDate}</p></div>
+        <button type="button" aria-label="关闭详情" onClick={onClose} className="shrink-0 rounded-full border p-2 text-muted-foreground"><X className="size-4" /></button>
+      </div>
+      <div className="overflow-y-auto">
+        <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4"><Summary label="月租金" value={money(contract.monthlyRent)} /><Summary label="合同总额" value={money(contract.totalRent)} /><Summary label="已支付" value={money(contract.paidAmount)} /><Summary label="押金" value={money(contract.deposit)} /></div>
+        <section className="flex flex-col gap-3 p-5"><h3 className="flex items-center gap-2 font-semibold"><Layers className="size-4 text-primary" />设备明细</h3>{items.length ? items.map((item) => <div key={item.id} className="rounded-xl border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.deviceName}</p><p className="mt-1 text-sm text-muted-foreground">{item.deviceType}{item.deviceCode ? ` · 设备编号 ${item.deviceCode}` : ''}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-sm">× {item.quantity}</span></div><p className="mt-3 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(item) || '配置详情请联系负责人'}</p><div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>租期：{item.startDate || contract.startDate} 至 {item.endDate || contract.endDate}</span><span>月租：{money(item.monthlyRent)}</span><span>合计：{money(item.totalRent)}</span></div></div>) : <div className="rounded-xl bg-muted p-4"><div className="flex items-start justify-between gap-3"><p className="font-medium">{contract.deviceName} · {contract.deviceType} · 共 {contract.quantity} 台</p></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(contract) || '配置详情请联系负责人'}</p></div>}</section>
+        {contract.notes ? <footer className="flex items-start gap-2 border-t bg-muted/50 px-5 py-4 text-sm text-muted-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>{contract.notes}</span></footer> : null}
+      </div>
+    </div>
+  </div>
 }
 
 function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: typeof Monitor; label: string; value: string; tone?: 'default' | 'destructive' | 'accent' | 'primary' | 'muted' }) {
