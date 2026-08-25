@@ -402,7 +402,7 @@ export function RentalRecords({
             {money(overdueReceivable)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            当���查询中已逾期仍未收
+            当前查询中已逾期仍未收
           </p>
         </article>
       </section>
