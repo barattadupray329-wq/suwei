@@ -49,3 +49,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Better Auth 在模块加载（也就是构建阶段）就会校验这个值非空，
+          # 缺失会导致 `next build` 直接失败，必须在这里显式传入。
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
