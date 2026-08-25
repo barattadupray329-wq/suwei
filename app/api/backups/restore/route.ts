@@ -20,13 +20,13 @@ export async function POST(request: Request) {
   try {
     if (!isTrustedMutationRequest(request)) return NextResponse.json({ error: '请求来源无效' }, { status: 403 })
     if (contentLengthExceeds(request, MAX_RESTORE_BYTES)) return NextResponse.json({ error: '备份文件过大，最大支持 10 MB' }, { status: 413 })
-    const { userId, role } = await getAccessContext('系统设置')
+    const { userId, role, actorId, actorName } = await getAccessContext('系统设置')
     if (role === 'employee') return NextResponse.json({ error: '仅管理员可恢复数据' }, { status: 403 })
     const body = await request.json() as { mode?: 'preview' | 'restore'; payload?: unknown; confirmation?: string }
     const payload = validateBackup(body.payload, userId)
     const summary = { createdAt: payload.createdAt, schemaVersion: payload.schemaVersion, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), counts: Object.fromEntries(Object.entries(payload.tables).map(([name, rows]) => [name, rows.length])) }
     if (body.mode !== 'restore') return NextResponse.json({ summary })
     if (body.confirmation !== '确认恢复') return NextResponse.json({ error: '请输入“确认恢复”后再执行' }, { status: 400 })
-    return NextResponse.json({ restored: await restoreBackup(userId, payload) })
+    return NextResponse.json({ restored: await restoreBackup(userId, payload, { actorId, actorName }) })
   } catch (error) { return NextResponse.json({ error: translateRestoreError(error) }, { status: 400 }) }
 }

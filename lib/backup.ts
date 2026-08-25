@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, like } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { MAX_CLOUD_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
+import { writeAuditLog } from '@/lib/audit'
+import { computeDailySnapshotsToPrune, MAX_MANUAL_SNAPSHOTS, MAX_PRE_RESTORE_SNAPSHOTS, shanghaiDateKey } from '@/lib/backup-policy'
 import { accountLedger, backupSnapshots, businessSettings, buyoutRecords, contractSnapshots, customerPortals, lossRecords, notificationPolicies, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, smsDeliveryLogs } from '@/lib/db/schema'
 
 export const BACKUP_VERSION = 3
@@ -28,15 +29,27 @@ export function validateBackup(value: unknown, userId: string) {
   }
   return payload
 }
-async function pruneCloudSnapshots(userId: string) {
-  const stale = await db.select({ id: backupSnapshots.id }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).offset(MAX_CLOUD_SNAPSHOTS)
+// 三类快照各自独立保留策略：
+// - daily:YYYY-MM-DD：按分层策略保留（近14天全留，15-90天每周1份，91-365天每月1份）
+// - manual：手动备份，固定保留最近 MAX_MANUAL_SNAPSHOTS 份
+// - pre-restore：恢复前自动保护点，固定保留最近 MAX_PRE_RESTORE_SNAPSHOTS 份
+async function pruneCappedSnapshots(userId: string, backupType: string, max: number) {
+  const stale = await db.select({ id: backupSnapshots.id }).from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.backupType, backupType))).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).offset(max)
   if (stale.length) await db.delete(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), inArray(backupSnapshots.id, stale.map((row) => row.id))))
+}
+
+async function pruneDailySnapshots(userId: string) {
+  const rows = await db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType }).from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), like(backupSnapshots.backupType, 'daily:%')))
+  const snapshots = rows.map((row) => ({ id: row.id, dateKey: row.backupType.slice('daily:'.length) }))
+  const toPrune = computeDailySnapshotsToPrune(snapshots)
+  if (toPrune.length) await db.delete(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), inArray(backupSnapshots.id, toPrune)))
 }
 
 export async function saveCloudSnapshot(userId: string, backupType = 'manual') {
   const payload = await buildBackup(userId)
   const [snapshot] = await db.insert(backupSnapshots).values({ userId, backupType, schemaVersion: BACKUP_VERSION, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), payload }).returning()
-  await pruneCloudSnapshots(userId)
+  if (backupType === 'manual') await pruneCappedSnapshots(userId, 'manual', MAX_MANUAL_SNAPSHOTS)
+  else if (backupType === 'pre-restore') await pruneCappedSnapshots(userId, 'pre-restore', MAX_PRE_RESTORE_SNAPSHOTS)
   return snapshot
 }
 
@@ -46,11 +59,14 @@ export async function ensureDailyCloudSnapshot(userId: string) {
   if (existing) return { created: false, snapshot: existing }
   const payload = await buildBackup(userId)
   const [snapshot] = await db.insert(backupSnapshots).values({ userId, backupType, schemaVersion: BACKUP_VERSION, recordCount: countBackupRecords(payload), checksum: backupChecksum(payload), payload }).returning()
-  await pruneCloudSnapshots(userId)
+  await pruneDailySnapshots(userId)
   return { created: true, snapshot }
 }
 
-export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).limit(MAX_CLOUD_SNAPSHOTS) }
+// 分层保留后总量上限约为：14（每日全留）+ 11（周度，90天内约11周）+ 9（月度，365天内约9个月）
+// + MAX_MANUAL_SNAPSHOTS + MAX_PRE_RESTORE_SNAPSHOTS，取整为 100 留有余量
+const SNAPSHOT_LIST_LIMIT = 100
+export async function listCloudSnapshots(userId: string) { return db.select({ id: backupSnapshots.id, backupType: backupSnapshots.backupType, schemaVersion: backupSnapshots.schemaVersion, recordCount: backupSnapshots.recordCount, checksum: backupSnapshots.checksum, status: backupSnapshots.status, createdAt: backupSnapshots.createdAt }).from(backupSnapshots).where(eq(backupSnapshots.userId, userId)).orderBy(desc(backupSnapshots.createdAt), desc(backupSnapshots.id)).limit(SNAPSHOT_LIST_LIMIT) }
 export async function getCloudSnapshot(userId: string, id: number) { const [row] = await db.select().from(backupSnapshots).where(and(eq(backupSnapshots.userId, userId), eq(backupSnapshots.id, id))); if (!row) throw new Error('备份不存在'); return row }
 
 function hydrateBackupRow(row: unknown) {
@@ -65,7 +81,7 @@ function hydrateBackupRow(row: unknown) {
   }))
 }
 
-export async function restoreBackup(userId: string, rawPayload: unknown) {
+export async function restoreBackup(userId: string, rawPayload: unknown, actor?: { actorId: string; actorName: string }) {
   const payload = validateBackup(rawPayload, userId)
   await saveCloudSnapshot(userId, 'pre-restore')
   const deletionOrder = [smsDeliveryLogs, rentalOperations, notificationPolicies, paymentAllocations, paymentDiscounts, accountLedger, paymentRecords, receivableBills, rentalEvents, returnRecords, lossRecords, buyoutRecords, renewalAdjustments, renewalRecords, contractSnapshots, customerPortals, rentalItems, rentals, businessSettings] as const
@@ -76,5 +92,14 @@ export async function restoreBackup(userId: string, rawPayload: unknown) {
       if (rows.length) await tx.insert(table).values(rows.map(hydrateBackupRow) as never)
     }
   })
-  return { recordCount: countBackupRecords(payload), checksum: backupChecksum(payload) }
+  const result = { recordCount: countBackupRecords(payload), checksum: backupChecksum(payload) }
+  if (actor) {
+    await writeAuditLog({ userId, actorId: actor.actorId, actorName: actor.actorName }, {
+      action: '恢复数据',
+      resourceType: '数据备份',
+      summary: `从 ${payload.createdAt} 生成的备份恢复数据，共 ${result.recordCount} 条记录`,
+      metadata: { backupCreatedAt: payload.createdAt, schemaVersion: payload.schemaVersion, recordCount: result.recordCount, checksum: result.checksum },
+    })
+  }
+  return result
 }

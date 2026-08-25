@@ -17,6 +17,11 @@ export default {
       if (!response.ok) throw new Error(`到期提醒任务失败：HTTP ${response.status}`)
       console.info('[cron] 到期提醒任务完成', await response.json())
     })())
+    ctx.waitUntil((async () => {
+      const response = await handler.fetch(new Request('https://www.tuzhuzu.cn/api/cron/daily-backup', { method: 'POST', headers: { authorization: `Bearer ${env.CRON_SECRET}` } }), env, ctx)
+      if (!response.ok) throw new Error(`每日备份任务失败：HTTP ${response.status}`)
+      console.info('[cron] 每日备份任务完成', await response.json())
+    })())
   },
 } satisfies ExportedHandler<WorkerEnv>
 
