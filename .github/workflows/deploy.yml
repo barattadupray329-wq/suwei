@@ -1,0 +1,51 @@
+name: 部署到 Cloudflare
+
+# 只有代码真正合并进 tuzhuzucn 主分支时才会触发部署。
+# 任何人在某个临时会话/沙盒里手动执行 `pnpm run deploy` 都不再代表线上真实状态——
+# 这条流水线才是唯一被信任的部署来源，从根源上避免「旧沙盒覆盖新代码」导致的功能回退。
+on:
+  push:
+    branches:
+      - tuzhuzucn
+
+# 避免同一时间有两次部署互相抢跑：只保留最新一次触发的部署，
+# 排队中的旧任务会被自动取消，线上最终一定停在最新提交对应的版本。
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: 测试并部署
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm exec tsc --noEmit
+
+      - name: 运行测试
+        run: pnpm test
+
+      # 部署前必须成功通过类型检查和全部测试，任何一步失败都会中止，
+      # 绝不会把有问题的代码部署上线。
+      - name: 构建并部署到 Cloudflare
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
