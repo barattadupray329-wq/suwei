@@ -467,7 +467,13 @@ export function RentalRecords({
                           {row.customerName} · {row.customerPhone}
                         </p>
                       </td>
-                <td className="p-3">{row.deviceBreakdown}</td>
+                <td className="p-3">
+                  <div className="flex flex-col gap-0.5">
+                    {row.deviceBreakdown.split("、").map((part) => (
+                      <span key={part}>{part}</span>
+                    ))}
+                  </div>
+                </td>
                       <td className="p-3">
                         {row.startDate}
                         <p className="text-xs font-medium text-primary">
