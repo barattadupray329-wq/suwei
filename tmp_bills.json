@@ -1,0 +1,510 @@
+[
+  {
+    "results": [
+      {
+        "id": 1785046929130281,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 9,
+        "billType": "续租费",
+        "amount": "480",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277010,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 9,
+        "billType": "续租费",
+        "amount": "240.00",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277011,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 9,
+        "billType": "续租费",
+        "amount": "240.00",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1785046929130282,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 10,
+        "billType": "续租费",
+        "amount": "80",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277012,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 10,
+        "billType": "续租费",
+        "amount": "40.00",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277013,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 10,
+        "billType": "续租费",
+        "amount": "40.00",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1785046929130283,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 11,
+        "billType": "续租费",
+        "amount": "80",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277014,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 11,
+        "billType": "续租费",
+        "amount": "40.00",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277015,
+        "rentalId": 1785115046743231,
+        "renewalRecordId": 11,
+        "billType": "续租费",
+        "amount": "40.00",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1785046929130297,
+        "rentalId": 1784969117370529,
+        "renewalRecordId": 12,
+        "billType": "续租费",
+        "amount": "90",
+        "dueDate": "2026-07-26",
+        "periodStart": "2026-07-25"
+      },
+      {
+        "id": 1785046929130298,
+        "rentalId": 1784962443913772,
+        "renewalRecordId": 13,
+        "billType": "续租费",
+        "amount": "90",
+        "dueDate": "2026-07-26",
+        "periodStart": "2026-07-13"
+      },
+      {
+        "id": 1785139479218205,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 15,
+        "billType": "续租费",
+        "amount": "560",
+        "dueDate": "2026-03-26",
+        "periodStart": "2026-03-26"
+      },
+      {
+        "id": 1787567190277016,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 15,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-03-26",
+        "periodStart": "2026-03-26"
+      },
+      {
+        "id": 1787567190277017,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 15,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-04-26",
+        "periodStart": "2026-04-26"
+      },
+      {
+        "id": 1787567190277018,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 15,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-05-26",
+        "periodStart": "2026-05-26"
+      },
+      {
+        "id": 1787567190277019,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 15,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-06-26",
+        "periodStart": "2026-06-26"
+      },
+      {
+        "id": 1785139479218206,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 16,
+        "billType": "续租费",
+        "amount": "80",
+        "dueDate": "2026-03-26",
+        "periodStart": "2026-03-26"
+      },
+      {
+        "id": 1787567190277020,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 16,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-03-26",
+        "periodStart": "2026-03-26"
+      },
+      {
+        "id": 1787567190277021,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 16,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-04-26",
+        "periodStart": "2026-04-26"
+      },
+      {
+        "id": 1787567190277022,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 16,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-05-26",
+        "periodStart": "2026-05-26"
+      },
+      {
+        "id": 1787567190277023,
+        "rentalId": 1785138886354887,
+        "renewalRecordId": 16,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-06-26",
+        "periodStart": "2026-06-26"
+      },
+      {
+        "id": 1785139479218207,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 17,
+        "billType": "续租费",
+        "amount": "420",
+        "dueDate": "2026-07-27",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277024,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 17,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277025,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 17,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1787567190277026,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 17,
+        "billType": "续租费",
+        "amount": "140.00",
+        "dueDate": "2026-06-08",
+        "periodStart": "2026-06-08"
+      },
+      {
+        "id": 1785139479218208,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 18,
+        "billType": "续租费",
+        "amount": "60",
+        "dueDate": "2026-07-27",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277027,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 18,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-04-08",
+        "periodStart": "2026-04-08"
+      },
+      {
+        "id": 1787567190277028,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 18,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1787567190277029,
+        "rentalId": 1785139479218104,
+        "renewalRecordId": 18,
+        "billType": "续租费",
+        "amount": "20.00",
+        "dueDate": "2026-06-08",
+        "periodStart": "2026-06-08"
+      },
+      {
+        "id": 1785143318963339,
+        "rentalId": 1785136194377063,
+        "renewalRecordId": 22,
+        "billType": "续租费",
+        "amount": "200",
+        "dueDate": "2026-07-27",
+        "periodStart": "2026-07-26"
+      },
+      {
+        "id": 1785145709960603,
+        "rentalId": 1785145709960502,
+        "renewalRecordId": 23,
+        "billType": "续租费",
+        "amount": "260",
+        "dueDate": "2026-12-19",
+        "periodStart": "2025-12-19"
+      },
+      {
+        "id": 1787567190277030,
+        "rentalId": 1785145709960502,
+        "renewalRecordId": 23,
+        "billType": "续租费",
+        "amount": "130.00",
+        "dueDate": "2025-12-19",
+        "periodStart": "2025-12-19"
+      },
+      {
+        "id": 1787567190277031,
+        "rentalId": 1785145709960502,
+        "renewalRecordId": 23,
+        "billType": "续租费",
+        "amount": "130.00",
+        "dueDate": "2026-01-19",
+        "periodStart": "2026-01-19"
+      },
+      {
+        "id": 1785146196257064,
+        "rentalId": 1785146196256962,
+        "renewalRecordId": 24,
+        "billType": "续租费",
+        "amount": "1200",
+        "dueDate": "2026-05-08",
+        "periodStart": "2026-05-08"
+      },
+      {
+        "id": 1785146196257065,
+        "rentalId": 1785146196256962,
+        "renewalRecordId": 25,
+        "billType": "续租费",
+        "amount": "200",
+        "dueDate": "2026-06-08",
+        "periodStart": "2026-06-08"
+      },
+      {
+        "id": 1785146196257066,
+        "rentalId": 1785146196256962,
+        "renewalRecordId": 26,
+        "billType": "续租费",
+        "amount": "200",
+        "dueDate": "2026-07-08",
+        "periodStart": "2026-07-08"
+      },
+      {
+        "id": 1785223235106463,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "800",
+        "dueDate": "2026-06-13",
+        "periodStart": "2025-11-12"
+      },
+      {
+        "id": 1787567190277032,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2025-11-12",
+        "periodStart": "2025-11-12"
+      },
+      {
+        "id": 1787567190277033,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2025-12-12",
+        "periodStart": "2025-12-12"
+      },
+      {
+        "id": 1787567190277034,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-01-12",
+        "periodStart": "2026-01-12"
+      },
+      {
+        "id": 1787567190277035,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-02-12",
+        "periodStart": "2026-02-12"
+      },
+      {
+        "id": 1787567190277036,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-03-12",
+        "periodStart": "2026-03-12"
+      },
+      {
+        "id": 1787567190277037,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-04-12",
+        "periodStart": "2026-04-12"
+      },
+      {
+        "id": 1787567190277038,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-05-12",
+        "periodStart": "2026-05-12"
+      },
+      {
+        "id": 1787567190277039,
+        "rentalId": 1785223235106362,
+        "renewalRecordId": 27,
+        "billType": "续租费",
+        "amount": "100.00",
+        "dueDate": "2026-06-12",
+        "periodStart": "2026-06-12"
+      },
+      {
+        "id": 1785231891482326,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 28,
+        "billType": "续租费",
+        "amount": "1110",
+        "dueDate": "2026-06-18",
+        "periodStart": "2026-03-18"
+      },
+      {
+        "id": 1787567190277040,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 28,
+        "billType": "续租费",
+        "amount": "370.00",
+        "dueDate": "2026-03-18",
+        "periodStart": "2026-03-18"
+      },
+      {
+        "id": 1787567190277041,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 28,
+        "billType": "续租费",
+        "amount": "370.00",
+        "dueDate": "2026-04-18",
+        "periodStart": "2026-04-18"
+      },
+      {
+        "id": 1787567190277042,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 28,
+        "billType": "续租费",
+        "amount": "370.00",
+        "dueDate": "2026-05-18",
+        "periodStart": "2026-05-18"
+      },
+      {
+        "id": 1785231891482327,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 29,
+        "billType": "续租费",
+        "amount": "180",
+        "dueDate": "2026-06-18",
+        "periodStart": "2026-03-18"
+      },
+      {
+        "id": 1787567190277043,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 29,
+        "billType": "续租费",
+        "amount": "60.00",
+        "dueDate": "2026-03-18",
+        "periodStart": "2026-03-18"
+      },
+      {
+        "id": 1787567190277044,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 29,
+        "billType": "续租费",
+        "amount": "60.00",
+        "dueDate": "2026-04-18",
+        "periodStart": "2026-04-18"
+      },
+      {
+        "id": 1787567190277045,
+        "rentalId": 1785231891482225,
+        "renewalRecordId": 29,
+        "billType": "续租费",
+        "amount": "60.00",
+        "dueDate": "2026-05-18",
+        "periodStart": "2026-05-18"
+      },
+      {
+        "id": 1785231891482328,
+        "rentalId": 1785224585291122,
+        "renewalRecordId": 30,
+        "billType": "续租费",
+        "amount": "521.9",
+        "dueDate": "2026-07-08",
+        "periodStart": "2026-07-08"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "APAC",
+      "served_by_colo": "SIN",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.7982
+      },
+      "duration": 0.7982,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 17223680,
+      "rows_read": 503,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
