@@ -8,7 +8,7 @@ import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerCreditLedger, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
-import { billPaymentPeriodSummary, billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAdjustment, renewalAmount, toCents } from '@/lib/rental-calculations'
+import { billPaymentPeriodSummary, billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
 import { toActionResult } from '@/lib/action-result'
@@ -604,7 +604,7 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   const eventDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
   // 每张账单要用「该账期当时实际在租的设备数量」而不是当前设备数量来算差额：
   // 如果这台设备在此次调租前的某个时间点发生过退租/丢失/买断，较早的账期实际数量会比现在多，
-  // ���当前数量统一乘算会把较早账期的差额算错。
+  // 拿当前数量统一乘算会把较早账期的差额算错。
   const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts]
   let totalDeltaCents = 0
   const affected: Array<{ billId: number; billNo: string; periods: number; deltaCents: number }> = []
