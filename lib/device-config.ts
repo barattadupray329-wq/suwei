@@ -35,3 +35,9 @@ export function getDeviceConfigRows(device: DeviceConfigLike) {
 export function formatDeviceConfig(device: DeviceConfigLike, includeEmpty = false) {
   return getDeviceConfigRows(device).filter(row => includeEmpty || row.value.trim()).map(row => `${row.label}：${row.value}`).join(' / ')
 }
+
+// 用于列表中的一行简短配置提示（不带字段名，只取前几项非空值），
+// 例如台式机显示为 "i5-12400F · 16G · 512G"，供客户订单卡片折叠状态下展示。
+export function getDeviceConfigSummary(device: DeviceConfigLike, maxFields = 3) {
+  return getDeviceConfigRows(device).map((row) => row.value.trim()).filter(Boolean).slice(0, maxFields).join(' · ')
+}
