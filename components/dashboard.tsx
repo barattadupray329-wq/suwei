@@ -2444,7 +2444,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   const [endDate, setEndDate] = useState(rental.endDate);
   const routes = [
     { title: "客户少要或部分不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
-    { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
+     { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
     { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
     { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
@@ -2899,13 +2899,25 @@ function DetailFinance({
   const totalPaid = Math.round(Number(rental.paidAmount) * 100);
   const totalOutstanding = Math.max(0, totalReceivable - totalPaid);
   const accountBalance = Math.max(0, totalPaid - totalReceivable);
-  let settlementCredit = totalPaid + Math.abs(adjustmentCents);
+  // "已抵扣"判断依赖 rental.paidAmount（合同总已收）与"各期账单已收金额之和"严格一致这个前提——
+  // 只有当合同总已收确实比逐期账单已知的已收总和多出一块钱（说明这块钱被减免/账户余额顶掉了、
+  // 没有落在具体某一期账单的 paidAmount 上），才需要把这笔差额按到期日顺序摊派给逐期账单去判断"已抵扣"。
+  // 如果历史数据不一致（例如某笔调整只改了合同总额没同步改账单，或反过来），
+  // 摊派逻辑会把这个不一致的差额错误地扣到其他本该正常显示"待收/逾期"的账单上。
+  // 因此这里用 recordedPaidSum 兜底：差额为 0 或负数时直接跳过摊派，全部按账单自己的 paidAmount 走。
+  const recordedPaidSumCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.paidAmount) * 100), 0);
+  const unallocatedCreditCents = Math.max(0, totalPaid + Math.abs(adjustmentCents) - recordedPaidSumCents);
+  let settlementCredit = unallocatedCreditCents;
   const effectivePaidByBill = new Map<number, number>();
-  for (const bill of [...rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
-    const amountCents = Math.round(Number(bill.amount) * 100);
-    const settledCents = Math.min(amountCents, settlementCredit);
-    effectivePaidByBill.set(bill.id, settledCents);
-    settlementCredit -= settledCents;
+  if (settlementCredit > 0) {
+    for (const bill of [...rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
+      const amountCents = Math.round(Number(bill.amount) * 100);
+      const recordedCents = Math.round(Number(bill.paidAmount) * 100);
+      const gapCents = Math.max(0, amountCents - recordedCents);
+      const settledCents = Math.min(gapCents, settlementCredit);
+      effectivePaidByBill.set(bill.id, recordedCents + settledCents);
+      settlementCredit -= settledCents;
+    }
   }
   const hasOutstanding = totalOutstanding > 0;
   const billingUnit = normalizeBillingUnit(rental.billingType);
@@ -2941,8 +2953,8 @@ function DetailFinance({
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">期数</th><th className="px-3 py-2.5">账期</th><th className="px-3 py-2.5">应收 / 已收</th><th className="px-3 py-2.5">约定还款日</th><th className="px-3 py-2.5">实际到账</th><th className="px-3 py-2.5">状态</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead>
               <tbody className="divide-y">
                 {rentBills.map((bill, index) => {
-                  const effectivePaidCents = effectivePaidByBill.get(bill.id) ?? 0;
                   const recordedPaidCents = Math.round(Number(bill.paidAmount) * 100);
+                  const effectivePaidCents = effectivePaidByBill.get(bill.id) ?? recordedPaidCents;
                   const outstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - effectivePaidCents);
                   const offsetCents = Math.max(0, effectivePaidCents - recordedPaidCents);
                   const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
