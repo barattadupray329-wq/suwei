@@ -159,7 +159,7 @@ const rentalQuerySchema = z.object({
   assignee: z.string().trim().max(100).default(''),
   orderType: z.enum(['all', 'draft', 'test', 'official']).default('all'),
   lifecycleStatus: z.enum(['active', 'trash']).default('active'),
-  sort: z.enum(['newest', 'oldest', 'due', 'amount', 'outstanding']).default('newest'),
+  sort: z.enum(['newest', 'oldest', 'due', 'due_desc', 'amount', 'outstanding']).default('newest'),
   receivable: z.enum(['all', 'outstanding', 'overdue', 'upcoming']).default('all'),
   page: z.coerce.number().int().min(1).max(500000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -196,7 +196,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
-  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
+  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'due_desc' ? desc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额或录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
@@ -803,7 +803,7 @@ export async function reverseAllRenewals(input: z.input<typeof renewalReversalSc
   const statements: Array<Parameters<typeof db.batch>[0][number]> = []
 
   for (const item of itemState.values()) statements.push(db.update(rentalItems).set({ quantity: item.quantity, endDate: item.endDate, monthlyRent: item.monthlyRent, totalRent: item.totalRent, updatedAt: reversedAt }).where(and(eq(rentalItems.id, item.id), eq(rentalItems.userId, userId))))
-  for (const renewal of renewals) statements.push(db.update(renewalRecords).set({ status: '已冲正', reversedAt, reversedBy: access.actorId, reversalReason: value.reason }).where(and(eq(renewalRecords.id, renewal.id), eq(renewalRecords.userId, userId), eq(renewalRecords.status, '有效'))))
+  for (const renewal of renewals) statements.push(db.update(renewalRecords).set({ status: '已冲���', reversedAt, reversedBy: access.actorId, reversalReason: value.reason }).where(and(eq(renewalRecords.id, renewal.id), eq(renewalRecords.userId, userId), eq(renewalRecords.status, '有效'))))
   for (const bill of bills) statements.push(db.update(receivableBills).set({ paidAmount: '0', status: '已冲正', reversedAt, notes: `${bill.notes ?? ''}${bill.notes ? '；' : ''}续租已冲正：${value.reason}`, updatedAt: reversedAt }).where(and(eq(receivableBills.id, bill.id), eq(receivableBills.userId, userId))))
   for (const [index, payment] of paymentsToReverse.entries()) {
     const reversalId = Date.now() * 1000 + index
@@ -1089,7 +1089,7 @@ export async function buyoutRentalItem(rentalId: number, rentalItemId: number, q
     db.insert(receivableBills).values({ id: buyoutId, userId, rentalId, billNo: `BUYOUT-${rentalId}-${buyoutId}`, periodStart: buyoutDate, periodEnd: buyoutDate, dueDate: settlement.date, billType: '买断费', amount: String(amount), paidAmount: settlement.timing === 'now' ? String(amount) : '0', status: settlement.timing === 'now' ? '已结清' : '待收', notes: `${item.deviceName} ${quantity} 台买断；${settlement.timing === 'now' ? '本次已收款' : '约定以后收款'}` }),
     db.insert(rentalEvents).values({ userId, rentalId, itemId: rentalItemId, eventType: '买断', status: '已完成', eventDate: buyoutDate, beforeSnapshot: { availableQuantity: remaining }, afterSnapshot: { availableQuantity: remaining - quantity, boughtOutQuantity: nextBought, settlement: settlement.timing }, feeAdjustment: String(amount), operatorName: access.actorName, notes }),
     db.update(rentals).set({ quantity: availableAfter, totalRent: String(nextTotal), paidAmount: String(paidAmount), status: rentalLifecycleStatus(nextItems), paymentStatus: paidAmount >= nextTotal ? '已结清' : paidAmount > 0 ? '部分收款' : '待收款', updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
-    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '办理买断', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} 买断 ${item.deviceName} ${quantity} 台，${settlement.timing === 'now' ? '已收' : '待收'} ${amount.toFixed(2)} 元`, metadata: { rentalItemId, quantity, amount, settlement: settlement.timing } }),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '办理买断', resourceType: '租赁合���', resourceId: String(rentalId), summary: `${rental.contractNo} 买断 ${item.deviceName} ${quantity} 台，${settlement.timing === 'now' ? '已收' : '待收'} ${amount.toFixed(2)} 元`, metadata: { rentalItemId, quantity, amount, settlement: settlement.timing } }),
   ]
   if (settlement.timing === 'now') statements.push(
     db.insert(paymentRecords).values({ id: buyoutId, userId, rentalId, buyoutRecordId: buyoutId, amount: String(amount), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '买断费', operatorName: access.actorName, notes: `${item.deviceName} ${quantity} 台买断即时收款` }),

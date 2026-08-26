@@ -33,7 +33,7 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
   }
 
   const requestedSort = value('sort')
-  const sort = (['newest', 'oldest', 'due', 'amount', 'outstanding'].includes(requestedSort) ? requestedSort : 'newest') as 'newest' | 'oldest' | 'due' | 'amount' | 'outstanding'
+  const sort = (['newest', 'oldest', 'due', 'due_desc', 'amount', 'outstanding'].includes(requestedSort) ? requestedSort : 'newest') as 'newest' | 'oldest' | 'due' | 'due_desc' | 'amount' | 'outstanding'
   const requestedReceivable = value('receivable')
   const receivable = (['outstanding', 'overdue', 'upcoming'].includes(requestedReceivable) ? requestedReceivable : 'all') as 'all' | 'outstanding' | 'overdue' | 'upcoming'
   const requestedType = value('orderType')

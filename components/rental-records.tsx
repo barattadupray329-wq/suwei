@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition, type FormEvent, type MouseEvent } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -174,6 +177,17 @@ export function RentalRecords({
     });
     return `/rentals?${params}`;
   };
+  const dueSort = filters.sort === "due" || filters.sort === "due_desc" ? filters.sort : null;
+  const sortHref = (nextSort: string) => {
+    const params = new URLSearchParams();
+    Object.entries({ ...filters, sort: nextSort, page: 1 }).forEach(
+      ([key, value]) => {
+        if (value && value !== "全部" && value !== "newest")
+          params.set(key, String(value));
+      },
+    );
+    return `/rentals?${params}`;
+  };
   const navigateLink = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return;
@@ -312,7 +326,8 @@ export function RentalRecords({
             >
               <option value="newest">最新录入</option>
               <option value="oldest">最早录入</option>
-              <option value="due">即将到期</option>
+              <option value="due">到期最少到最多</option>
+              <option value="due_desc">到期最多到最少</option>
               <option value="amount">合同金额</option>
               <option value="outstanding">待收金额</option>
             </select>
@@ -466,7 +481,43 @@ export function RentalRecords({
                     <th className="p-3">设备</th>
                     <th className="p-3">租期</th>
                     <th className="p-3">期数</th>
-                    <th className="p-3">到期提醒</th>
+                    <th className="p-3">
+                      <span className="inline-flex items-center gap-1">
+                        到期提醒
+                        <Link
+                          href={sortHref(dueSort === "due" ? "due_desc" : "due")}
+                          onClick={(event) =>
+                            navigateLink(
+                              event,
+                              sortHref(dueSort === "due" ? "due_desc" : "due"),
+                            )
+                          }
+                          aria-label={
+                            dueSort === "due"
+                              ? "已按到期最少到最多排序，点击切换为到期最多到最少"
+                              : dueSort === "due_desc"
+                                ? "已按到期最多到最少排序，点击切换为到期最少到最多"
+                                : "按到期时间排序"
+                          }
+                          title={
+                            dueSort === "due"
+                              ? "到期最少到最多"
+                              : dueSort === "due_desc"
+                                ? "到期最多到最少"
+                                : "按到期时间排序"
+                          }
+                          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                        >
+                          {dueSort === "due" ? (
+                            <ArrowUp className="size-3.5 text-primary" />
+                          ) : dueSort === "due_desc" ? (
+                            <ArrowDown className="size-3.5 text-primary" />
+                          ) : (
+                            <ArrowUpDown className="size-3.5" />
+                          )}
+                        </Link>
+                      </span>
+                    </th>
                     <th className="p-3">金额</th>
                     <th className="p-3">状态</th>
                     <th className="p-3">负责人</th>
