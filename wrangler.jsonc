@@ -47,13 +47,12 @@
 	],
 	"observability": {
 		"enabled": true
-	},
-	// 默认每次调用限 30 秒 CPU 时间（付费计划最高可设 300000ms）。列表页/看板页背后的"逾期账单
-	// 自愈"全店铺扫描在数据量较大或高并发时曾把单次调用的 CPU 用超，触发 Error 1102
-	// "Worker exceeded resource limits"。这里把上限调到 2 分钟留出安全余量，配合
-	// overdue-rent-billing.ts 里改成跨 Worker 副本共享的 D1 节流锁（而非仅单副本内存节流）
-	// 一起使用——节流锁从根上防止同一用户的重复全店铺扫描并发执行，这里只是兜底余量。
-	"limits": {
-		"cpu_ms": 120000
 	}
+	// 注意：这个账号目前是 Cloudflare Workers Free 计划，Free 计划不允许自定义 limits.cpu_ms
+	// （试过设置直接导致部署失败：code 100328 "CPU limits are not supported for the Free plan"），
+	// 且 Free 计划每次请求本身就只有 10ms CPU 时间（付费计划是 30s，还可以调到最高 300000ms）。
+	// 也就是说这个账号下"CPU 用超"的容错空间比想象中小得多。真正的修复是 overdue-rent-billing.ts
+	// 里把"逾期账单自愈"全店铺扫描的节流状态从模块级 Map 改成 D1 表共享的原子锁，从根上防止同一
+	// 用户的重复全店铺扫描在多个 Worker 副本里并发执行。如果以后升级到付费计划，可以在这里加回
+	// "limits": { "cpu_ms": <想要的值，最高 300000 > } 作为额外安全余量。
 }
