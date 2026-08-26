@@ -103,6 +103,35 @@ const overdueDays = (row: Row) => {
 };
 const outstanding = (row: Row) =>
   Math.max(0, Number(row.totalRent) - Number(row.paidAmount));
+const CLOSED_STATUSES = ["已退租", "已结束", "已关闭", "已完成"];
+const dueReminder = (row: Row) => {
+  if (CLOSED_STATUSES.includes(displayStatus(row))) return null;
+  const today = new Date(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(
+      new Date(),
+    ),
+  );
+  const diffDays = Math.floor(
+    (new Date(`${row.endDate}T00:00:00+08:00`).getTime() - today.getTime()) /
+      86_400_000,
+  );
+  if (diffDays > 0)
+    return {
+      label: `${diffDays} 天后到期`,
+      tone:
+        diffDays <= 3
+          ? "font-semibold text-destructive"
+          : diffDays <= 7
+            ? "font-medium text-accent-foreground"
+            : "text-muted-foreground",
+    };
+  if (diffDays === 0)
+    return { label: "今天到期", tone: "font-semibold text-destructive" };
+  return {
+    label: `已逾期 ${Math.abs(diffDays)} 天`,
+    tone: "font-semibold text-destructive",
+  };
+};
 
 export function RentalRecords({
   rows,
@@ -430,13 +459,14 @@ export function RentalRecords({
         {rows.length ? (
           <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[980px] text-left text-sm">
+              <table className="w-full min-w-[1080px] text-left text-sm">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>
                     <th className="p-3">合同与客户</th>
                     <th className="p-3">设备</th>
                     <th className="p-3">租期</th>
                     <th className="p-3">期数</th>
+                    <th className="p-3">到期提醒</th>
                     <th className="p-3">金额</th>
                     <th className="p-3">状态</th>
                     <th className="p-3">负责人</th>
@@ -507,6 +537,18 @@ export function RentalRecords({
                         <p className="mt-1 text-xs text-muted-foreground">
                           合计 {row.periodCount}{" "}
                           {row.billingUnit === "daily" ? "天" : "期"}（含续租）
+                        </p>
+                      </td>
+                      <td className="p-3">
+                        {dueReminder(row) ? (
+                          <p className={`whitespace-nowrap text-sm ${dueReminder(row)!.tone}`}>
+                            {dueReminder(row)!.label}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">—</p>
+                        )}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          到期日 {row.endDate}
                         </p>
                       </td>
                       <td className="p-3">
@@ -594,6 +636,11 @@ export function RentalRecords({
                     <div>
                       <p className="text-xs text-muted-foreground">到期日</p>
                       <p>{row.endDate}</p>
+                      {dueReminder(row) && (
+                        <p className={`text-xs ${dueReminder(row)!.tone}`}>
+                          {dueReminder(row)!.label}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">合同金额</p>
