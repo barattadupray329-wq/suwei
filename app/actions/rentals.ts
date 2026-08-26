@@ -474,7 +474,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
     if (collectRent && rentBills.length && collection) statements.push(
-      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租��', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
+      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
       // 一次性收款拆成多条分配记录，逐一对应拆分后的每期起租预收账单，保证每期各自结清。
       ...rentBills.map((bill) => db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: bill.id, amount: bill.amount })),
     )
