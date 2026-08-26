@@ -202,7 +202,10 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const effectiveEndDateSql = sql<string>`(select max(d) from (
     select ${rentals.endDate} as d
     union all select max(ri.endDate) from rental_items ri where ri.userId = ${rentals.userId} and ri.rentalId = ${rentals.id} and ri.endDate is not null
-    union all select max(b.periodEnd) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id}
+    union all select max(b.periodEnd) from receivable_bills b
+      where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id}
+        and b.billType != '押金' and cast(b.amount as real) > 0
+        and b.status not in ('已冲正', '已减免', '已抵扣', '已调整', '已取消')
   ))`
   const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(effectiveEndDateSql) : value.sort === 'due_desc' ? desc(effectiveEndDateSql) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
@@ -214,6 +217,12 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     else 3
   end`
   const offset = (value.page - 1) * value.pageSize
+  // 「到期提醒」排序是用户专门为了看清"谁最快/最晚到期"而点的，业务优先级分组（逾期待收
+  // 置顶、终态沉底）会把这份顺序打断成好几段，看起来跟没排一样——所以这两种排序显式跳过
+  // 分组，直接按到期日整体排序；其余排序方式（默认/金额/待收）保留分组，行为不变。
+  const orderBy = value.sort === 'due' || value.sort === 'due_desc'
+    ? [order, desc(rentals.id)]
+    : [asc(businessPriority), order, desc(rentals.id)]
   const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
@@ -221,7 +230,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
       expectedReceivable: sql<string>`coalesce(sum(${outstandingAmount}), 0)`,
       overdueReceivable: sql<string>`coalesce(sum(${overdueOutstandingAmount}), 0)`,
     }).from(rentals).where(where),
-    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(asc(businessPriority), order, desc(rentals.id)).limit(value.pageSize).offset(offset),
+    db.select({ id: rentals.id, orderType: rentals.orderType, lifecycleStatus: rentals.lifecycleStatus, deletedAt: rentals.deletedAt, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerPhone: rentals.customerPhone, deviceName: rentals.deviceName, quantity: rentals.quantity, billingType: rentals.billingType, startDate: rentals.startDate, endDate: rentals.endDate, totalRent: rentals.totalRent, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, assigneeName: rentals.assigneeName, createdAt: rentals.createdAt }).from(rentals).where(where).orderBy(...orderBy).limit(value.pageSize).offset(offset),
   ])
   const itemRows = rows.length
     ? await db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), inArray(rentalItems.rentalId, rows.map((row) => row.id))))
@@ -865,7 +874,7 @@ export async function collectPayment(id: number, input: PaymentInput) {
       db.insert(accountLedger).values({ userId, rentalId: id, entryType: '收款优惠', amount: centsToMoney(-discountCents), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前用户', notes: value.notes }),
     )
   }
-  if (value.feeType === '押金') statements.push(db.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: String(value.amount), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前用户', notes: value.notes }))
+  if (value.feeType === '押金') statements.push(db.insert(accountLedger).values({ userId, rentalId: id, entryType: '押金收取', amount: String(value.amount), entryDate: value.paymentDate, paymentRecordId: paymentId, operatorName: '当前客户', notes: value.notes }))
   for (const allocation of allocations) {
     const bill = bills.find(item => item.id === allocation.billId)!
     const nextPaidCents = moneyToCents(bill.paidAmount) + allocation.amountCents
