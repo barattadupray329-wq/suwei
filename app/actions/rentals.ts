@@ -547,7 +547,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const available = availableQuantity(item)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
       const newEndDate = value.billingUnit === 'month' ? addCalendarMonths(oldEndDate, value.duration) : addCalendarDays(oldEndDate, value.duration)
-      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不���致`)
+      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不一致`)
       const amount = Number(renewalAmount(value.quantity, value.unitPrice, value.duration))
       addedRent = Number(fromCents(toCents(addedRent) + toCents(amount)))
       const effectiveMonthlyRent = value.billingUnit === 'month' ? value.unitPrice : value.unitPrice * 30

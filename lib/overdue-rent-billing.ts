@@ -65,7 +65,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   }
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   // remainingQuantityAsOf 每次调用都会对传入的数组做一次 filter + reduce。这里是"全店铺扫描"，
-  // disposals 是该商户全部在租合同的处置记录总��；如果直接把这个全量数组传给每一次调用，复杂度是
+  // disposals 是该商户全部在租合同的处置记录总和；如果直接把这个全量数组传给每一次调用，复杂度是
   // 设备数 × 逾期账期数 × 全店处置记录数——账期数会随"距上次成功扫描过去多久"线性增长（每逾期一个月
   // 多一期），店铺规模变大、或者好几天没人访问导致积压账期变多时，这个乘积会迅速放大，正是
   // "放久了/用着用着就报 CPU 超限"的真正根因。这里按设备 id 预先分组一次，之后每次调用只需要扫
