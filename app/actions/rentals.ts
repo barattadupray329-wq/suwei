@@ -196,7 +196,15 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.endDate) filters.push(lte(rentals.endDate, value.endDate))
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
-  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(rentals.endDate) : value.sort === 'due_desc' ? desc(rentals.endDate) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
+  // 到期提醒实际展示的是「有效到期日」——合同自身到期日、各设备明细到期日、账单周期末的最大值
+  // （见下方 normalizedRows 里的 effectiveEndDate），不是 rentals.endDate 原始字段。续租、分设备
+  // 到期的合同两者会不一致，所以排序必须用同一套口径的日期，否则列表顺序和"N天后到期"文案会对不上。
+  const effectiveEndDateSql = sql<string>`(select max(d) from (
+    select ${rentals.endDate} as d
+    union all select max(ri.endDate) from rental_items ri where ri.userId = ${rentals.userId} and ri.rentalId = ${rentals.id} and ri.endDate is not null
+    union all select max(b.periodEnd) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id}
+  ))`
+  const order = value.sort === 'oldest' ? asc(rentals.createdAt) : value.sort === 'due' ? asc(effectiveEndDateSql) : value.sort === 'due_desc' ? desc(effectiveEndDateSql) : value.sort === 'amount' ? desc(sql`cast(${rentals.totalRent} as real)`) : value.sort === 'outstanding' ? desc(outstandingAmount) : desc(rentals.createdAt)
   // 业务优先级始终高于用户选择的次级排序：逾期待收置顶，终态合同沉底。
   // 这样分页后也不会出现逾期合同被金额或录入时间挤到后页，或已结清退租混在办理中合同之间。
   const businessPriority = sql<number>`case
