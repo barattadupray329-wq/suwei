@@ -1,7 +1,7 @@
-import { and, eq, inArray, notInArray } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
-import { buyoutRecords, lossRecords, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { buyoutRecords, lossRecords, overdueHealThrottle, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 import { addCalendarDays, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
@@ -12,30 +12,51 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 // 的窗口，其中一个的批量写入就可能因为锁冲突而抛异常——如果不做防护，这个异常会直接冒泡炸穿整个页面
 // （Next.js 错误边界会把整页替换成"页面暂时无法加载"）。
 // 这里做成"尽力而为"：失败先重试一次（短暂随机延迟避开瞬时锁冲突），仍失败则只打日志、不抛出，
-// 让页面照常用已有数据渲染——自愈这次没跑成功，最多是账单still暂时没补上，绝不能因为这个后台兜底
+// 让页面照常用已有数据渲染——自愈这次没跑成功，最多是账单还暂时没补上，绝不能因为这个后台兜底
 // 逻辑本身的失败去拖垮一个原本只是"读数据"的页面。
 //
 // 不带 rentalId 的"全店铺扫描"（getRentals 列表页 / getDashboard 看板）本身开销就不小：要拉出
 // 该商户全部在租合同及其设备明细、买断/退租/报损记录、全部账单，再在 JS 里逐合同逐设备算一遍逾期账期。
 // 这套业务前端是"多标签页常驻"的 SPA 外壳（经营总览、订单列表、多个订单详情等标签同时挂载），
-// 一旦用户短时间内切换/刷新多个标签，或框架并发预取多个链接，同一个用户的这个全店铺扫描就会在
-// 同一个 Worker 实例里被并发触发好几份——这才是真正把 CPU 撑爆到 "Worker exceeded resource limits"
-// 的元凶，不是单次扫描本身慢。用一个模块级的按 userId 节流：同一用户 30 秒内的重复全店铺扫描直接
-// 跳过、复用"上次已经扫过"的事实，不再重新拉数据、重新计算。这不影响正确性——真正会改变账期状态的
-// 收款/退租/报损/买断操作都会直接调用不带节流的 ensureOverdueRentBills 本身，且每天 01:00 还有
-// 定时任务兜底全量补算；这里节流的只是"被动页面浏览触发的自愈"，最多让新产生的逾期账单延迟半分钟
-// 出现，换来的是同一用户高频并发浏览时不会把 Worker 资源挤爆。
-const lastFullStoreHealAt = new Map<string, number>()
+// 一旦用户短时间内切换/刷新多个标签，或框架并发预取多个链接，同一个用户的这个全店铺扫描就会
+// 被并发触发好几份——这是真正把 CPU 撑爆到 "Worker exceeded resource limits" 的元凶，不是单次
+// 扫描本身慢。用按 userId 节流：同一用户 30 秒内的重复全店铺扫描直接跳过、复用"上次已经扫过"的
+// 事实，不再重新拉数据、重新计算。
+//
+// 节流状态存在 D1 的 overdue_heal_throttle 表里，而不是模块级 Map——Cloudflare 会给同一站点并发
+// 起多个互不共享内存的 Worker 副本，纯内存节流只能防住"同一个 Worker 实例内"的重复扫描，副本之间
+// 完全看不到彼此，高并发（多标签页同时打开、短时间内多人操作）下还是会有好几份全量扫描各自在不同
+// 副本里同时跑，一样能把 CPU 撑爆。这里改成一条原子 UPSERT（INSERT ... ON CONFLICT DO UPDATE ...
+// WHERE 条件不满足就不更新）当"抢锁"：谁的 UPDATE 真正生效（返回行数 > 0）谁才继续往下扫描，抢
+// 不到的直接跳过——所有 Worker 副本共享同一份 D1 状态，从根上防住重复扫描，而不只是单副本内节流。
+// 这不影响正确性——真正会改变账期状态的收款/退租/报损/买断操作都会直接调用不带节流的
+// ensureOverdueRentBills 本身，且每天 01:00 还有定时任务兜底全量补算；这里节流的只是"被动页面
+// 浏览触发的自愈"，最多让新产生的逾期账单延迟半分钟出现，换来的是高并发浏览时不会把 Worker 资源挤爆。
 const FULL_STORE_HEAL_THROTTLE_MS = 30_000
+
+async function tryAcquireFullStoreHealLock(userId: string): Promise<boolean> {
+  const now = Date.now()
+  try {
+    const result = await db.insert(overdueHealThrottle)
+      .values({ userId, lastHealAt: now })
+      .onConflictDoUpdate({
+        target: overdueHealThrottle.userId,
+        set: { lastHealAt: now },
+        setWhere: sql`${overdueHealThrottle.lastHealAt} < ${now - FULL_STORE_HEAL_THROTTLE_MS}`,
+      })
+      .returning({ userId: overdueHealThrottle.userId })
+    return result.length > 0
+  } catch (error) {
+    // 节流表本身出问题（比如迁移还没跑到）不该拖垮自愈——退化为"不节流"，让本次扫描照常执行。
+    console.error('[v0] 全店铺自愈节流锁获取失败，本次不节流直接扫描:', error)
+    return true
+  }
+}
 
 export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number) {
   if (!rentalId) {
-    const now = Date.now()
-    const last = lastFullStoreHealAt.get(userId)
-    if (last && now - last < FULL_STORE_HEAL_THROTTLE_MS) {
-      return { created: 0, amount: '0.00' }
-    }
-    lastFullStoreHealAt.set(userId, now)
+    const acquired = await tryAcquireFullStoreHealLock(userId)
+    if (!acquired) return { created: 0, amount: '0.00' }
   }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -86,7 +107,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   const bills = contracts.flatMap((contract) => {
     const contractItems = itemsByRental.get(contract.id) ?? []
     // 按每个设备明细自己的到期日分组：没有单独续租过的设备仍共用合同级到期日，
-    // 走原有的单笔合并账单；已续租到未来日期的设备单独分组，避免和未续租设备混算或被漏收。
+    // 走原有的单笔合并账单；已续租到未来日期的设备单独分组，避免和未续租设备混算或漏收。
     const groups = new Map<string, { effectiveEndDate: string; items: typeof contractItems }>()
     for (const item of contractItems) {
       const effectiveEndDate = item.endDate ?? contract.endDate
