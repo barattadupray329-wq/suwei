@@ -482,41 +482,43 @@ export function RentalRecords({
                     <th className="p-3">租期</th>
                     <th className="p-3">期数</th>
                     <th className="p-3">
-                      <span className="inline-flex items-center gap-1">
+                      <Link
+                        href={sortHref(dueSort === "due" ? "due_desc" : "due")}
+                        onClick={(event) =>
+                          navigateLink(
+                            event,
+                            sortHref(dueSort === "due" ? "due_desc" : "due"),
+                          )
+                        }
+                        aria-label={
+                          dueSort === "due"
+                            ? "已按到期最少到最多排序，点击切换为到期最多到最少"
+                            : dueSort === "due_desc"
+                              ? "已按到期最多到最少排序，点击切换为到期最少到最多"
+                              : "按到期时间排序"
+                        }
+                        title={
+                          dueSort === "due"
+                            ? "到期最少到最多"
+                            : dueSort === "due_desc"
+                              ? "到期最多到最少"
+                              : "按到期时间排序"
+                        }
+                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 transition-colors ${
+                          dueSort
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-transparent text-muted-foreground hover:border-border hover:bg-background hover:text-foreground"
+                        }`}
+                      >
                         到期提醒
-                        <Link
-                          href={sortHref(dueSort === "due" ? "due_desc" : "due")}
-                          onClick={(event) =>
-                            navigateLink(
-                              event,
-                              sortHref(dueSort === "due" ? "due_desc" : "due"),
-                            )
-                          }
-                          aria-label={
-                            dueSort === "due"
-                              ? "已按到期最少到最多排序，点击切换为到期最多到最少"
-                              : dueSort === "due_desc"
-                                ? "已按到期最多到最少排序，点击切换为到期最少到最多"
-                                : "按到期时间排序"
-                          }
-                          title={
-                            dueSort === "due"
-                              ? "到期最少到最多"
-                              : dueSort === "due_desc"
-                                ? "到期最多到最少"
-                                : "按到期时间排序"
-                          }
-                          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                        >
-                          {dueSort === "due" ? (
-                            <ArrowUp className="size-3.5 text-primary" />
-                          ) : dueSort === "due_desc" ? (
-                            <ArrowDown className="size-3.5 text-primary" />
-                          ) : (
-                            <ArrowUpDown className="size-3.5" />
-                          )}
-                        </Link>
-                      </span>
+                        {dueSort === "due" ? (
+                          <ArrowUp className="size-4" strokeWidth={2.5} />
+                        ) : dueSort === "due_desc" ? (
+                          <ArrowDown className="size-4" strokeWidth={2.5} />
+                        ) : (
+                          <ArrowUpDown className="size-4" strokeWidth={2.5} />
+                        )}
+                      </Link>
                     </th>
                     <th className="p-3">金额</th>
                     <th className="p-3">状态</th>
@@ -598,9 +600,6 @@ export function RentalRecords({
                         ) : (
                           <p className="text-sm text-muted-foreground">—</p>
                         )}
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          到期日 {row.endDate}
-                        </p>
                       </td>
                       <td className="p-3">
                         <p className="font-semibold">{money(row.totalRent)}</p>
