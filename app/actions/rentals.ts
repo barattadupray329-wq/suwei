@@ -158,6 +158,9 @@ const rentalQuerySchema = z.object({
   endDate: z.string().max(10).default(''),
   assignee: z.string().trim().max(100).default(''),
   orderType: z.enum(['all', 'draft', 'test', 'official']).default('all'),
+  // 「在租/退租」是给业务主管平时快速隐藏已处理完的合同用的粗筛选，跟下面 status 字段里
+  // 那些具体的合同状态（买断、部分退租……）不是一回事，所以单独开一个参数，默认 all 不影响现有行为。
+  occupancy: z.enum(['all', 'active', 'returned']).default('all'),
   lifecycleStatus: z.enum(['active', 'trash']).default('active'),
   sort: z.enum(['newest', 'oldest', 'due', 'due_desc', 'amount', 'outstanding']).default('newest'),
   receivable: z.enum(['all', 'outstanding', 'overdue', 'upcoming']).default('all'),
@@ -189,6 +192,13 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
   else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
+  // 「退租」这里特指设备已经不再产生正常租金现金流的合同：整单/部分买断、整单/部分退租、
+  // 已结束（买断和退租混合处理完）。丢失（含部分丢失）不算，因为丢失赔偿款还在追收、
+  // 合同本身没有主动终止，业务上仍当在租跟进——这个分组和「逾期/已到期」是两件独立的事，
+  // 一份逾期未收的在租合同依然属于「在租」，不会因为逾期就被划进「退租」。
+  const occupancyReturnedStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '部分退租']
+  if (value.occupancy === 'returned') filters.push(inArray(rentals.status, occupancyReturnedStatuses))
+  else if (value.occupancy === 'active') filters.push(sql`${rentals.status} not in (${sql.join(occupancyReturnedStatuses.map((status) => sql`${status}`), sql`, `)})`)
   if (value.receivable === 'outstanding') filters.push(hasOutstanding)
   else if (value.receivable === 'overdue') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
   else if (value.receivable === 'upcoming') filters.push(sql`not (${isExpired}) and (${hasOutstanding})`)
@@ -464,7 +474,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
       ...buildBillInsertStatements(identifiedBills.map((bill) => ({ ...bill, paidAmount: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? bill.amount : '0', status: (collectRent && bill.billType !== '押金') || (collectDeposit && bill.billType === '押金') ? '已结清' : '待收' })), userId),
     ]
     if (collectRent && rentBills.length && collection) statements.push(
-      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租金', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
+      db.insert(paymentRecords).values({ id: rentPaymentId, userId, rentalId, amount: totalRent.toFixed(2), paymentDate: collection.paymentDate, paymentMethod: collection.paymentMethod, feeType: '原合同租��', operatorName: access.actorName, notes: '创建正式合同时即时收取租金' }),
       // 一次性收款拆成多条分配记录，逐一对应拆分后的每期起租预收账单，保证每期各自结清。
       ...rentBills.map((bill) => db.insert(paymentAllocations).values({ userId, rentalId, paymentRecordId: rentPaymentId, billId: bill.id, amount: bill.amount })),
     )

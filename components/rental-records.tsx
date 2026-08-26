@@ -49,6 +49,7 @@ type Filters = {
   endDate: string;
   assignee: string;
   orderType: string;
+  occupancy: string;
   lifecycleStatus: string;
   sort: string;
   receivable: string;
@@ -281,7 +282,7 @@ export function RentalRecords({
         onSubmit={submitFilters}
       >
         <div className="surface-content flex flex-col gap-3">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
             <label className="md:col-span-2 xl:col-span-2">
               <span className="sr-only">搜索合同或客户</span>
               <span className="relative block">
@@ -294,6 +295,16 @@ export function RentalRecords({
                 />
               </span>
             </label>
+            <select
+              name="occupancy"
+              defaultValue={filters.occupancy}
+              aria-label="在租/退租"
+              className="h-10 rounded-lg border bg-background px-3 text-sm"
+            >
+              <option value="all">在租+退租</option>
+              <option value="active">仅看在租</option>
+              <option value="returned">仅看退租</option>
+            </select>
             <select
               name="orderType"
               defaultValue={filters.orderType}
