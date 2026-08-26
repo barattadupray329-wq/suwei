@@ -74,15 +74,6 @@ export const aiUsageDaily = sqliteTable('ai_usage_daily', {
   updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [unique().on(table.userId, table.usageDate)])
 
-// 记录"全店铺逾期账单自愈扫描"每个用户最近一次真正执行的时间戳。之前用模块级 Map 做节流，
-// 但 Cloudflare 会给同一站点并发起多个互不共享内存的 Worker 副本，节流状态各自为政，高并发下
-// 仍会把好几份全量扫描同时挤进同一个 Worker 实例，撑爆 CPU 限额（Error 1102）。改成写在这张
-// D1 表里：所有 Worker 副本共享同一份状态，靠一条原子 UPSERT 语句"抢锁"，谁抢到谁才真正扫描。
-export const overdueHealThrottle = sqliteTable('overdue_heal_throttle', {
-  userId: text('userId').primaryKey(),
-  lastHealAt: integer('lastHealAt').notNull(),
-})
-
 export const shops = sqliteTable('shops', { id: text('id').primaryKey(), name: text('name').notNull(), ownerUserId: text('ownerUserId').notNull().unique(), status: text('status').notNull().default('active'), createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`) })
 export const organizationMembers = sqliteTable('organization_members', { id: integer('id').primaryKey({ autoIncrement: true }), shopId: text('shopId'), ownerId: text('ownerId').notNull(), memberUserId: text('memberUserId').notNull().unique(), role: text('role').notNull().default('employee'), active: integer('active', { mode: 'boolean' }).notNull().default(true), permissions: text('permissions').notNull().default('rentals'), updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`) })
 

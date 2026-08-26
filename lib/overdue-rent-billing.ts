@@ -1,63 +1,27 @@
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
-import { buyoutRecords, lossRecords, overdueHealThrottle, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
+import { buyoutRecords, lossRecords, receivableBills, rentalItems, rentals, returnRecords } from '@/lib/db/schema'
 import { addCalendarDays, fromCents, toCents } from '@/lib/rental-calculations'
 import { paymentStatusFromCents } from '@/lib/rental-reconciliation'
 import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
-// getRentals / getDashboard / 合同详情页都会在"页面被加载"时被动触发 ensureOverdueRentBills 做自愈，
-// 而 Next.js 的链接预加载（hover 预取、同屏多个 tab 同时预取）会在同一瞬间对同一用户并发发起
-// 好几个这样的调用。D1 底层是 SQLite，写操作全局互斥，一旦这些并发调用都撞上"确实有账单要补生成"
-// 的窗口，其中一个的批量写入就可能因为锁冲突而抛异常——如果不做防护，这个异常会直接冒泡炸穿整个页面
-// （Next.js 错误边界会把整页替换成"页面暂时无法加载"）。
+// 合同详情页会在"页面被加载"时被动触发 ensureOverdueRentBills 做自愈（第三个参数 rentalId 把
+// 扫描范围限定到这一个合同），而 Next.js 的链接预加载（hover 预取、同屏多个 tab 同时预取）会在
+// 同一瞬间对同一用户并发发起好几个这样的调用。D1 底层是 SQLite，写操作全局互斥，一旦这些并发调用
+// 都撞上"确实有账单要补生成"的窗口，其中一个的批量写入就可能因为锁冲突而抛异常——如果不做防护，
+// 这个异常会直接冒泡炸穿整个页面（Next.js 错误边界会把整页替换成"页面暂时无法加载"）。
 // 这里做成"尽力而为"：失败先重试一次（短暂随机延迟避开瞬时锁冲突），仍失败则只打日志、不抛出，
 // 让页面照常用已有数据渲染——自愈这次没跑成功，最多是账单还暂时没补上，绝不能因为这个后台兜底
 // 逻辑本身的失败去拖垮一个原本只是"读数据"的页面。
 //
-// 不带 rentalId 的"全店铺扫描"（getRentals 列表页 / getDashboard 看板）本身开销就不小：要拉出
-// 该商户全部在租合同及其设备明细、买断/退租/报损记录、全部账单，再在 JS 里逐合同逐设备算一遍逾期账期。
-// 这套业务前端是"多标签页常驻"的 SPA 外壳（经营总览、订单列表、多个订单详情等标签同时挂载），
-// 一旦用户短时间内切换/刷新多个标签，或框架并发预取多个链接，同一个用户的这个全店铺扫描就会
-// 被并发触发好几份——这是真正把 CPU 撑爆到 "Worker exceeded resource limits" 的元凶，不是单次
-// 扫描本身慢。用按 userId 节流：同一用户 30 秒内的重复全店铺扫描直接跳过、复用"上次已经扫过"的
-// 事实，不再重新拉数据、重新计算。
-//
-// 节流状态存在 D1 的 overdue_heal_throttle 表里，而不是模块级 Map——Cloudflare 会给同一站点并发
-// 起多个互不共享内存的 Worker 副本，纯内存节流只能防住"同一个 Worker 实例内"的重复扫描，副本之间
-// 完全看不到彼此，高并发（多标签页同时打开、短时间内多人操作）下还是会有好几份全量扫描各自在不同
-// 副本里同时跑，一样能把 CPU 撑爆。这里改成一条原子 UPSERT（INSERT ... ON CONFLICT DO UPDATE ...
-// WHERE 条件不满足就不更新）当"抢锁"：谁的 UPDATE 真正生效（返回行数 > 0）谁才继续往下扫描，抢
-// 不到的直接跳过——所有 Worker 副本共享同一份 D1 状态，从根上防住重复扫描，而不只是单副本内节流。
-// 这不影响正确性——真正会改变账期状态的收款/退租/报损/买断操作都会直接调用不带节流的
-// ensureOverdueRentBills 本身，且每天 01:00 还有定时任务兜底全量补算；这里节流的只是"被动页面
-// 浏览触发的自愈"，最多让新产生的逾期账单延迟半分钟出现，换来的是高并发浏览时不会把 Worker 资源挤爆。
-const FULL_STORE_HEAL_THROTTLE_MS = 30_000
-
-async function tryAcquireFullStoreHealLock(userId: string): Promise<boolean> {
-  const now = Date.now()
-  try {
-    const result = await db.insert(overdueHealThrottle)
-      .values({ userId, lastHealAt: now })
-      .onConflictDoUpdate({
-        target: overdueHealThrottle.userId,
-        set: { lastHealAt: now },
-        setWhere: sql`${overdueHealThrottle.lastHealAt} < ${now - FULL_STORE_HEAL_THROTTLE_MS}`,
-      })
-      .returning({ userId: overdueHealThrottle.userId })
-    return result.length > 0
-  } catch (error) {
-    // 节流表本身出问题（比如迁移还没跑到）不该拖垮自愈——退化为"不节流"，让本次扫描照常执行。
-    console.error('[v0] 全店铺自愈节流锁获取失败，本次不节流直接扫描:', error)
-    return true
-  }
-}
-
+// 列表页/看板页不再做"不带 rentalId 的全店铺被动扫描"——那种扫描要拉出该商户全部在租合同及其
+// 设备明细、买断/退租/报损记录、全部账单，再逐合同逐设备算一遍逾期账期，账期数还会随距上次成功
+// 扫描过去多久线性增长，店铺数据量变大或积压变多时很容易撑爆 Worker CPU 限制。现在改成"操作哪个
+// 合同才扫哪个合同"：真正会改变账期状态的收款/退租/报损/买断操作，都会在各自的写操作里直接调用
+// 不带节流的 ensureOverdueRentBills 并传入该合同的 rentalId；没被操作过的合同则依赖每天 01:00
+// 的定时任务逐个用户全量补算（cron 里同样是调用不带节流的 ensureOverdueRentBills）。
 export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number) {
-  if (!rentalId) {
-    const acquired = await tryAcquireFullStoreHealLock(userId)
-    if (!acquired) return { created: 0, amount: '0.00' }
-  }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await ensureOverdueRentBills(userId, today, rentalId)
@@ -101,7 +65,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   }
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   // remainingQuantityAsOf 每次调用都会对传入的数组做一次 filter + reduce。这里是"全店铺扫描"，
-  // disposals 是该商户全部在租合同的处置记录总和；如果直接把这个全量数组传给每一次调用，复杂度是
+  // disposals 是该商户全部在租合同的处置记录总��；如果直接把这个全量数组传给每一次调用，复杂度是
   // 设备数 × 逾期账期数 × 全店处置记录数——账期数会随"距上次成功扫描过去多久"线性增长（每逾期一个月
   // 多一期），店铺规模变大、或者好几天没人访问导致积压账期变多时，这个乘积会迅速放大，正是
   // "放久了/用着用着就报 CPU 超限"的真正根因。这里按设备 id 预先分组一次，之后每次调用只需要扫

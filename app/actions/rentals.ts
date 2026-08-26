@@ -77,17 +77,15 @@ export async function getNextRentalNumbers(startDate: string, items: Array<Pick<
   )
 }
 
-export async function getRentals(query = '', status = '全部', limit?: number, skipOverdueHeal = false) {
+export async function getRentals(query = '', status = '全部', limit?: number) {
   const userId = await getUserId()
-  // 每日定时任务在 Cloudflare scheduled 里以 ctx.waitUntil 后台方式补生成逾期账单，
-  // 一旦该后台调用失败（网络抖动/冷启动等），列表页永远不会自己重试，逾期账单就会"凑巧"漏生成。
-  // 这里在读列表时兜底再跑一次同一个幂等函数（已生成过的账期会被 onConflictDoNothing 跳过），
-  // 保证只要有人打开合同列表，逾期账单就一定是最新的，不再依赖定时任务是否真的跑成功。
-  // 用 Safely 版本：列表页会被 Next.js 预加载并发触发多次，写入互相冲突时不能让整页崩掉。
-  // skipOverdueHeal：调用方（如合同详情页）已经针对目标合同单独做过这次自愈扫描时传 true，
-  // 避免同一个请求里再对该商户全部在租合同重复扫一遍——这个全账户扫描本身有实打实的
-  // DB 读取和 JS 计算开销，重复跑会白白叠加 CPU 消耗，在并发高峰更容易撑爆 Worker 资源限制。
-  if (!skipOverdueHeal) await ensureOverdueRentBillsSafely(userId)
+  // 之前这里会在读列表时兜底跑一次全店铺逾期账单自愈（对该商户全部在租合同重新扫一遍），
+  // 用来防止定时任务偶尔失败导致漏生成。但这个全账户扫描本身开销不小——数据量变大、或者积压
+  // 逾期账期变多时很容易撑爆 Worker CPU 资源限制。改成"操作哪个合同才扫哪个合同"：真正会
+  // 改变账期状态的收款/退租/报损/买断操作，都会在各自的写操作里针对那一个合同单独调用
+  // ensureOverdueRentBills（见 collectPayment / buyoutRentalItems / operations.ts 里的退租、
+  // 报损），列表页/看板页本身不再做被动的全量扫描；没人操作过的合同则依赖每天 01:00 的定时任务
+  // 兜底全量补算。
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')]
   if (query) filters.push(or(like(rentals.contractNo, `%${query}%`), like(rentals.customerCompany, `%${query}%`), like(rentals.customerName, `%${query}%`), like(rentals.customerPhone, `%${query}%`), like(rentals.deviceName, `%${query}%`))!)
   if (status !== '全部') filters.push(eq(rentals.status, status))
@@ -341,19 +339,16 @@ export async function getRentalById(id: number) {
   const userId = await getUserId()
   const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
   if (!row) return null
-  // 详情页也会被 Next.js 悬停预取并发触发（同一时刻多个 rental=... 请求），同样要用 Safely 版本兜底。
+  // 详情页只针对这一张合同单独自愈（第三个参数 id 把扫描范围限定到该合同），不牵动该商户
+  // 其他在租合同——同时用 Safely 版本兜底 Next.js 悬停预取带来的并发写入冲突。
   await ensureOverdueRentBillsSafely(userId, undefined, id)
-  // 上面已经针对这一张合同单独做过自愈，这里传 skipOverdueHeal 跳过 getRentals 内部
-  // 对该商户全部在租合同的重复扫描，避免同一个请求里白白多算一遍。
-  return (await getRentals(row.contractNo, '全部', 1, true))[0] ?? null
+  return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
 export async function getDashboard() {
   const userId = await getUserId()
-  // 看板的应收/逾期应收统计依赖 rentals.totalRent，而 totalRent 只有在逾期账单生成后才会被
-  // ensureOverdueRentBills 重新汇总更新，同样需要兜底自愈，否则会和列表页一样漏算当天到期的逾期租金。
-  // 用 Safely 版本：看板也会被并发预取触发，写入冲突时不能让整页崩掉。
-  await ensureOverdueRentBillsSafely(userId)
+  // 看板同样不再做被动的全店铺自愈扫描（原因见 getRentals 顶部注释）：真正改变账期状态的操作
+  // 会各自针对涉及的合同调用 ensureOverdueRentBills，其余合同靠每天 01:00 的定时任务兜底全量补算。
   const [[summary], [draftSummary], deviceRows] = await Promise.all([
     db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
@@ -552,7 +547,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
       const available = availableQuantity(item)
       if (value.quantity > available) throw new Error(`${item.deviceName} 最多可续租 ${available} 台`)
       const newEndDate = value.billingUnit === 'month' ? addCalendarMonths(oldEndDate, value.duration) : addCalendarDays(oldEndDate, value.duration)
-      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不一致`)
+      if (value.newEndDate !== newEndDate) throw new Error(`${item.deviceName} 的续租时长与到期日不���致`)
       const amount = Number(renewalAmount(value.quantity, value.unitPrice, value.duration))
       addedRent = Number(fromCents(toCents(addedRent) + toCents(amount)))
       const effectiveMonthlyRent = value.billingUnit === 'month' ? value.unitPrice : value.unitPrice * 30
@@ -1081,7 +1076,9 @@ export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInp
   const values=z.array(z.object({rentalId:z.number().int().positive(),itemId:z.number().int().positive(),quantity:z.number().int().positive(),price:z.number().positive(),date:z.string().min(1),notes:z.string().optional()})).min(1).max(100).parse(input),rentalId=values[0].rentalId
   if(values.some((v)=>v.rentalId!==rentalId))throw new Error('批量买断必须属于同一合同');if(new Set(values.map((v)=>v.itemId)).size!==values.length)throw new Error('同一设备不能重复提交')
   const latestBuyoutDate=values.reduce((latest,v)=>v.date>latest?v.date:latest,values[0].date)
-  await ensureOverdueRentBills(userId, latestBuyoutDate)
+  // 只针对这一个合同自愈（第三个参数 rentalId），不牵动该商户其他在租合同——"操作哪个合同才扫
+  // 哪个合同"，避免每次买断都白白重新扫一遍全店铺。
+  await ensureOverdueRentBills(userId, latestBuyoutDate, rentalId)
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.id,rentalId),eq(rentals.userId,userId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.rentalId,rentalId),eq(rentalItems.userId,userId))),

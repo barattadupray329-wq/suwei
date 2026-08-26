@@ -46,7 +46,9 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   if (values.some((value)=>value.rentalId!==rentalId)) throw new Error('批量退租必须属于同一合同')
   if (new Set(values.map((value)=>value.rentalItemId)).size!==values.length) throw new Error('同一设备不能重复提交')
   const latestReturnDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
-  await ensureOverdueRentBills(userId, latestReturnDate)
+  // 只针对这一个合同自愈（第三个参数 rentalId），不牵动该商户其他在租合同——"操作哪个合同才扫
+  // 哪个合同"，避免每次退租都白白重新扫一遍全店铺。
+  await ensureOverdueRentBills(userId, latestReturnDate, rentalId)
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts,ledgerEntries]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
@@ -140,7 +142,9 @@ export async function reportLostItems(input: LossInput[]) {
   const {userId,actorId,name}=await actor();const values=z.array(lossSchema).min(1).max(100).parse(input),rentalId=values[0].rentalId
   if(values.some((v)=>v.rentalId!==rentalId))throw new Error('批量丢失必须属于同一合同');if(new Set(values.map((v)=>v.rentalItemId)).size!==values.length)throw new Error('同一设备不能重复提交')
   const latestLossDate = values.reduce((latest, value) => value.date > latest ? value.date : latest, values[0].date)
-  await ensureOverdueRentBills(userId, latestLossDate)
+  // 只针对这一个合同自愈（第三个参数 rentalId），不牵动该商户其他在租合同——"操作哪个合同才扫
+  // 哪个合同"，避免每次报损都白白重新扫一遍全店铺。
+  await ensureOverdueRentBills(userId, latestLossDate, rentalId)
   const [[rental],items,bills,historicalReturns,historicalLosses,historicalBuyouts]=await Promise.all([
     db.select().from(rentals).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))),
     db.select().from(rentalItems).where(and(eq(rentalItems.userId,userId),eq(rentalItems.rentalId,rentalId))),
