@@ -100,6 +100,19 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     existingOverduePeriodsByRental.set(bill.rentalId, [...(existingOverduePeriodsByRental.get(bill.rentalId) ?? []), bill])
   }
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
+  // remainingQuantityAsOf 每次调用都会对传入的数组做一次 filter + reduce。这里是"全店铺扫描"，
+  // disposals 是该商户全部在租合同的处置记录总和；如果直接把这个全量数组传给每一次调用，复杂度是
+  // 设备数 × 逾期账期数 × 全店处置记录数——账期数会随"距上次成功扫描过去多久"线性增长（每逾期一个月
+  // 多一期），店铺规模变大、或者好几天没人访问导致积压账期变多时，这个乘积会迅速放大，正是
+  // "放久了/用着用着就报 CPU 超限"的真正根因。这里按设备 id 预先分组一次，之后每次调用只需要扫
+  // 该设备自己的处置记录（通常个位数条），把复杂度降到设备数 × 账期数 × 单设备处置记录数，和总处置
+  // 记录数、和账期积压程度基本脱钩。
+  const disposalsByItem = new Map<number, RentalDisposal[]>()
+  for (const disposal of disposals) {
+    const bucket = disposalsByItem.get(disposal.rentalItemId)
+    if (bucket) bucket.push(disposal)
+    else disposalsByItem.set(disposal.rentalItemId, [disposal])
+  }
   const itemsByRental = new Map<number, typeof items>()
   for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
   const yesterday = addCalendarDays(today, -1)
@@ -124,7 +137,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
         const billNo = multiGroup ? `OVERDUE-${contract.id}-${key}-${periodStart}` : `OVERDUE-${contract.id}-${periodStart}`
         const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.periodStart < periodEnd && bill.periodEnd > periodStart)
         if (existing.has(billNo) || overlapsExistingOverdue) return []
-        const amountCents = group.items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposals), 0)
+        const amountCents = group.items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposalsByItem.get(item.id) ?? []), 0)
         if (amountCents <= 0) return []
         return [{
           userId, rentalId: contract.id, billNo, periodStart, periodEnd, dueDate: periodStart,
