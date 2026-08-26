@@ -14,7 +14,29 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 // 这里做成"尽力而为"：失败先重试一次（短暂随机延迟避开瞬时锁冲突），仍失败则只打日志、不抛出，
 // 让页面照常用已有数据渲染——自愈这次没跑成功，最多是账单still暂时没补上，绝不能因为这个后台兜底
 // 逻辑本身的失败去拖垮一个原本只是"读数据"的页面。
+//
+// 不带 rentalId 的"全店铺扫描"（getRentals 列表页 / getDashboard 看板）本身开销就不小：要拉出
+// 该商户全部在租合同及其设备明细、买断/退租/报损记录、全部账单，再在 JS 里逐合同逐设备算一遍逾期账期。
+// 这套业务前端是"多标签页常驻"的 SPA 外壳（经营总览、订单列表、多个订单详情等标签同时挂载），
+// 一旦用户短时间内切换/刷新多个标签，或框架并发预取多个链接，同一个用户的这个全店铺扫描就会在
+// 同一个 Worker 实例里被并发触发好几份——这才是真正把 CPU 撑爆到 "Worker exceeded resource limits"
+// 的元凶，不是单次扫描本身慢。用一个模块级的按 userId 节流：同一用户 30 秒内的重复全店铺扫描直接
+// 跳过、复用"上次已经扫过"的事实，不再重新拉数据、重新计算。这不影响正确性——真正会改变账期状态的
+// 收款/退租/报损/买断操作都会直接调用不带节流的 ensureOverdueRentBills 本身，且每天 01:00 还有
+// 定时任务兜底全量补算；这里节流的只是"被动页面浏览触发的自愈"，最多让新产生的逾期账单延迟半分钟
+// 出现，换来的是同一用户高频并发浏览时不会把 Worker 资源挤爆。
+const lastFullStoreHealAt = new Map<string, number>()
+const FULL_STORE_HEAL_THROTTLE_MS = 30_000
+
 export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number) {
+  if (!rentalId) {
+    const now = Date.now()
+    const last = lastFullStoreHealAt.get(userId)
+    if (last && now - last < FULL_STORE_HEAL_THROTTLE_MS) {
+      return { created: 0, amount: '0.00' }
+    }
+    lastFullStoreHealAt.set(userId, now)
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await ensureOverdueRentBills(userId, today, rentalId)
