@@ -197,12 +197,13 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   if (value.assignee) filters.push(eq(rentals.assigneeUserId, value.assignee))
   const where = and(...filters)
   // 到期提醒实际展示的是「有效到期日」——见下方 normalizedRows 里的 effectiveEndDate 注释：
-  // 未结清账单存在时取其中周期结束日最早的一笔（最紧迫的欠款，避免被后续滚动生成的更晚账期
-  // 掩盖成"还没到期"）；全部结清时才回退到合同/设备明细/账单里最晚的日期。排序必须用同一套
-  // 口径的日期，否则列表顺序和"N天后到期"文案会对不上。
+  // 未结清账单存在时取其中应收日 dueDate 最早的一笔（最紧迫该收的欠款；不能用 periodEnd，
+  // 那是账单覆盖的服务周期结束日，会比 dueDate 晚一整月，导致早就该收的欠款被显示成"还没到期"，
+  // 跟仪表盘"逾期待收"里按 dueDate 统计的口径自相矛盾）；全部结清时才回退到合同/设备明细/账单
+  // 里最晚的日期。排序必须用同一套口径的日期，否则列表顺序和"N天后到期"文案会对不上。
   const unpaidBillCondition = sql`b.billType != '押金' and cast(b.amount as real) > 0 and b.status not in ('已冲正', '已减免', '已抵扣', '已调整', '已取消') and cast(b.paidAmount as real) < cast(b.amount as real)`
   const effectiveEndDateSql = sql<string>`coalesce(
-    (select min(b.periodEnd) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and ${unpaidBillCondition}),
+    (select min(b.dueDate) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and ${unpaidBillCondition}),
     (select max(d) from (
       select ${rentals.endDate} as d
       union all select max(ri.endDate) from rental_items ri where ri.userId = ${rentals.userId} and ri.rentalId = ${rentals.id} and ri.endDate is not null
@@ -261,15 +262,17 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     const bills = (billsByRental.get(row.id) ?? []).filter((bill) => bill.billType !== '押金' && Number(bill.amount) > 0 && !PRESERVED_BILL_STATUSES.has(bill.status))
     const quantity = items.reduce((sum, item) => sum + availableQuantity(item), 0)
     const lifecycleStatus = quantity === 0 && items.length > 0 ? rentalLifecycleStatus(items) : row.status
-    // 「到期提醒」要提示的是最紧迫的那笔欠款，不是账单里最晚的周期结束日。合同持续逾期时，
-    // 系统每天会按月滚动生成新一期「逾期续租租金」账单（见 overdue-rent-billing.ts），所以未结清
-    // 账单里往往同时存在"早就该收但一直没收"的旧账期和"本月正在进行"的新账期——取最晚的那笔会
-    // 让页面永远显示"还有 N 天到期"，把已经逾期一个多月的欠款完全遮住。因此这里优先取未结清账单
-    // 里周期结束日最早的一笔；只有当账单全部结清时，才回退到"合同/设备/账单中最晚的日期"，
-    // 用来提醒即将到期需要续租。
+    // 「到期提醒」要提示的是最紧迫的那笔欠款该收钱的日子——是账单的「应收日」dueDate，
+    // 不是账单覆盖的服务周期结束日 periodEnd。合同持续逾期时，系统每天会按月滚动预先生成
+    // 下一期「逾期续租租金」账单（见 overdue-rent-billing.ts），这笔新账单的 dueDate 通常就是
+    // 上一期 periodEnd 的次日（本该续费的那天），但它的 periodEnd 是往后再推一整月——如果拿
+    // periodEnd 当"到期日"，会把一笔 dueDate 早就过了、其实正在被追收的欠款，显示成"还有大半个
+    // 月才到期"，跟仪表盘上"逾期待收"统计（就是按 dueDate <= 今天 算的，见 overdueOutstandingAmount）
+    // 自相矛盾。因此这里优先取未结清账单里 dueDate 最早的一笔；只有当账单全部结清时，才回退到
+    // "合同/设备/账单中最晚的日期"，用来提醒即将到期需要续租。
     const outstandingBills = bills.filter((bill) => Number(bill.paidAmount) < Number(bill.amount))
-    const earliestOutstandingEndDate = outstandingBills.map((bill) => bill.periodEnd).filter(Boolean).sort().at(0) ?? null
-    const effectiveEndDate = earliestOutstandingEndDate
+    const earliestOutstandingDueDate = outstandingBills.map((bill) => bill.dueDate).filter(Boolean).sort().at(0) ?? null
+    const effectiveEndDate = earliestOutstandingDueDate
       ?? [row.endDate, ...items.map((item) => item.endDate ?? ''), ...bills.map((bill) => bill.periodEnd ?? '')].filter(Boolean).sort().at(-1)
       ?? row.endDate
     const status = rentalDisplayStatus({
@@ -629,7 +632,7 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   assertOfficialRental(rental)
   if (rental.billingType !== 'monthly') throw new Error('按期调租仅适用于月租合同')
   const availableCount = availableQuantity(item)
-  if (availableCount <= 0) throw new Error('该设备当前已无在租数量')
+  if (availableCount <= 0) throw new Error('该设备当前暂无在租数量')
   const previousRentCents = toCents(item.monthlyRent)
   const newRentCents = toCents(value.newMonthlyRent)
   if (previousRentCents === newRentCents) throw new Error('新月租与当前月租相同')
