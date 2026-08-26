@@ -189,6 +189,16 @@ export function RentalRecords({
     );
     return `/rentals?${params}`;
   };
+  const occupancyHref = (nextOccupancy: string) => {
+    const params = new URLSearchParams();
+    Object.entries({ ...filters, occupancy: nextOccupancy, page: 1 }).forEach(
+      ([key, value]) => {
+        if (value && value !== "全部" && value !== "newest")
+          params.set(key, String(value));
+      },
+    );
+    return `/rentals?${params}`;
+  };
   const navigateLink = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return;
@@ -532,7 +542,25 @@ export function RentalRecords({
                       </Link>
                     </th>
                     <th className="p-3">金额</th>
-                    <th className="p-3">状态</th>
+                    <th className="p-3">
+                      <span className="inline-flex items-center gap-1.5">
+                        状态
+                        <select
+                          value={filters.occupancy || "all"}
+                          onChange={(event) => navigate(occupancyHref(event.target.value))}
+                          aria-label="按在租/退租筛选"
+                          className={`h-7 rounded-md border bg-background px-1.5 text-xs font-normal normal-case ${
+                            filters.occupancy && filters.occupancy !== "all"
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          <option value="all">全部</option>
+                          <option value="active">在租</option>
+                          <option value="returned">退租</option>
+                        </select>
+                      </span>
+                    </th>
                     <th className="p-3">负责人</th>
                     <th className="p-3 text-right">操作</th>
                   </tr>
