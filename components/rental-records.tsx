@@ -108,7 +108,10 @@ const overdueDays = (row: Row) => {
 };
 const outstanding = (row: Row) =>
   Math.max(0, Number(row.totalRent) - Number(row.paidAmount));
-const CLOSED_STATUSES = ["已退租", "已结束", "已关闭", "已完成"];
+// 整单终态：这些状态下合同已经没有在租设备了（整单买断/退租/丢失/关闭等），不应再显示到期提醒。
+// 与后端保持一致（app/actions/rentals.ts 的 terminalStatuses、app/api/sync-state 的逾期排除集）。
+// 注意：不包含"部分买断/部分退租/部分丢失"——那些还有设备在租，仍要正常显示到期提醒。
+const CLOSED_STATUSES = ["买断", "已买断", "已退租", "已退回", "已结束", "已关闭", "已完成", "丢失"];
 const dueReminder = (row: Row) => {
   if (CLOSED_STATUSES.includes(displayStatus(row))) return null;
   const today = new Date(
