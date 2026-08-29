@@ -41,6 +41,7 @@ type Row = {
   paymentStatus: string;
   status: string;
   assigneeName: string | null;
+  headerRemark: string | null;
 };
 type Filters = {
   query: string;
@@ -584,7 +585,14 @@ export function RentalRecords({
                                 : "测试"}
                           </span>
                         </p>
-                        <p>{row.customerCompany || row.customerName}</p>
+                        <p className="flex flex-wrap items-center gap-2">
+                          {row.customerCompany || row.customerName}
+                          {row.headerRemark ? (
+                            <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground ring-1 ring-inset ring-border">
+                              {row.headerRemark}
+                            </span>
+                          ) : null}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {row.customerName} · {row.customerPhone}
                         </p>
@@ -707,8 +715,13 @@ export function RentalRecords({
                               : "测试"}
                         </span>
                       </p>
-                      <p className="text-sm">
+                      <p className="flex flex-wrap items-center gap-2 text-sm">
                         {row.customerCompany || row.customerName}
+                        {row.headerRemark ? (
+                          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground ring-1 ring-inset ring-border">
+                            {row.headerRemark}
+                          </span>
+                        ) : null}
                       </p>
                     </div>
                     <span
