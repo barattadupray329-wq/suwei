@@ -508,6 +508,23 @@ export async function updateRentalAssignee(rentalId: number, assigneeUserId: str
   revalidatePath('/dashboard')
 }
 
+// 合同详情头部的"随手备注"：用于记录实际使用人和合同签约人不一致等临时说明，可随时修改/清空。
+// 和创建合同时录入的业务备注 notes 分开存（headerRemark 列），互不覆盖。这是一个轻量说明性字段，
+// 不涉及金额或权限，所以员工也可以改；但仍按 userId 严格限定范围，只能改本商户自己的合同。
+export async function updateRentalHeaderRemark(rentalId: number, remark: string) {
+  const access = await getAccessContext('租赁操作')
+  const trimmed = remark.trim()
+  if (trimmed.length > 200) throw new Error('备注最多 200 字')
+  const nextValue = trimmed.length > 0 ? trimmed : null
+  const [rental] = await db.select({ id: rentals.id, contractNo: rentals.contractNo, headerRemark: rentals.headerRemark }).from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, access.userId)))
+  if (!rental) throw new Error('租赁合同不存在')
+  await db.batch([
+    db.update(rentals).set({ headerRemark: nextValue, updatedAt: new Date() }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, access.userId))),
+    db.insert(auditLogs).values({ userId: access.userId, actorUserId: access.actorId, actorName: access.actorName, action: nextValue ? '更新备注' : '清空备注', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo}：${rental.headerRemark || '（空）'} → ${nextValue || '（空）'}`, metadata: { previousRemark: rental.headerRemark, remark: nextValue } }),
+  ])
+  revalidatePath('/dashboard')
+}
+
 const settlementSchema = z.object({ timing: z.enum(['now', 'later']), date: z.string().min(1), method: z.enum(['现金', '微信', '支付宝', '银行卡', '其他']) })
 export type SettlementInput = z.infer<typeof settlementSchema>
 

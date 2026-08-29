@@ -15,7 +15,9 @@ import {
   Download,
   FileText,
   LayoutDashboard,
+  Check,
   Monitor,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -43,6 +45,7 @@ import {
   reverseAllRenewals,
   reversePayment,
   updateRentalAssignee,
+  updateRentalHeaderRemark,
   type InitialCollectionInput,
   type PaymentInput,
   type RentalAssignee,
@@ -251,6 +254,7 @@ type Rental = {
   paymentStatus: string;
   status: string;
   notes: string | null;
+  headerRemark: string | null;
   items: Item[];
   buyoutRecords: Buyout[];
   renewalRecords: Renewal[];
@@ -1160,6 +1164,12 @@ canViewFinance={canViewFinance}
   runInDetail(
                 () => updateRentalAssignee(selected.id, assigneeId),
                 "维护负责人已更新",
+              )
+            }
+            onUpdateRemark={(remark) =>
+              runInDetail(
+                () => updateRentalHeaderRemark(selected.id, remark),
+                "备注已保存",
               )
             }
             onDelete={() => {
@@ -2485,6 +2495,7 @@ type DetailProps = {
   canViewFinance: boolean;
   onSendNotice: () => void;
   onAssignee: (assigneeId: string) => void;
+  onUpdateRemark: (remark: string) => void;
   onDelete: () => void;
   onConfirmDraft: () => void;
   onRentalChange: () => void;
@@ -2517,6 +2528,7 @@ function Detail(props: DetailProps) {
     canViewFinance,
     onSendNotice,
     onAssignee,
+    onUpdateRemark,
     onDelete,
     onConfirmDraft,
     onRentalChange,
@@ -2634,6 +2646,7 @@ function Detail(props: DetailProps) {
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                 {rental.orderType === "draft" ? "草稿" : rental.orderType === "test" ? "测试" : "正式合同"}
               </span>
+              <HeaderRemark value={rental.headerRemark} onSave={onUpdateRemark} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {rental.contractNo} · {rental.customerName} · {rental.customerPhone}
@@ -5041,6 +5054,84 @@ function Info({ l, v }: { l: string; v: string }) {
     </div>
   );
 }
+
+// 合同详情头部的随手备注：没备注时显示一个"加备注"入口，有备注时把内容显示成一个可点的小标签，
+// 点一下就进入行内编辑，随时能改或清空。保存/清空走父级传入的 onSave（内部用 runInDetail 提交并
+// 刷新+toast）。用受控 input，编辑态本地 useState 暂存，取消则丢弃回退到已保存值。
+function HeaderRemark({ value, onSave }: { value: string | null; onSave: (remark: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(value ?? "");
+    setEditing(false);
+  }, [value]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next === (value ?? "")) return;
+    onSave(next);
+  };
+
+  const cancel = () => {
+    setDraft(value ?? "");
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          maxLength={200}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          }}
+          placeholder="如：实际使用人 张三"
+          className="h-7 w-48 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+          aria-label="合同备注"
+        />
+        <button type="button" onClick={commit} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10" aria-label="保存备注">
+          <Check className="h-4 w-4" />
+        </button>
+        <button type="button" onClick={cancel} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" aria-label="取消编辑">
+          <X className="h-4 w-4" />
+        </button>
+      </span>
+    );
+  }
+
+  if (value) {
+    return (
+      <button type="button" onClick={() => setEditing(true)} className="group inline-flex max-w-[16rem] items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground ring-1 ring-inset ring-border hover:bg-accent/70" title="点击修改备注">
+        <span className="truncate">{value}</span>
+        <Pencil className="h-3 w-3 shrink-0 opacity-50 group-hover:opacity-100" />
+      </button>
+    );
+  }
+
+  return (
+    <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-primary hover:text-primary">
+      <Plus className="h-3 w-3" />
+      加备注
+    </button>
+  );
+}
+
 function QuickAction({
   label,
   type,
