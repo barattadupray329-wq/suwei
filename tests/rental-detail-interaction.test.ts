@@ -30,11 +30,20 @@ test('租赁管理桌面合同列表双击打开详情', () => {
   expect(records).toMatch(/onDoubleClick=\{\(\) => openDetail\(row\.id\)\}/)
 })
 
-test('多月续租按月创建独立账单并逐月分配即时收款', () => {
+test('多月续租按月创建独立账单，并吸收同月已存在的逾期续租租金账单', () => {
+  // 仍然按月循环生成账期
   expect(rentalActions).toContain('for (let periodIndex = 0; periodIndex < value.duration; periodIndex += 1)')
-  expect(rentalActions).toContain('billNo: `RENEW-${rentalId}-${renewal.id}-${periodIndex + 1}`')
-  expect(rentalActions).toContain('paymentAllocations).values(renewalBills.map')
-  expect(rentalActions).not.toContain("periodStart: renewalPeriodStart, periodEnd: newEndDate")
+  expect(rentalActions).toContain('const billNo = `RENEW-${rentalId}-${renewal.id}-${periodIndex + 1}`')
+  // 续租时先把每期账期和已存在的"逾期续租租金"账单做重叠匹配，命中则吸收、不新建重复账单
+  expect(rentalActions).toContain('matchRenewalPeriodsToOverdueBills(')
+  expect(rentalActions).toContain("bill.billType.includes('续租租金')")
+  // 吸收：改写原逾期账单为续租费并保留已收金额；未命中才新建
+  expect(rentalActions).toContain('if (plan.absorbBillId !== null)')
+  // 即时收款只收"还欠部分"，避免对已收月份二次收款
+  expect(rentalActions).toContain('bill.outstandingCents')
+  // 合同应收/已收按账单与有效收款重算，杜绝双计
+  expect(rentalActions).toContain('const totalCents = billsReceivableCents(finalBills)')
+  expect(rentalActions).not.toContain('const totalRent = Number(rental.totalRent) + addedRent')
 })
 
 test('本单全部收款冲正只处理尚未冲正的正数收款', () => {

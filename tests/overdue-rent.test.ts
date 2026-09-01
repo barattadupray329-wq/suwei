@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fullReturnWaiver, monthlyRentPeriod, overdueRentPeriods, recomputeUnpaidRentBills, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
+import { fullReturnWaiver, matchRenewalPeriodsToOverdueBills, monthlyRentPeriod, overdueRentPeriods, recomputeUnpaidRentBills, remainingQuantityAsOf, returnBillingAdjustment } from '../lib/overdue-rent'
 
 describe('逾期月租周期', () => {
   it('合同到期次日进入首期，并补齐到今天所在账期', () => {
@@ -94,5 +94,57 @@ describe('逾期月租周期', () => {
     ])
     expect(result.adjustmentCents).toBe(56000)
     expect(result.affected.map((bill) => bill.id)).toEqual([1, 2, 4])
+  })
+})
+
+describe('续租吸收逾期续租租金账单', () => {
+  it('续租的月份命中已存在的逾期续租租金账单时，吸收它而不是新建', () => {
+    // 场景重现用户 bug：合同 8/25 到期，系统已自动生成 8/25~9/25 的逾期续租租金账单（已收 ¥90）。
+    // 用户续租 1 期（8/25~9/24，¥90），应吸收那条逾期账单，而不是再开一条重复的续租费。
+    const plans = matchRenewalPeriodsToOverdueBills(
+      [{ periodStart: '2026-08-25', periodEnd: '2026-09-24', amountCents: 9000 }],
+      [{ id: 42, billType: '逾期续租租金', periodStart: '2026-08-25', periodEnd: '2026-09-25', paidAmountCents: 9000 }],
+    )
+    expect(plans).toEqual([
+      { periodStart: '2026-08-25', periodEnd: '2026-09-24', amountCents: 9000, absorbBillId: 42, paidAmountCents: 9000 },
+    ])
+  })
+
+  it('没有可命中的逾期账单时，续租期照常新建（absorbBillId 为 null）', () => {
+    const plans = matchRenewalPeriodsToOverdueBills(
+      [{ periodStart: '2026-08-25', periodEnd: '2026-09-24', amountCents: 9000 }],
+      [],
+    )
+    expect(plans[0].absorbBillId).toBeNull()
+    expect(plans[0].paidAmountCents).toBe(0)
+  })
+
+  it('多期续租：前若干期吸收逾期账单，超出部分新建；每条逾期账单只被吸收一次', () => {
+    const plans = matchRenewalPeriodsToOverdueBills(
+      [
+        { periodStart: '2026-08-25', periodEnd: '2026-09-24', amountCents: 9000 },
+        { periodStart: '2026-09-25', periodEnd: '2026-10-24', amountCents: 9000 },
+        { periodStart: '2026-10-25', periodEnd: '2026-11-24', amountCents: 9000 },
+      ],
+      [
+        { id: 42, billType: '逾期续租租金', periodStart: '2026-08-25', periodEnd: '2026-09-25', paidAmountCents: 9000 },
+        { id: 43, billType: '逾期续租租金', periodStart: '2026-09-25', periodEnd: '2026-10-25', paidAmountCents: 0 },
+      ],
+    )
+    expect(plans.map((p) => p.absorbBillId)).toEqual([42, 43, null])
+    // 第一期已收满，第二期逾期账单未收，第三期新建都未收。
+    expect(plans.map((p) => p.paidAmountCents)).toEqual([9000, 0, 0])
+  })
+
+  it('只匹配"续租租金"类账单，普通租金/续租费/买断等不会被误吸收', () => {
+    const plans = matchRenewalPeriodsToOverdueBills(
+      [{ periodStart: '2026-08-25', periodEnd: '2026-09-24', amountCents: 9000 }],
+      [
+        { id: 1, billType: '租金', periodStart: '2026-08-25', periodEnd: '2026-09-25', paidAmountCents: 0 },
+        { id: 2, billType: '续租费', periodStart: '2026-08-25', periodEnd: '2026-09-24', paidAmountCents: 0 },
+        { id: 3, billType: '买断', periodStart: '2026-08-25', periodEnd: '2026-09-25', paidAmountCents: 0 },
+      ],
+    )
+    expect(plans[0].absorbBillId).toBeNull()
   })
 })
