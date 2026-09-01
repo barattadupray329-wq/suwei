@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
-import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, like, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
@@ -100,7 +100,7 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
     db.select().from(renewalAdjustments).where(and(eq(renewalAdjustments.userId, userId), inArray(renewalAdjustments.rentalId, ids))).orderBy(desc(renewalAdjustments.createdAt), desc(renewalAdjustments.id)),
     db.select().from(paymentRecords).where(and(eq(paymentRecords.userId, userId), inArray(paymentRecords.rentalId, ids))).orderBy(desc(paymentRecords.createdAt)),
     db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), inArray(rentalEvents.rentalId, ids))).orderBy(desc(rentalEvents.eventDate), desc(rentalEvents.createdAt)),
-    db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids), ne(receivableBills.status, '已冲正'))).orderBy(receivableBills.dueDate),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, ids), notInArray(receivableBills.status, ['已冲正', '已取消']))).orderBy(receivableBills.dueDate),
     db.select({ id: paymentAllocations.id, rentalId: paymentAllocations.rentalId, billId: paymentAllocations.billId, amount: paymentAllocations.amount, paymentRecordId: paymentRecords.id, paymentDate: paymentRecords.paymentDate, paymentMethod: paymentRecords.paymentMethod, operatorName: paymentRecords.operatorName, notes: paymentRecords.notes, receivedAt: paymentRecords.createdAt }).from(paymentAllocations).innerJoin(paymentRecords, and(eq(paymentRecords.id, paymentAllocations.paymentRecordId), eq(paymentRecords.userId, userId))).where(and(eq(paymentAllocations.userId, userId), inArray(paymentAllocations.rentalId, ids))).orderBy(asc(paymentRecords.paymentDate), asc(paymentRecords.createdAt)),
     db.select().from(accountLedger).where(and(eq(accountLedger.userId, userId), inArray(accountLedger.rentalId, ids))).orderBy(desc(accountLedger.entryDate), desc(accountLedger.createdAt)),
   ])
@@ -186,7 +186,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const overdueOutstandingAmount = sql<number>`coalesce((select sum(cast(b.amount as real) - cast(b.paidAmount as real)) from receivable_bills b where b.userId = ${rentals.userId} and b.rentalId = ${rentals.id} and ${openRentBillCondition} and b.dueDate <= ${businessToday}), 0)`
   const hasOutstanding = sql<boolean>`${outstandingAmount} > 0`
   if (value.status === '逾期') filters.push(sql`(${isExpired}) and (${hasOutstanding})`)
-  else if (value.status === '已到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
+  else if (value.status === '未到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
   else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
@@ -936,7 +936,7 @@ export async function collectPayment(id: number, input: PaymentInput) {
     if (!renewal) throw new Error('续租记录不存在')
   }
   const billTypeFilter = value.feeType === '押金' ? eq(receivableBills.billType, '押金') : ne(receivableBills.billType, '押金')
-  const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter, ne(receivableBills.status, '已冲正'))).orderBy(receivableBills.dueDate)
+  const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.rentalId, id), eq(receivableBills.userId, userId), billTypeFilter, notInArray(receivableBills.status, ['已冲正', '已取消']))).orderBy(receivableBills.dueDate)
   if (value.billId && !bills.some(bill => bill.id === value.billId)) throw new Error('目标账单不存在、已变更或不属于当前合同')
   const availableCents = value.billId ? billOutstandingCents(bills.find(bill => bill.id === value.billId)!) : bills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0)
   const amountCents = moneyToCents(value.amount)
