@@ -2919,7 +2919,9 @@ function DetailFinance({
   // 摊派逻辑会把这个不一致的差额错误地扣到其他本该正常显示"待收/逾期"的账单上。
   // 因此这里用 recordedPaidSum 兜底：差额为 0 或负数时直接跳过摊派，全部按账单自己的 paidAmount 走。
   const recordedPaidSumCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.paidAmount) * 100), 0);
-  const unallocatedCreditCents = Math.max(0, totalPaid + Math.abs(adjustmentCents) - recordedPaidSumCents);
+  // 减免已体现在净应收 totalReceivable 中，不能再次加到可分配余额，否则会把部分退租减免错误摊到剩余账期并显示“已抵扣”。
+  // 只有合同已收金额超过各账单已收金额时，才存在真正未分配的账户余额可抵扣。
+  const unallocatedCreditCents = Math.max(0, totalPaid - recordedPaidSumCents);
   let settlementCredit = unallocatedCreditCents;
   const effectivePaidByBill = new Map<number, number>();
   if (settlementCredit > 0) {

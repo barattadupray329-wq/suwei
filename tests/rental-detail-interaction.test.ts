@@ -46,6 +46,11 @@ test('多月续租按月创建独立账单，并吸收同月已存在的逾期�
   expect(rentalActions).not.toContain('const totalRent = Number(rental.totalRent) + addedRent')
 })
 
+test('部分退租减免不应再次作为余额抵扣剩余账期', () => {
+  expect(dashboard).toContain('const unallocatedCreditCents = Math.max(0, totalPaid - recordedPaidSumCents)')
+  expect(dashboard).not.toContain('totalPaid + Math.abs(adjustmentCents) - recordedPaidSumCents')
+})
+
 test('本单全部收款冲正只处理尚未冲正的正数收款', () => {
   expect(rentalActions).toContain('export async function reverseAllPayments(rentalId: number, reason: string)')
   expect(rentalActions).toContain("eq(accountLedger.entryType, '收款冲正')")
