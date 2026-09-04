@@ -88,7 +88,7 @@ import { userErrorMessage } from "@/lib/errors";
   import { handleAuthExpired } from "@/lib/session-expiry";
 import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
 import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
-import { billOutstandingStrictCents, isOpenRentBill, rentOutstandingCents, rentOverdueCents } from "@/lib/rental-reconciliation";
+import { billOutstandingStrictCents, effectiveRentOutstandingByBill, isOpenRentBill, rentOutstandingCents, rentOverdueCents } from "@/lib/rental-reconciliation";
 
 type Item = {
   id: number;
@@ -1945,7 +1945,7 @@ function RentalForm({
     if (step === 2 && (!Number.isInteger(form.duration) || form.duration < 1))
       return `请输入正确的租赁时间（至少 1 ${billingType === "daily" ? "天" : "个月"}）`;
     if (step === 2 && form.startDate !== today() && !form.startDateReason)
-      return "非当天起租必须选择原因";
+      return "非当天起租必须选��原因";
     return "";
   };
   const next = () => {
@@ -2358,7 +2358,7 @@ function RentalForm({
           </FormSection>
           <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
             <input type="checkbox" checked={sendNoticeNow} onChange={(event) => setSendNoticeNow(event.target.checked)} className="mt-1 size-4 accent-primary" />
-            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无需通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
+            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无���通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
           </label>
           <FormSection
             title="业务备注"
@@ -2556,8 +2556,12 @@ function Detail(props: DetailProps) {
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
   const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
-  const outstandingCents = rentOutstandingCents(rental.bills);
-  const outstandingBills = rental.bills.filter(isOpenRentBill);
+  // 待收/逾期必须扣除账户余额与减免形成的信用额度（见 effectiveRentOutstandingByBill 注释），
+  // 否则会与本页 DetailFinance 卡片里「已抵扣、待收 0」的展示自相矛盾（例如账户余额已顶掉的账单）。
+  const effectiveOutstandingByBill = effectiveRentOutstandingByBill(rental.bills, Math.round(Number(rental.paidAmount) * 100));
+  const billOutstanding = (bill: (typeof rental.bills)[number]) => effectiveOutstandingByBill.get(bill) ?? 0;
+  const outstandingBills = rental.bills.filter((bill) => billOutstanding(bill) > 0);
+  const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstanding(bill), 0);
   const overdueBills = outstandingBills.filter((bill) => bill.dueDate <= currentDate);
   const nextBill = nextOpenBill(outstandingBills);
   const settledBills = positiveRentBills.filter((bill) => !isOpenRentBill(bill))
@@ -2584,7 +2588,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstanding(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
@@ -4435,7 +4439,7 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   const [newMonthlyRent, setNewMonthlyRent] = useState(Number(first?.monthlyRent ?? 0));
   const [reason, setReason] = useState("");
   const item = available.find((row) => row.id === itemId) ?? first;
-  if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可调整的月租账期。</p>;
+  if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可��整的月租账期。</p>;
   const activeQuantity = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
   const deltaPerPeriod = (newMonthlyRent - Number(item.monthlyRent)) * activeQuantity;
   const affectedPeriodList = Array.from({ length: periodInfo.total }, (_, index) => index + 1).filter((period) => period >= startPeriod);

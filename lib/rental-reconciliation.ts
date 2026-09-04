@@ -72,6 +72,59 @@ export function rentOverdueCents(bills: Array<ReconciliationBill & { dueDate: st
   return bills.filter((bill) => isOpenRentBill(bill) && bill.dueDate <= today).reduce((sum, bill) => sum + billOutstandingStrictCents(bill), 0)
 }
 
+// 合同层面尚未落到具体账单「已收」上的信用额度：多收的现金（合同总已收超过各期账单已收之和）
+// 加上未摊派到某一期账单的减免/调整（负数账单）。这笔额度在业务上等同于「账户余额」，
+// 应当用来抵扣仍开放的租金账单——与详情页 DetailFinance 卡片里「已抵扣 / 账户余额」的口径一致。
+// 不这样处理时，逐期裸算的待收/逾期会把这些其实已被余额顶掉的账单重复算成欠款。
+export function unallocatedRentCreditCents(
+  bills: Array<Pick<ReconciliationBill, 'amount' | 'paidAmount' | 'billType' | 'status'>>,
+  contractPaidCents: number,
+) {
+  let recordedRentPaidCents = 0
+  let discountCents = 0
+  for (const bill of bills) {
+    if (isDepositType(bill.billType)) continue
+    const amountCents = moneyToCents(bill.amount)
+    if (amountCents > 0) recordedRentPaidCents += moneyToCents(bill.paidAmount)
+    else if (amountCents < 0) discountCents += -amountCents
+  }
+  return Math.max(0, contractPaidCents + discountCents - recordedRentPaidCents)
+}
+
+// 对每一张仍开放的租金账单，返回抵扣信用额度后真正欠缴的金额（分）。信用额度按到期日
+// 从早到晚填充（最紧迫的欠款先被余额顶掉），因此逾期账单会优先被抵扣——与收款分配顺序一致。
+export function effectiveRentOutstandingByBill<
+  T extends ReconciliationBill & { dueDate?: string },
+>(bills: T[], contractPaidCents: number) {
+  let credit = unallocatedRentCreditCents(bills, contractPaidCents)
+  const openRentBills = bills
+    .filter((bill) => isOpenRentBill(bill))
+    .sort((left, right) => String(left.dueDate ?? '').localeCompare(String(right.dueDate ?? '')))
+  const result = new Map<T, number>()
+  for (const bill of openRentBills) {
+    const gapCents = Math.max(0, moneyToCents(bill.amount) - moneyToCents(bill.paidAmount))
+    const settledCents = Math.min(gapCents, credit)
+    credit -= settledCents
+    result.set(bill, gapCents - settledCents)
+  }
+  return result
+}
+
+export function rentOutstandingAfterCreditCents(
+  bills: ReconciliationBill[],
+  contractPaidCents: number,
+) {
+  return Math.max(0, rentOutstandingCents(bills) - unallocatedRentCreditCents(bills, contractPaidCents))
+}
+
+export function rentOverdueAfterCreditCents(
+  bills: Array<ReconciliationBill & { dueDate: string }>,
+  today: string,
+  contractPaidCents: number,
+) {
+  return Math.max(0, rentOverdueCents(bills, today) - unallocatedRentCreditCents(bills, contractPaidCents))
+}
+
 export function normalizedBillStatus(amount: string | number, paidAmount: string | number, currentStatus?: string) {
   if (currentStatus && PRESERVED_BILL_STATUSES.has(currentStatus)) return currentStatus
   const amountCents = moneyToCents(amount)
