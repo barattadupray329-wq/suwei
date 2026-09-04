@@ -57,4 +57,8 @@ if (
   process.env.CLOUDFLARE_ACCOUNT_ID = accountId
 }
 
-import('@opennextjs/cloudflare').then((module) => module.initOpenNextCloudflareForDev())
+// 仅在配置了 Wrangler API Token 的本地 Cloudflare 开发环境启动远程代理。
+// v0 Preview/CI 没有该凭据时，必须跳过代理初始化，避免模块加载阶段直接崩溃。
+if (process.env.NODE_ENV !== 'production' && process.env.CLOUDFLARE_API_TOKEN) {
+  import('@opennextjs/cloudflare').then((module) => module.initOpenNextCloudflareForDev())
+}
