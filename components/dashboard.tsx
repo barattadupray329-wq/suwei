@@ -2932,6 +2932,7 @@ function DetailFinance({
     .flatMap((entry) => entry.paymentRecordId == null ? [] : [entry.paymentRecordId]));
   const activePayments = rental.paymentRecords.filter((payment) => Number(payment.amount) > 0 && !reversedPaymentIds.has(payment.id));
   const displayedPayments = showReversalHistory ? rental.paymentRecords : activePayments;
+  const paymentById = new Map(rental.paymentRecords.map((payment) => [payment.id, payment]));
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-xl border bg-card">
@@ -2962,12 +2963,12 @@ function DetailFinance({
   const offsetCents = 0;
   const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
   const state = cashState;
-                  return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
+                  return <tr key={bill.id} className={cashState === "逾期" ? "bg-destructive/5" : "hover:bg-muted/20"}>
                     <td className="px-3 py-3 align-top"><strong>第 {index + 1} {periodUnitLabel}</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期 · 独立账单</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
                     <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">到账 {money(bill.paidAmount)}{offsetCents > 0 ? ` · 减免/余额抵扣 ${money(centsToMoney(offsetCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
                     <td className="px-3 py-3 align-top">{bill.dueDate}</td>
-                    <td className="px-3 py-3 align-top">{bill.allocations.length ? bill.allocations.map((allocation) => <div key={allocation.id} className="mb-1 last:mb-0"><p>{allocation.paymentDate} · {money(allocation.amount)}</p><p className="text-xs text-muted-foreground">录入 {receivedAt(allocation.receivedAt)} · {allocation.paymentMethod}</p></div>) : <span className="text-muted-foreground">尚未到账</span>}</td>
+                    <td className="px-3 py-3 align-top">{bill.allocations.length ? bill.allocations.map((allocation) => <div key={allocation.id} className="mb-1 last:mb-0"><p>{allocation.paymentDate} · {money(Math.min(Number(allocation.amount), Number(paymentById.get(allocation.paymentRecordId)?.amount ?? allocation.amount)))}</p><p className="text-xs text-muted-foreground">录入 {receivedAt(allocation.receivedAt)} · {allocation.paymentMethod}</p></div>) : <span className="text-muted-foreground">尚未到账</span>}</td>
                     <td className="px-3 py-3 align-top"><BillingStatus value={state} /></td>
                     <td className="px-3 py-3 text-right align-top">{outstanding > 0 && <button type="button" onClick={() => onPayment(bill.id)} className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收本期</button>}</td>
                   </tr>;
@@ -4797,7 +4798,7 @@ function BuyoutForm({
     >
       <section className="flex flex-col gap-3" aria-label="选择买断设备">
         <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
-          <span className="text-sm text-muted-foreground">已�� {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
+          <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
           <button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button>
         </div>
         {available.map((item) => {
