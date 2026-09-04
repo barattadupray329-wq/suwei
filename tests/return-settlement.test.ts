@@ -42,6 +42,15 @@ describe('退租租金结算', () => {
     expect(110 * 100).toBe(55000 - adjustment.adjustmentCents)
   })
 
+  test('部分退租已收整期租金时，剩余设备只保留对应已收金额', () => {
+    const originalAmountCents = 55000
+    const returnedAmountCents = 44000
+    const remainingAmountCents = originalAmountCents - returnedAmountCents
+    const retainedPaidCents = Math.min(originalAmountCents, remainingAmountCents)
+    expect(retainedPaidCents).toBe(11000)
+    expect(originalAmountCents - retainedPaidCents).toBe(returnedAmountCents)
+  })
+
   test('全部退租免租时续租费也纳入取消范围', () => {
     expect(isRentBillType('续租费')).toBe(true)
     const waiver = fullReturnWaiver([

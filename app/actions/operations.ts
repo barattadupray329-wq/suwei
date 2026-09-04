@@ -70,7 +70,7 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   const deductionCents=rows.reduce((sum,row)=>sum+toCents(row.value.deductionAmount),0),periodAdjustmentCents=rows.reduce((sum,row)=>sum+row.billing.adjustmentCents,0),billingAdjustmentCents=isFullWaivedReturn?fullWaiver.adjustmentCents:periodAdjustmentCents,collectedCents=rows.reduce((sum,row)=>sum+(row.value.collectionSettlement.timing==='now'?toCents(row.value.deductionAmount):0),0)
   const statements:Array<Parameters<typeof db.batch>[0][number]>=[]
   // 退还设备后，所有尚未收款的后续月租账单按账期开始时的剩余设备数重算；已收账单不追溯修改。
-  // disposals 必须叠加该合同全部历史退租/丢失/买断记录，否则设备第二次及以后被处置时会漏算之前的处置，导致未来账单金额算多。
+  // disposals 必须叠加该合同全部历史退租/丢失/买断记录，否则设备第二次及以后被处置时会漏算此前的处置，导致未来账单金额算多。
   const disposals: RentalDisposal[] = [...historicalReturns, ...historicalLosses, ...historicalBuyouts, ...rows.map((row) => ({ rentalItemId: row.item.id, quantity: row.value.quantity, date: row.value.date }))]
   // 先算出「当期」按比例调整涉及的账单 id：若退租日恰好等于某张未来账单的账期开始日，
   // 该账单会同时命中「当期」判定和下方「未来账单」的按数量重算，必须排除掉避免同一张账单被调整两次。
@@ -126,9 +126,13 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   for (const { bill, cents, notes } of billReductions.values()) {
     const nextAmountCents = toCents(bill.amount) - cents
     if (nextAmountCents < toCents(bill.paidAmount)) throw new Error('退租后的本期应收不能低于本期已收金额')
+    // 部分退租后，本期账单只保留剩余设备对应的金额；已收金额也只能归属于剩余设备。
+    // 例如 5 台已收 550 元，退 4 台并按本期全额处理：账单应变为应收 110、已收 110，超出的 440 进入租金退款/待退，不能让剩余 1 台显示为已抵扣。
+    const retainedPaidCents = Math.min(toCents(bill.paidAmount), nextAmountCents)
     statements.push(db.update(receivableBills).set({
       amount: fromCents(nextAmountCents),
-      status: toCents(bill.paidAmount) >= nextAmountCents ? '已结清' : toCents(bill.paidAmount) > 0 ? '部分收款' : '待收',
+      paidAmount: fromCents(retainedPaidCents),
+      status: retainedPaidCents >= nextAmountCents ? '已结清' : retainedPaidCents > 0 ? '部分收款' : '待收',
       notes: [bill.notes, ...notes].filter(Boolean).join('；'),
       updatedAt: new Date(),
     }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
