@@ -1359,7 +1359,7 @@ canViewFinance={canViewFinance}
                   disabled={pending || deleteReason.trim().length < 4 || (selected.orderType === "official" && !adminPassword)}
                   className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
                 >
-                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重复合同" : "确认移入回收站"}
+                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重��合同" : "确认移入回收站"}
                 </button>
               </div>
             </form>
@@ -1945,7 +1945,7 @@ function RentalForm({
     if (step === 2 && (!Number.isInteger(form.duration) || form.duration < 1))
       return `请输入正确的租赁时间（至少 1 ${billingType === "daily" ? "天" : "个月"}）`;
     if (step === 2 && form.startDate !== today() && !form.startDateReason)
-      return "非当天起租必须选��原因";
+      return "非当天起租必须选择原因";
     return "";
   };
   const next = () => {
@@ -2358,7 +2358,7 @@ function RentalForm({
           </FormSection>
           <label className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
             <input type="checkbox" checked={sendNoticeNow} onChange={(event) => setSendNoticeNow(event.target.checked)} className="mt-1 size-4 accent-primary" />
-            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无���通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
+            <span><strong className="block text-foreground">合同保存成功后立即发送初始租赁通知</strong><span className="mt-1 block leading-6 text-muted-foreground">已默认勾选，将发送至 {form.customerPhone || "客户手机号"}。如无需通知可取消；短信失败不会影响合同保存，也可在合同详情中稍后补发。</span></span>
           </label>
           <FormSection
             title="业务备注"
@@ -2720,7 +2720,7 @@ function Detail(props: DetailProps) {
 
       <div className="mt-4 flex flex-col gap-4 pb-24">
         {tab === "overview" && (
-          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} />
+          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} nextBillOutstandingCents={nextBill ? billOutstanding(nextBill) : 0} />
         )}
         {tab === "finance" && (
           <DetailFinance
@@ -2820,10 +2820,12 @@ function DetailOverview({
   rental,
   paidThrough,
   nextBill,
+  nextBillOutstandingCents,
 }: {
   rental: Rental;
   paidThrough: string | null;
   nextBill: Rental["bills"][number] | null;
+  nextBillOutstandingCents: number;
 }) {
   return (
     <>
@@ -2840,7 +2842,7 @@ function DetailOverview({
       <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
         <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
         <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
-        <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+        <Info l="下次应付金额" v={money(centsToMoney(nextBillOutstandingCents))} />
       </section>
       <section className="flex flex-col gap-3">
         <h3 className="font-semibold">设备明细</h3>
@@ -3250,14 +3252,15 @@ function LegacyDetail({
       </div>
       {(() => {
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
-  const nextBill = nextOpenBill(rentBills.filter(isOpenRentBill));
+  const effectiveOutstandingByBill = effectiveRentOutstandingByBill(rental.bills, Math.round(Number(rental.paidAmount) * 100));
+  const nextBill = nextOpenBill(rental.bills.filter((bill) => (effectiveOutstandingByBill.get(bill) ?? 0) > 0));
   const settledBills = rentBills.filter((bill) => !isOpenRentBill(bill)).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
         const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
         return (
           <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
             <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
             <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
-            <Info l="下次应付金额" v={nextBill ? money(centsToMoney(billOutstandingCents(nextBill))) : money(0)} />
+        <Info l="下次应付金额" v={money(centsToMoney(nextBill ? (effectiveOutstandingByBill.get(nextBill) ?? 0) : 0))} />
           </section>
         );
       })()}
@@ -4424,7 +4427,7 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金" && !bill.billType.includes("补差") && !bill.billType.includes("减免"));
   const periodInfo = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: "monthly" });
-  // billPeriodRanges 当前按账期起始日、到期日和账单 ID 排序，并让每张月租账单独立占一期。
+  // billPeriodRanges 当前按账期起始日、到期日与账单 ID 排序，并让每张月租账单独立占一期。
   // 直接使用相同排序建立“期数 → 账单”关系，避免线上返回的账单 ID 类型不一致导致 Map 匹配失败、日期缺失。
   const sortedPeriodBills = [...rentBills].sort(
     (left, right) =>
@@ -4439,7 +4442,7 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
   const [newMonthlyRent, setNewMonthlyRent] = useState(Number(first?.monthlyRent ?? 0));
   const [reason, setReason] = useState("");
   const item = available.find((row) => row.id === itemId) ?? first;
-  if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可��整的月租账期。</p>;
+  if (!item || !periodInfo.total) return <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">当前没有可调整的月租账期。</p>;
   const activeQuantity = item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity;
   const deltaPerPeriod = (newMonthlyRent - Number(item.monthlyRent)) * activeQuantity;
   const affectedPeriodList = Array.from({ length: periodInfo.total }, (_, index) => index + 1).filter((period) => period >= startPeriod);
