@@ -1359,7 +1359,7 @@ canViewFinance={canViewFinance}
                   disabled={pending || deleteReason.trim().length < 4 || (selected.orderType === "official" && !adminPassword)}
                   className="h-10 rounded-lg bg-destructive px-4 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
                 >
-                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重��合同" : "确认移入回收站"}
+                  {pending ? "正在验证并撤销…" : selected.orderType === "official" ? "验证密码并撤销重建合同" : "确认移入回收站"}
                 </button>
               </div>
             </form>
