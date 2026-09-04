@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { fullReturnWaiver, isRentBillType } from '../lib/overdue-rent'
+import { fullReturnWaiver, isRentBillType, returnBillingAdjustment } from '../lib/overdue-rent'
 import { calculateReturnRent } from '../lib/return-settlement'
 
 const base = { periodStart: '2026-08-01', periodEnd: '2026-09-01', returnDate: '2026-08-10', fullAmount: 300 }
@@ -25,6 +25,21 @@ describe('退租租金结算', () => {
 
   test('退租日超出账期时剩余天数不为负数', () => {
     expect(calculateReturnRent({ ...base, returnDate: '2026-09-10', collectedAmount: 300, mode: 'daily' })).toMatchObject({ usedDays: 30, remainingDays: 0, refundAmount: 0 })
+  })
+
+  test('退4台留1台选择本期全额减免时，仅减免4台的440元，剩余1台仍应收110元', () => {
+    const adjustment = returnBillingAdjustment({
+      periodStart: '2026-09-02',
+      periodEnd: '2026-10-02',
+      returnDate: '2026-09-04',
+      monthlyRent: '110.00',
+      quantity: 4,
+      mode: 'waive',
+    })
+    expect(adjustment.fullAmountCents).toBe(44000)
+    expect(adjustment.chargedAmountCents).toBe(0)
+    expect(adjustment.adjustmentCents).toBe(44000)
+    expect(110 * 100).toBe(55000 - adjustment.adjustmentCents)
   })
 
   test('全部退租免租时续租费也纳入取消范围', () => {
