@@ -88,7 +88,7 @@ import { userErrorMessage } from "@/lib/errors";
   import { handleAuthExpired } from "@/lib/session-expiry";
 import { isContractExpired, rentalDisplayStatus, rentalOverdueAmount } from "@/lib/rental-display-status";
 import { allocatePayment, billOutstandingCents, centsToMoney } from "@/lib/payment-allocation";
-import { billOutstandingStrictCents, effectiveRentOutstandingByBill, isOpenRentBill, rentOutstandingCents, rentOverdueCents } from "@/lib/rental-reconciliation";
+import { billOutstandingStrictCents, isOpenRentBill, rentOutstandingCents, rentOverdueCents } from "@/lib/rental-reconciliation";
 
 type Item = {
   id: number;
@@ -2556,12 +2556,9 @@ function Detail(props: DetailProps) {
 
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
   const positiveRentBills = rentBills.filter((bill) => Number(bill.amount) > 0);
-  // 待收/逾期必须扣除账户余额与减免形成的信用额度（见 effectiveRentOutstandingByBill 注释），
-  // 否则会与本页 DetailFinance 卡片里「已抵扣、待收 0」的展示自相矛盾（例如账户余额已顶掉的账单）。
-  const effectiveOutstandingByBill = effectiveRentOutstandingByBill(rental.bills, Math.round(Number(rental.paidAmount) * 100));
-  const billOutstanding = (bill: (typeof rental.bills)[number]) => effectiveOutstandingByBill.get(bill) ?? 0;
-  const outstandingBills = rental.bills.filter((bill) => billOutstanding(bill) > 0);
-  const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstanding(bill), 0);
+  // 账户余额不会自动抵扣具体账单；只有账单自身有实际收款或明确终态时才算已处理。
+  const outstandingBills = rental.bills.filter(isOpenRentBill);
+  const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const overdueBills = outstandingBills.filter((bill) => bill.dueDate <= currentDate);
   const nextBill = nextOpenBill(outstandingBills);
   const settledBills = positiveRentBills.filter((bill) => !isOpenRentBill(bill))
@@ -2588,7 +2585,7 @@ function Detail(props: DetailProps) {
 
   const todos: { tone: "danger" | "warn"; text: string }[] = [];
   if (overdueBills.length > 0)
-    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstanding(b), 0)))}` });
+    todos.push({ tone: "danger", text: `${overdueBills.length} 笔逾期未收 · 合计 ${money(centsToMoney(overdueBills.reduce((s, b) => s + billOutstandingCents(b), 0)))}` });
   if (openRepairs.length > 0)
     todos.push({ tone: "warn", text: `${openRepairs.length} 项维修处理中` });
   if (remainingDevices > 0 && daysToExpiry >= 0 && daysToExpiry <= 7 && rental.status !== "已关闭")
@@ -2720,7 +2717,7 @@ function Detail(props: DetailProps) {
 
       <div className="mt-4 flex flex-col gap-4 pb-24">
         {tab === "overview" && (
-          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} nextBillOutstandingCents={nextBill ? billOutstanding(nextBill) : 0} />
+          <DetailOverview rental={rental} paidThrough={paidThrough} nextBill={nextBill} nextBillOutstandingCents={nextBill ? billOutstandingCents(nextBill) : 0} />
         )}
         {tab === "finance" && (
           <DetailFinance
@@ -3252,15 +3249,14 @@ function LegacyDetail({
       </div>
       {(() => {
   const rentBills = rental.bills.filter((bill) => bill.billType !== "押金");
-  const effectiveOutstandingByBill = effectiveRentOutstandingByBill(rental.bills, Math.round(Number(rental.paidAmount) * 100));
-  const nextBill = nextOpenBill(rental.bills.filter((bill) => (effectiveOutstandingByBill.get(bill) ?? 0) > 0));
+  const nextBill = nextOpenBill(rentBills.filter(isOpenRentBill));
   const settledBills = rentBills.filter((bill) => !isOpenRentBill(bill)).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
         const paidThrough = settledBills[0] ? addCalendarDays(settledBills[0].periodEnd, 1) : null;
         return (
           <section className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3">
             <Info l="已付覆盖至" v={paidThrough ? `${paidThrough}（不含）` : "尚未结清首期"} />
             <Info l="下次付款日" v={nextBill?.dueDate ?? "暂无待付"} />
-        <Info l="下次应付金额" v={money(centsToMoney(nextBill ? (effectiveOutstandingByBill.get(nextBill) ?? 0) : 0))} />
+        <Info l="下次应付金额" v={money(centsToMoney(nextBill ? billOutstandingCents(nextBill) : 0))} />
           </section>
         );
       })()}
@@ -4539,7 +4535,7 @@ function ChangeForm({
       }}
       className="flex flex-col gap-4"
     >
-      <section className="flex flex-col gap-3" aria-label="选择配置变更设备">
+      <section className="flex flex-col gap-3" aria-label="选择配置变更设置变更">
         <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每项可单独修改配置和月租</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
         <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "未编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
       </section>
