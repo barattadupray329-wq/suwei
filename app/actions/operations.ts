@@ -125,7 +125,6 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   }
   for (const { bill, cents, notes } of billReductions.values()) {
     const nextAmountCents = toCents(bill.amount) - cents
-    if (nextAmountCents < toCents(bill.paidAmount)) throw new Error('退租后的本期应收不能低于本期已收金额')
     // 部分退租后，本期账单只保留剩余设备对应的金额；已收金额也只能归属于剩余设备。
     // 例如 5 台已收 550 元，退 4 台并按本期全额处理：账单应变为应收 110、已收 110，超出的 440 进入租金退款/待退，不能让剩余 1 台显示为已抵扣。
     const retainedPaidCents = Math.min(toCents(bill.paidAmount), nextAmountCents)
