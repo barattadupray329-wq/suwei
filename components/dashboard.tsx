@@ -2921,20 +2921,7 @@ function DetailFinance({
   // 如果历史数据不一致（例如某笔调整只改了合同总额没同步改账单，或反过来），
   // 摊派逻辑会把这个不一致的差额错误地扣到其他本该正常显示"待收/逾期"的账单上。
   // 因此这里用 recordedPaidSum 兜底：差额为 0 或负数时直接跳过摊派，全部按账单自己的 paidAmount 走。
-  const recordedPaidSumCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.paidAmount) * 100), 0);
-  const unallocatedCreditCents = Math.max(0, totalPaid + Math.abs(adjustmentCents) - recordedPaidSumCents);
-  let settlementCredit = unallocatedCreditCents;
-  const effectivePaidByBill = new Map<number, number>();
-  if (settlementCredit > 0) {
-    for (const bill of [...rentBills].sort((left, right) => left.dueDate.localeCompare(right.dueDate))) {
-      const amountCents = Math.round(Number(bill.amount) * 100);
-      const recordedCents = Math.round(Number(bill.paidAmount) * 100);
-      const gapCents = Math.max(0, amountCents - recordedCents);
-      const settledCents = Math.min(gapCents, settlementCredit);
-      effectivePaidByBill.set(bill.id, recordedCents + settledCents);
-      settlementCredit -= settledCents;
-    }
-  }
+  // 合同账户余额不代表某一期已完成抵扣；必须以账单自身记录为准。
   const hasOutstanding = totalOutstanding > 0;
   const billingUnit = normalizeBillingUnit(rental.billingType);
   const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
@@ -2970,11 +2957,11 @@ function DetailFinance({
               <tbody className="divide-y">
                 {rentBills.map((bill, index) => {
                   const recordedPaidCents = Math.round(Number(bill.paidAmount) * 100);
-                  const effectivePaidCents = effectivePaidByBill.get(bill.id) ?? recordedPaidCents;
-                  const outstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - effectivePaidCents);
-                  const offsetCents = Math.max(0, effectivePaidCents - recordedPaidCents);
-                  const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
-                  const state: ReturnType<typeof billState> | "已抵扣" = offsetCents > 0 && recordedPaidCents < Math.round(Number(bill.amount) * 100) ? "已抵扣" : cashState;
+  const effectivePaidCents = recordedPaidCents;
+  const outstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - effectivePaidCents);
+  const offsetCents = 0;
+  const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
+  const state = cashState;
                   return <tr key={bill.id} className={cashState === "逾期" && state !== "已抵扣" ? "bg-destructive/5" : "hover:bg-muted/20"}>
                     <td className="px-3 py-3 align-top"><strong>第 {index + 1} {periodUnitLabel}</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期 · 独立账单</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
@@ -4810,7 +4797,7 @@ function BuyoutForm({
     >
       <section className="flex flex-col gap-3" aria-label="选择买断设备">
         <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
-          <span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
+          <span className="text-sm text-muted-foreground">已�� {selected.length}/{available.length} 项，共 {totalQuantity} 台</span>
           <button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button>
         </div>
         {available.map((item) => {
