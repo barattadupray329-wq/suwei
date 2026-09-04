@@ -29,6 +29,17 @@ describe("租赁合同展示状态", () => {
     expect(rentalDisplayStatus(rental, "2026-07-27")).toBe("已到期")
   })
 
+  it.each(["已抵扣", "已减免", "已冲正", "已调整", "已取消", "已结清"])("账单终态 %s 不计入逾期金额但保留账单数据", (billStatus) => {
+    const rental = {
+      ...base,
+      bills: [{ dueDate: "2026-07-20", amount: "90", paidAmount: "0", status: billStatus }],
+    }
+    expect(rental.bills).toHaveLength(1)
+    expect(rental.bills[0].status).toBe(billStatus)
+    expect(rentalOverdueAmount(rental, "2026-07-27")).toBe(0)
+    expect(rentalDisplayStatus(rental, "2026-07-27")).toBe("已到期")
+  })
+
   it.each(["买断", "已退租", "已结束", "已关闭", "丢失"])("终态 %s 不被覆盖", (status) => {
     const rental = { ...base, status, bills: [{ dueDate: "2026-07-20", amount: "640", paidAmount: "0" }] }
     expect(rentalDisplayStatus(rental, "2026-07-27")).toBe(status)

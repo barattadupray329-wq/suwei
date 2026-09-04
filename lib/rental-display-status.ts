@@ -1,14 +1,21 @@
+import { isOpenBill } from "./rental-reconciliation"
+
 const terminalStatuses = new Set(["买断", "已退租", "已结束", "已关闭", "丢失"])
 
 export type RentalStatusInput = {
   endDate: string
   status: string
-  bills: Array<{ dueDate: string; amount: string | number; paidAmount: string | number }>
+  bills: Array<{
+    dueDate: string
+    amount: string | number
+    paidAmount: string | number
+    status?: string
+  }>
 }
 
 export function rentalOverdueAmount(rental: RentalStatusInput, today: string) {
   return rental.bills
-    .filter((bill) => bill.dueDate <= today)
+    .filter((bill) => bill.dueDate <= today && isOpenBill(bill))
     .reduce(
       (sum, bill) => sum + Math.max(0, Number(bill.amount) - Number(bill.paidAmount)),
       0,
