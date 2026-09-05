@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, BookOpenCheck, ChevronRight, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, BookOpenCheck, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 import { SafeSync } from '@/components/safe-sync'
@@ -87,7 +87,9 @@ export function AppShell({ children, storeName, userName, role, permissions, ver
   if (publicRoute || pathname.startsWith('/contracts/')) return children
 
   const navigation = (mobile = false) => <nav aria-label={mobile ? '手机功能菜单' : '后台主导航'} className="flex flex-col gap-5">
-    {visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-xs font-semibold text-muted-foreground">{group.label}</p><div className="flex flex-col gap-1">{group.items.map(({ href, label, description, icon: Icon }) => <Link key={href} href={href} onClick={mobile ? () => setMobileMenu(false) : undefined} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5 shrink-0"/><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{label}</span>{mobile && <span className={`mt-0.5 block text-xs ${isActive(href) ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{description}</span>}</span>{mobile && <ChevronRight className="size-4 opacity-60"/>}</Link>)}</div></section>)}
+    {visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-1 text-xs font-semibold text-muted-foreground">{group.label}</p>{mobile
+      ? <div className="grid grid-cols-3 gap-2">{group.items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setMobileMenu(false)} className={`flex flex-col items-center gap-1.5 rounded-xl border p-2.5 text-center transition-colors ${isActive(href) ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-border bg-card hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><span className={`flex size-10 items-center justify-center rounded-lg ${isActive(href) ? 'bg-primary-foreground/15' : 'bg-muted'}`}><Icon className="size-5"/></span><span className="line-clamp-2 text-xs font-medium leading-tight">{label}</span></Link>)}</div>
+      : <div className="flex flex-col gap-1">{group.items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(href) ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} aria-current={isActive(href) ? 'page' : undefined}><Icon className="size-5 shrink-0"/><span className="block text-sm font-semibold">{label}</span></Link>)}</div>}</section>)}
   </nav>
 
   return <div className="min-h-svh bg-background">
