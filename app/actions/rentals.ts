@@ -171,8 +171,6 @@ export type RentalListQuery = z.input<typeof rentalQuerySchema>
 export async function getRentalPage(input: RentalListQuery = {}) {
   const userId = await getUserId()
   const value = rentalQuerySchema.parse(input)
-  // 列表首次加载时主动补算逾期账期，避免必须进入详情页后汇总才更新。
-  if (value.lifecycleStatus === 'active') await ensureOverdueRentBillsSafely(userId)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, value.lifecycleStatus)]
   if (value.orderType !== 'all') filters.push(eq(rentals.orderType, value.orderType))
   if (value.query) {
@@ -239,6 +237,15 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const orderBy = value.sort === 'due' || value.sort === 'due_desc'
     ? [order, desc(rentals.id)]
     : [asc(businessPriority), order, desc(rentals.id)]
+  // 列表加载时主动补算逾期账期，避免必须进入详情页后汇总才更新；但只针对「当前页可见的合同」做
+  // 有界补算，绝不再对全店铺在租合同做全量扫描——全量扫描的 JS 计算量会随数据量/逾期积压线性放大，
+  // 撑爆 Cloudflare Worker 单请求 CPU 资源限制（Error 1102）。当前页之外的合同由每天 01:00 的
+  // 定时任务全量兜底。
+  if (value.lifecycleStatus === 'active') {
+    const pageIdRows = await db.select({ id: rentals.id }).from(rentals).where(where).orderBy(...orderBy).limit(value.pageSize).offset(offset)
+    const pageIds = pageIdRows.map((row) => row.id)
+    if (pageIds.length) await ensureOverdueRentBillsSafely(userId, undefined, pageIds)
+  }
   const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,

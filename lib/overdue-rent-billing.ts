@@ -21,7 +21,7 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 // 合同才扫哪个合同"：真正会改变账期状态的收款/退租/报损/买断操作，都会在各自的写操作里直接调用
 // 不带节流的 ensureOverdueRentBills 并传入该合同的 rentalId；没被操作过的合同则依赖每天 01:00
 // 的定时任务逐个用户全量补算（cron 里同样是调用不带节流的 ensureOverdueRentBills）。
-export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number) {
+export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number | number[]) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await ensureOverdueRentBills(userId, today, rentalId)
@@ -39,11 +39,18 @@ export async function ensureOverdueRentBillsSafely(userId: string, today?: strin
 
 export async function ensureOverdueRentBills(userId: string, today = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
-}).format(new Date()), rentalId?: number) {
+}).format(new Date()), rentalId?: number | number[]) {
   // 不再仅按合同级 endDate 预筛选：部分续租会把某个设备明细的 endDate 续到未来，
   // 但同一合同下未续租的设备仍可能逾期，必须逐设备判断，否则会漏收逾期租金。
   const filters = [eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'), eq(rentals.billingType, 'monthly'), notInArray(rentals.status, ['已关闭', '已完成'])]
-  if (rentalId) filters.push(eq(rentals.id, rentalId))
+  if (rentalId !== undefined) {
+    if (Array.isArray(rentalId)) {
+      if (!rentalId.length) return { created: 0, amount: '0.00' }
+      filters.push(inArray(rentals.id, rentalId))
+    } else {
+      filters.push(eq(rentals.id, rentalId))
+    }
+  }
   const contracts = await db.select({ id: rentals.id, contractNo: rentals.contractNo, endDate: rentals.endDate, paidAmount: rentals.paidAmount })
     .from(rentals)
     .where(and(...filters))
