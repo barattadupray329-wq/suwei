@@ -4,7 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { AppShell } from '@/components/app-shell'
 import { StaleBuildGuard } from '@/components/stale-build-guard'
-import { auth } from '@/lib/auth'
+import { getCachedSession } from '@/lib/auth'
 import { getAccessContext } from '@/lib/access'
 import { getStoreName } from '@/app/actions/business'
 import './globals.css'
@@ -18,7 +18,7 @@ const APP_VERSION = process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const requestHeaders = await headers()
   const hasRequestContext = requestHeaders.has('host')
-  const session = hasRequestContext ? await auth.api.getSession({ headers: requestHeaders }) : null
+  const session = hasRequestContext ? await getCachedSession() : null
   let shell: { storeName: string; role: 'super_admin' | 'admin' | 'employee'; permissions: string[] } | null = null
   if (session?.user) {
     try {

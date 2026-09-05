@@ -1,11 +1,10 @@
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { AuthForm } from '@/components/auth-form'
 import { getDefaultAccountRoute } from '@/lib/access'
-import { auth } from '@/lib/auth'
+import { getCachedSession } from '@/lib/auth'
 
 export default async function SignIn() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await getCachedSession()
   if (session?.user) {
     let destination: string
     try {

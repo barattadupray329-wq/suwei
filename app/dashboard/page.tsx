@@ -1,12 +1,11 @@
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getDashboard } from '@/app/actions/rentals'
 import { BusinessOverview } from '@/components/dashboard'
 import { getAccessContext } from '@/lib/access'
-import { auth } from '@/lib/auth'
+import { getCachedSession } from '@/lib/auth'
 
 export default async function Page() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await getCachedSession()
   if (!session?.user) redirect('/sign-in')
   const [summary, access] = await Promise.all([
     getDashboard(),

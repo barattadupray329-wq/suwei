@@ -1,6 +1,8 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { username } from 'better-auth/plugins/username'
+import { cache } from 'react'
+import { headers } from 'next/headers'
 import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 
@@ -26,3 +28,7 @@ export const auth = betterAuth({
   session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
   ...(process.env.NODE_ENV === 'development' ? { advanced: { defaultCookieAttributes: { sameSite: 'none' as const, secure: true } } } : {}),
 })
+
+// 单个请求内复用同一次会话校验，避免布局、页面、权限上下文各自重复做 HMAC 验签与数据库查询，
+// 这是免费计划 10ms CPU 预算下最关键的削减：React cache 在同一请求渲染过程中只会执行一次。
+export const getCachedSession = cache(async () => auth.api.getSession({ headers: await headers() }))
