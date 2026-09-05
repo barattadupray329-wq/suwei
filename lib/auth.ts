@@ -31,4 +31,16 @@ export const auth = betterAuth({
 
 // 单个请求内复用同一次会话校验，避免布局、页面、权限上下文各自重复做 HMAC 验签与数据库查询，
 // 这是免费计划 10ms CPU 预算下最关键的削减：React cache 在同一请求渲染过程中只会执行一次。
-export const getCachedSession = cache(async () => auth.api.getSession({ headers: await headers() }))
+export const getCachedSession = cache(async () => {
+  // 没有会话 cookie 时（登录页、已登出访客）直接返回 null，跳过 HMAC 验签与数据库查询，
+  // 让这类请求的服务端 CPU 接近零，不会再触发免费计划的 1102 超限。
+  if (!(await hasSessionCookie())) return null
+  return auth.api.getSession({ headers: await headers() })
+})
+
+// 只读 cookie 名称，不做任何解密或查库；Better Auth 的会话 cookie 生产环境带 __Secure- 前缀。
+export async function hasSessionCookie() {
+  const cookie = (await headers()).get('cookie')
+  if (!cookie) return false
+  return cookie.includes('better-auth.session_token')
+}
