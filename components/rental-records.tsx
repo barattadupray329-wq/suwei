@@ -38,6 +38,8 @@ type Row = {
   billingUnit: string;
   totalRent: string;
   paidAmount: string;
+  outstandingAmount: number;
+  overdueOutstandingAmount: number;
   paymentStatus: string;
   status: string;
   assigneeName: string | null;
@@ -106,8 +108,12 @@ const overdueDays = (row: Row) => {
     ),
   );
 };
-const outstanding = (row: Row) =>
-  Math.max(0, Number(row.totalRent) - Number(row.paidAmount));
+// 待收/逾期金额一律用服务端按账单口径算好的字段（已排除减免/抵扣/冲正等终态、
+// 逾期额只计已到期账单），不能用「合同总额 - 已收」粗算——那样会把未到期期数也
+// 算进逾期，导致行内金额和底部合计（overdueReceivable）自相矛盾。
+const outstanding = (row: Row) => Math.max(0, Number(row.outstandingAmount ?? 0));
+const overdueOutstanding = (row: Row) =>
+  Math.max(0, Number(row.overdueOutstandingAmount ?? 0));
 // 整单终态：这些状态下合同已经没有在租设备了（整单买断/退租/丢失/关闭等），不应再显示到期提醒。
 // 与后端保持一致（app/actions/rentals.ts 的 terminalStatuses、app/api/sync-state 的逾期排除集）。
 // 注意：不包含"部分买断/部分退租/部分丢失"——那些还有设备在租，仍要正常显示到期提醒。
@@ -656,11 +662,11 @@ export function RentalRecords({
                         <p className="text-xs text-muted-foreground">
                           已收 {money(row.paidAmount)}
                         </p>
-                        {displayStatus(row) === "逾期" ? (
-                          <p className="mt-1 text-xs font-semibold text-destructive">
-                            逾期待收 {money(String(outstanding(row)))}
-                          </p>
-                        ) : (
+                          {displayStatus(row) === "逾期" ? (
+                            <p className="mt-1 text-xs font-semibold text-destructive">
+                              逾期待收 {money(String(overdueOutstanding(row)))}
+                            </p>
+                          ) : (
                           outstanding(row) > 0 && (
                             <p className="mt-1 text-xs font-semibold text-destructive">
                               待收 {money(String(outstanding(row)))}
