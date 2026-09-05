@@ -56,7 +56,23 @@ main { max-width: 100%; }
 .entry-tile-value { font-size: .875rem; font-weight: 700; }
 @media (max-width: 767px) {
   input, select, textarea { font-size: 16px; }
-  .entry-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .entry-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .375rem; }
+  /* 手机端整体收紧：更小的入口框与字号，商用 App 观感。 */
+  .entry-tile { padding: .5rem .25rem; gap: .25rem; border: none; background: transparent; }
+  .entry-tile-icon { width: 2.75rem; height: 2.75rem; border-radius: .75rem; background: var(--color-muted); }
+  .entry-tile-icon svg { width: 1.125rem; height: 1.125rem; }
+  .entry-tile-label { font-size: .6875rem; line-height: .875rem; font-weight: 500; }
+  .entry-tile-value { font-size: .8125rem; }
+  .page-container { gap: .875rem; padding: .75rem; }
+  .page-title { font-size: 1.25rem; }
+  .page-description { font-size: .8125rem; line-height: 1.25rem; }
+  .page-header { padding-bottom: .875rem; gap: .5rem; }
+  .surface-content { padding: .75rem; }
+  .surface-header { padding: .75rem; }
+  .surface-title { font-size: .9375rem; }
+  .stat-card { padding: .75rem; }
+  .stat-value { margin-top: .5rem; font-size: 1.25rem; }
+  .stat-label { font-size: .75rem; }
 }
 @media (min-width: 768px) { .entry-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media print { @page { size: A4; margin: 0; } body { background: #fff; color: #111; } }
