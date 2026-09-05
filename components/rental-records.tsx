@@ -504,7 +504,7 @@ export function RentalRecords({
         </div>
         {rows.length ? (
           <>
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden scroll-x md:block">
               <table className="w-full min-w-[1080px] text-left text-sm">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>

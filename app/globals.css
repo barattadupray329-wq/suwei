@@ -42,7 +42,21 @@ html[data-theme='dark'] { --color-background: #141a18; --color-foreground: #edf2
 }
 
 html { scroll-behavior: smooth; }
-body { min-width: 320px; }
+body { min-width: 320px; overflow-x: hidden; }
 table { border-collapse: collapse; }
-@media (max-width: 767px) { input, select, textarea { font-size: 16px; } }
+/* 手机端防止任何内容把页面撑出左右边界，导致整页横向滚动。 */
+main { max-width: 100%; }
+.scroll-x { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+/* 手机功能入口：等宽小图标方块，自动换多行，绝不横向溢出。 */
+.entry-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+.entry-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .375rem; min-width: 0; border-radius: .75rem; border: 1px solid var(--color-border); background: var(--color-card); padding: .625rem .25rem; text-align: center; }
+.entry-tile-icon { display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: .625rem; background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); }
+.entry-tile-icon svg { width: 1.25rem; height: 1.25rem; }
+.entry-tile-label { font-size: .75rem; line-height: 1rem; font-weight: 600; }
+.entry-tile-value { font-size: .875rem; font-weight: 700; }
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px; }
+  .entry-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 768px) { .entry-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media print { @page { size: A4; margin: 0; } body { background: #fff; color: #111; } }

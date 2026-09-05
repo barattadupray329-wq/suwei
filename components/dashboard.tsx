@@ -364,18 +364,18 @@ export function BusinessOverview({ summary, canViewFinance }: { summary: Summary
   ];
   return <main className="bg-background p-4 md:p-6"><div className="mx-auto flex max-w-7xl flex-col gap-6">
     <header><p className="text-sm font-medium text-primary">经营分析中心</p><h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1><p className="mt-1 text-sm text-muted-foreground">查看财务、在租设备、合同状态和经营提醒；点击卡片可进入对应明细。</p></header>
-    <section aria-label="经营指标" className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-      <Link href="/rentals" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="正式合同" value={summary.total} icon={<Monitor />} /></Link>
-      <Link href="/rentals/drafts" className="rounded-xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">待审核草稿</p><p className="mt-2 text-2xl font-bold">{summary.draft}</p></div><ClipboardPenLine className="size-5 text-primary" /></div></Link>
-      <Link href="/rentals?status=在租" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} /></Link>
-      <Link href="/rentals?status=逾期" className="rounded-xl border bg-card p-4 transition-colors hover:border-destructive"><Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} /></Link>
-      {canViewFinance ? <Link href="/finance" className="rounded-xl border bg-card p-4 transition-colors hover:border-primary"><Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} /></Link> : <Stat label="累计收款" value="无权限" icon={<WalletCards />} />}
-      <Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 transition-colors hover:border-destructive"><Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} /></Link>
+    <section aria-label="经营指标" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <Link href="/rentals" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-primary md:p-4"><Stat label="正式合同" value={summary.total} icon={<Monitor />} /></Link>
+      <Link href="/rentals/drafts" className="min-w-0 rounded-xl border border-primary/30 bg-primary/5 p-3 transition-colors hover:border-primary md:p-4"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-xs font-medium text-primary md:text-sm">待审核草稿</p><p className="mt-2 text-xl font-bold md:text-2xl">{summary.draft}</p></div><ClipboardPenLine className="size-5 shrink-0 text-primary" /></div></Link>
+      <Link href="/rentals?status=在租" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-primary md:p-4"><Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} /></Link>
+      <Link href="/rentals?status=逾期" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-destructive md:p-4"><Stat label="逾期待处理" value={summary.overdue} icon={<ClockAlert />} /></Link>
+      {canViewFinance ? <Link href="/finance" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-primary md:p-4"><Stat label="累计收款" value={money(summary.revenue)} icon={<WalletCards />} /></Link> : <div className="min-w-0 rounded-xl border bg-card p-3 md:p-4"><Stat label="累计收款" value="无权限" icon={<WalletCards />} /></div>}
+      <Link href="/rentals?receivable=outstanding&sort=outstanding" className="min-w-0 rounded-xl border border-destructive/20 bg-destructive/5 p-3 transition-colors hover:border-destructive md:p-4"><Stat label="待收金额" value={money(summary.receivable)} icon={<CircleDollarSign />} /></Link>
     </section>
     <section className="rounded-xl border bg-card p-4"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><p className="text-sm font-medium text-primary">催收作战台</p><h2 className="mt-1 text-xl font-bold text-balance">待收款清晰拆分，催收不漏单</h2><p className="mt-1 text-sm text-muted-foreground">只统计剩余应收大于 0 的正式合同；已结清合同不会进入待收明细。</p></div><Link href="/rentals?receivable=outstanding&sort=outstanding" className="primary-button">查看 {summary.receivableContracts} 份待收合同</Link></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Link href="/rentals?receivable=overdue&sort=outstanding" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 transition-colors hover:bg-destructive/10"><p className="text-sm font-semibold text-destructive">已到期应收</p><p className="mt-2 text-2xl font-bold text-destructive">{money(summary.overdueReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">优先联系逾期客户</p></Link><Link href="/rentals?receivable=upcoming&sort=due" className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">未到期待收</p><p className="mt-2 text-2xl font-bold">{money(summary.upcomingReceivable)}</p><p className="mt-1 text-xs text-muted-foreground">尚未到合同到期日</p></Link><Link href="/rentals?receivable=outstanding&sort=outstanding" className="rounded-xl border bg-muted p-4 transition-colors hover:border-primary"><p className="text-sm font-semibold">全部待收</p><p className="mt-2 text-2xl font-bold">{money(summary.receivable)}</p><p className="mt-1 text-xs text-primary">按欠款金额查看明细</p></Link></div></section>
-    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">在租设备</h2><p className="text-sm text-muted-foreground">按设备类型统计当前仍在客户处的可用数量</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{deviceTypes.map((type) => <Link key={type} href={`/rentals?query=${encodeURIComponent(type)}`} className="rounded-xl border bg-background p-4 transition-colors hover:border-primary"><p className="text-sm text-muted-foreground">{type}</p><p className="mt-2 text-2xl font-bold">{summary.deviceCounts[type] ?? 0} 台</p><p className="mt-1 text-xs text-primary">查看相关合同</p></Link>)}</div></section>
-    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">租赁状态</h2><p className="text-sm text-muted-foreground">点击彩色状态查看对应合同</p></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{statusCards.map((item) => <Link key={item.label} href={item.href} className={`rounded-xl border p-4 transition-opacity hover:opacity-80 ${item.tone}`}><p className="text-sm font-semibold">{item.label}</p><p className="mt-2 text-2xl font-bold">{item.value}</p></Link>)}</div></section>
-    <section className="grid gap-3 md:grid-cols-3">{[{ label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期" }, { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due" }, { label: "维修处理中", value: summary.repairPending, href: "/rentals?query=维修" }].map((item) => <Link key={item.label} href={item.href} className="rounded-xl bg-muted p-4 transition-colors hover:bg-border"><p className="text-2xl font-bold">{item.value}</p><p className="mt-1 font-medium">{item.label}</p></Link>)}</section>
+    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">在租设备</h2><p className="text-sm text-muted-foreground">按设备类型统计当前仍在客户处的可用数量</p></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{deviceTypes.map((type) => <Link key={type} href={`/rentals?query=${encodeURIComponent(type)}`} className="min-w-0 rounded-xl border bg-background p-3 transition-colors hover:border-primary md:p-4"><p className="truncate text-xs text-muted-foreground md:text-sm">{type}</p><p className="mt-2 text-xl font-bold md:text-2xl">{summary.deviceCounts[type] ?? 0} 台</p><p className="mt-1 text-xs text-primary">查看相关合同</p></Link>)}</div></section>
+    <section className="rounded-xl border bg-card p-4"><div><h2 className="font-semibold">租赁状态</h2><p className="text-sm text-muted-foreground">点击彩色状态查看对应合同</p></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{statusCards.map((item) => <Link key={item.label} href={item.href} className={`min-w-0 rounded-xl border p-3 transition-opacity hover:opacity-80 md:p-4 ${item.tone}`}><p className="truncate text-xs font-semibold md:text-sm">{item.label}</p><p className="mt-2 text-xl font-bold md:text-2xl">{item.value}</p></Link>)}</div></section>
+    <section className="grid grid-cols-2 gap-3 md:grid-cols-3">{[{ label: "逾期合同", value: summary.overdue, href: "/rentals?status=逾期" }, { label: "7 天内到期", value: summary.dueSoon, href: "/rentals?sort=due" }, { label: "维修处理中", value: summary.repairPending, href: "/rentals?query=维修" }].map((item) => <Link key={item.label} href={item.href} className="min-w-0 rounded-xl bg-muted p-3 transition-colors hover:bg-border md:p-4"><p className="text-xl font-bold md:text-2xl">{item.value}</p><p className="mt-1 truncate text-sm font-medium md:text-base">{item.label}</p></Link>)}</section>
   </div></main>;
 }
 
@@ -2952,7 +2952,7 @@ function DetailFinance({
           <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
         </div>
         {rentBills.length > 0 ? (
-          <div className="overflow-x-auto">
+          <div className="scroll-x">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground"><tr><th className="px-3 py-2.5">期数</th><th className="px-3 py-2.5">账期</th><th className="px-3 py-2.5">应收 / 已收</th><th className="px-3 py-2.5">约定还款日</th><th className="px-3 py-2.5">实际到账</th><th className="px-3 py-2.5">状态</th><th className="px-3 py-2.5 text-right">操作</th></tr></thead>
               <tbody className="divide-y">
@@ -4999,12 +4999,12 @@ function Stat({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex size-9 items-center justify-center rounded-lg bg-muted text-primary">
+    <div className="min-w-0">
+      <div className="mb-2 flex size-8 items-center justify-center rounded-lg bg-muted text-primary md:mb-3 md:size-9">
         {icon}
       </div>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-bold">{value}</p>
+      <p className="truncate text-xs text-muted-foreground md:text-sm">{label}</p>
+      <p className="mt-1 truncate text-lg font-bold md:text-xl">{value}</p>
     </div>
   );
 }
