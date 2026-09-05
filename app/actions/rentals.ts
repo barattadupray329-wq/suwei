@@ -171,6 +171,8 @@ export type RentalListQuery = z.input<typeof rentalQuerySchema>
 export async function getRentalPage(input: RentalListQuery = {}) {
   const userId = await getUserId()
   const value = rentalQuerySchema.parse(input)
+  // 列表首次加载时主动补算逾期账期，避免必须进入详情页后汇总才更新。
+  if (value.lifecycleStatus === 'active') await ensureOverdueRentBillsSafely(userId)
   const filters = [eq(rentals.userId, userId), eq(rentals.lifecycleStatus, value.lifecycleStatus)]
   if (value.orderType !== 'all') filters.push(eq(rentals.orderType, value.orderType))
   if (value.query) {
@@ -724,7 +726,7 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
       statements.push(db.update(receivableBills).set({ amount: fromCents(toCents(bill.amount) + deltaCents), status: '待收', notes: `${bill.notes ?? ''}${bill.notes ? '；' : ''}第 ${value.startPeriod} 期起月租调整：${value.reason}`, updatedAt: now }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
     } else {
       statements.push(db.insert(receivableBills).values({ userId, rentalId: rental.id, billNo: `RENT-ADJ-${rental.id}-${bill.id}-${Date.now()}`, periodStart: bill.periodStart, periodEnd: bill.periodEnd, dueDate: eventDate, billType: deltaCents > 0 ? '租金补差' : '租金减免', amount: fromCents(deltaCents), paidAmount: '0.00', status: deltaCents > 0 ? '待收' : '已调整', notes: `账单 ${bill.billNo} 第 ${value.startPeriod} 期起追溯调租：${value.reason}` }))
-      if (deltaCents < 0) statements.push(db.insert(customerCreditLedger).values({ userId, customerPhone: rental.customerPhone, sourceRentalId: rental.id, entryType: '调价余额', amount: fromCents(-deltaCents), entryDate: eventDate, operatorName: access.actorName, notes: `账单 ${bill.billNo} 降价形成客户余额，可抵扣或退款` }))
+      if (deltaCents < 0) statements.push(db.insert(customerCreditLedger).values({ userId, customerPhone: rental.customerPhone, sourceRentalId: rental.id, entryType: '调���余额', amount: fromCents(-deltaCents), entryDate: eventDate, operatorName: access.actorName, notes: `账单 ${bill.billNo} 降价形成客户余额，可抵扣或退款` }))
     }
   }
   if (!affected.length) throw new Error('所选期数之后没有可调整的租金账单')
