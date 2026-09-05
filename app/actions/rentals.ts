@@ -20,7 +20,7 @@ import { assertOfficialRentalDeletable } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { activePositivePayments, billsReceivableCents, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
-import { ensureOverdueRentBills, ensureOverdueRentBillsSafely } from '@/lib/overdue-rent-billing'
+import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
 import { matchRenewalPeriodsToOverdueBills, recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
@@ -345,9 +345,9 @@ export async function getRentalById(id: number) {
   const userId = await getUserId()
   const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
   if (!row) return null
-  // 详情页只针对这一张合同单独自愈（第三个参数 id 把扫描范围限定到该合同），不牵动该商户
-  // 其他在租合同——同时用 Safely 版本兜底 Next.js 悬停预取带来的并发写入冲突。
-  await ensureOverdueRentBillsSafely(userId, undefined, id)
+  // 详情页是纯读取路径，不再做写入型逾期自愈：长期积压需要回补多个月账期时，即便只扫这一张合同，
+  // 自愈计算叠加批量写入仍可能超出 Worker 单请求 CPU 预算（Error 1102）。逾期账单由每天 01:00 的
+  // 定时任务全量补算，以及收款/退租/买断等写操作各自针对涉及合同实时补算来保证新鲜。
   return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
