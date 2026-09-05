@@ -1296,7 +1296,7 @@ canViewFinance={canViewFinance}
       </Dialog>
       <Dialog
         open={dialog === "delete-confirm"}
-        title={selected?.orderType === "official" ? "撤销重复合同" : "确认移入回收站"}
+        title={selected?.orderType === "official" ? "删除录错订单" : "确认移入回收站"}
         embedded={Boolean(linkedRental)}
         onClose={() => setDialog("detail")}
       >
@@ -1307,7 +1307,7 @@ canViewFinance={canViewFinance}
                 event.preventDefault();
                 run(
                   () => deleteTestRental({ id: selected.id, reason: deleteReason, adminPassword: selected.orderType === "official" ? adminPassword : undefined }),
-                  selected.orderType === "official" ? "重复合同及初始收款已撤销" : "订单已移入回收站",
+                  selected.orderType === "official" ? "录错订单及关联业务、收款已删除" : "订单已移入回收站",
                 );
               }}
             >
@@ -1315,7 +1315,7 @@ canViewFinance={canViewFinance}
                 <p className="font-semibold text-destructive">{selected.orderType === "official" ? "重复合同及初始账务将一并撤销" : "订单将进入回收站"}</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {selected.orderType === "official"
-                    ? "仅限撤销今天重复创建、且没有续租、退租、买断、丢失、维修、变更或额外收款的正式合同。合同会保留在回收站，操作记录会永久保留。"
+                    ? "可删除录单后 7 天内录错的正式合同；系统会连带撤销本单的续租、退租、买断、丢失、维修、变更及全部收款账务，仅影响本单。合同会保留在回收站，操作记录永久保留。"
                     : "草稿与测试订单只会移入回收站并支持恢复；测试订单仅限创建后 24 小时内处理。"}
                 </p>
                 {selected.orderType === "official" && (
@@ -1333,7 +1333,7 @@ canViewFinance={canViewFinance}
                   maxLength={200}
                   value={deleteReason}
                   onChange={(event) => setDeleteReason(event.target.value)}
-                  placeholder="例如：当天录入了错误的设备和租期"
+                    placeholder="例如：重复录入 / 录错了设备和租期"
                   className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
                 />
               </label>
@@ -3083,7 +3083,7 @@ function DetailManage({
         <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <div>
             <h3 className="font-semibold">业务主管订单管理</h3>
-            <p className="text-sm text-muted-foreground">当天录错且没有后续业务记录的正式订单，可验证管理员密码后移入回收站；正式订单仍禁止永久删除。</p>
+            <p className="text-sm text-muted-foreground">录单 7 天内录错的正式订单，可验证管理员密码后删除，并连带撤销续租/退租等后续业务；正式订单仍禁止永久彻底删除。</p>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <span className="shrink-0 font-medium">维护负责人</span>
@@ -3099,7 +3099,7 @@ function DetailManage({
             </button>
             <button type="button" onClick={onDelete} className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
               <Trash2 className="size-4" />
-              {rental.orderType === "official" ? "删除当天录错订单" : "移入回收站"}
+              {rental.orderType === "official" ? "删除录错订单" : "移入回收站"}
             </button>
           </div>
         </section>

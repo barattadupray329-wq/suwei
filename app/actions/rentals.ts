@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerCreditLedger, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, user } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, contractSnapshots, customerCreditLedger, customerPortals, lossRecords, organizationMembers, paymentAllocations, paymentDiscounts, paymentRecords, receivableBills, renewalAdjustments, renewalRecords, rentalEvents, rentalItems, rentals, returnRecords, returnSettlements, user } from '@/lib/db/schema'
 import { billPaymentPeriodSummary, billPeriodRanges, fromCents, normalizeBillingUnit, rentalEndDate, renewalAmount, toCents } from '@/lib/rental-calculations'
 import { buildRentalNumbers, normalizeRentalDate } from '@/lib/rental-numbers'
 import { normalizeDeviceName, normalizeStartDateReason, START_DATE_REASONS, validateRentalItemFields } from '@/lib/rental-form-rules'
@@ -16,7 +16,7 @@ import { safeError } from '@/lib/errors'
 import { chunkRowsForD1 } from '@/lib/d1-batch'
 import { DRAFT_IMPORT_LIMIT } from '@/lib/draft-import'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
-import { assertNoRentalActivity, assertOnlyInitialRentalPayments, assertSameDayOfficialRental } from '@/lib/rental-trash-policy'
+import { assertOfficialRentalDeletable } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { activePositivePayments, billsReceivableCents, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
@@ -1272,42 +1272,52 @@ export async function moveRentalToTrash(input: number | z.input<typeof trashRent
   if (!rental) throw new Error('订单不存在或已在回收站')
 
   let reversedPayments: Array<{ id: number; amount: string; feeType: string }> = []
+  let reversedSummary: Record<string, number> = {}
   if (rental.orderType === 'official') {
-    if (access.role !== 'admin') throw new Error('只有店铺管理员可以撤销当天重复创建的正式合同')
-    assertSameDayOfficialRental(rental.createdAt)
+    if (access.role !== 'admin') throw new Error('只有店铺管理员可以删除录错的正式合同')
+    assertOfficialRentalDeletable(rental.createdAt)
     if (!value.adminPassword) throw new Error('请输入当前管理员登录密码')
     try {
       const verified = await auth.api.verifyPassword({ body: { password: value.adminPassword }, headers: await headers() })
       if (!verified.status) throw new Error('invalid')
     } catch {
-      throw new Error('管理员密码错误，无法撤销重复合同')
+      throw new Error('管理员密码错误，无法删除录错合同')
     }
-    const [payments, allocations, ledgerEntries, discounts, ...businessActivity] = await Promise.all([
-      db.select().from(paymentRecords).where(and(eq(paymentRecords.rentalId, value.id), eq(paymentRecords.userId, access.userId))),
-      db.select({ paymentRecordId: paymentAllocations.paymentRecordId }).from(paymentAllocations).where(and(eq(paymentAllocations.rentalId, value.id), eq(paymentAllocations.userId, access.userId))),
-      db.select({ paymentRecordId: accountLedger.paymentRecordId }).from(accountLedger).where(and(eq(accountLedger.rentalId, value.id), eq(accountLedger.userId, access.userId))),
+    // 采集本单的收款与各类后续业务记录，仅用于审计留痕；实际清理在下方的级联删除中完成。
+    const [payments, renewals, renewalAdj, buyouts, returns, losses, events, discounts] = await Promise.all([
+      db.select({ id: paymentRecords.id, amount: paymentRecords.amount, feeType: paymentRecords.feeType }).from(paymentRecords).where(and(eq(paymentRecords.rentalId, value.id), eq(paymentRecords.userId, access.userId))),
+      db.select({ id: renewalRecords.id }).from(renewalRecords).where(and(eq(renewalRecords.rentalId, value.id), eq(renewalRecords.userId, access.userId))),
+      db.select({ id: renewalAdjustments.id }).from(renewalAdjustments).where(and(eq(renewalAdjustments.rentalId, value.id), eq(renewalAdjustments.userId, access.userId))),
+      db.select({ id: buyoutRecords.id }).from(buyoutRecords).where(and(eq(buyoutRecords.rentalId, value.id), eq(buyoutRecords.userId, access.userId))),
+      db.select({ id: returnRecords.id }).from(returnRecords).where(and(eq(returnRecords.rentalId, value.id), eq(returnRecords.userId, access.userId))),
+      db.select({ id: lossRecords.id }).from(lossRecords).where(and(eq(lossRecords.rentalId, value.id), eq(lossRecords.userId, access.userId))),
+      db.select({ id: rentalEvents.id }).from(rentalEvents).where(and(eq(rentalEvents.rentalId, value.id), eq(rentalEvents.userId, access.userId))),
       db.select({ id: paymentDiscounts.id }).from(paymentDiscounts).where(and(eq(paymentDiscounts.rentalId, value.id), eq(paymentDiscounts.userId, access.userId))),
-      db.select({ id: buyoutRecords.id }).from(buyoutRecords).where(and(eq(buyoutRecords.rentalId, value.id), eq(buyoutRecords.userId, access.userId))).limit(1),
-      db.select({ id: renewalRecords.id }).from(renewalRecords).where(and(eq(renewalRecords.rentalId, value.id), eq(renewalRecords.userId, access.userId))).limit(1),
-      db.select({ id: renewalAdjustments.id }).from(renewalAdjustments).where(and(eq(renewalAdjustments.rentalId, value.id), eq(renewalAdjustments.userId, access.userId))).limit(1),
-      db.select({ id: returnRecords.id }).from(returnRecords).where(and(eq(returnRecords.rentalId, value.id), eq(returnRecords.userId, access.userId))).limit(1),
-      db.select({ id: lossRecords.id }).from(lossRecords).where(and(eq(lossRecords.rentalId, value.id), eq(lossRecords.userId, access.userId))).limit(1),
-      db.select({ id: rentalEvents.id }).from(rentalEvents).where(and(eq(rentalEvents.rentalId, value.id), eq(rentalEvents.userId, access.userId))).limit(1),
     ])
-    assertNoRentalActivity(businessActivity.map((rows) => rows.length))
-    assertOnlyInitialRentalPayments(payments, allocations.map((row) => row.paymentRecordId), ledgerEntries.map((row) => row.paymentRecordId), discounts.length)
     reversedPayments = payments.map(({ id, amount, feeType }) => ({ id, amount, feeType }))
+    reversedSummary = { payments: payments.length, renewals: renewals.length, renewalAdjustments: renewalAdj.length, buyouts: buyouts.length, returns: returns.length, losses: losses.length, events: events.length, discounts: discounts.length }
   } else if (rental.orderType === 'test' && Date.now() - rental.createdAt.getTime() > 24 * 60 * 60 * 1000) {
     throw new Error('测试合同创建已超过 24 小时，不能移入回收站')
   }
 
   const statements: Array<Parameters<typeof db.batch>[0][number]> = []
   if (rental.orderType === 'official') {
+    // 删除录错正式订单：连带撤销本单的续租/退租/买断/报损/维修/变更及其收款、账务与账单。
+    // 所有删除条件都按 rentalId + userId（信用流水按 sourceRentalId）精确限定，只清理本单，不影响其他订单。
     statements.push(
       db.delete(paymentAllocations).where(and(eq(paymentAllocations.rentalId, value.id), eq(paymentAllocations.userId, access.userId))),
       db.delete(accountLedger).where(and(eq(accountLedger.rentalId, value.id), eq(accountLedger.userId, access.userId))),
+      db.delete(paymentDiscounts).where(and(eq(paymentDiscounts.rentalId, value.id), eq(paymentDiscounts.userId, access.userId))),
       db.delete(paymentRecords).where(and(eq(paymentRecords.rentalId, value.id), eq(paymentRecords.userId, access.userId))),
-      db.update(receivableBills).set({ paidAmount: '0', status: '待收', updatedAt: new Date() }).where(and(eq(receivableBills.rentalId, value.id), eq(receivableBills.userId, access.userId))),
+      db.delete(renewalAdjustments).where(and(eq(renewalAdjustments.rentalId, value.id), eq(renewalAdjustments.userId, access.userId))),
+      db.delete(renewalRecords).where(and(eq(renewalRecords.rentalId, value.id), eq(renewalRecords.userId, access.userId))),
+      db.delete(buyoutRecords).where(and(eq(buyoutRecords.rentalId, value.id), eq(buyoutRecords.userId, access.userId))),
+      db.delete(returnSettlements).where(and(eq(returnSettlements.rentalId, value.id), eq(returnSettlements.userId, access.userId))),
+      db.delete(returnRecords).where(and(eq(returnRecords.rentalId, value.id), eq(returnRecords.userId, access.userId))),
+      db.delete(lossRecords).where(and(eq(lossRecords.rentalId, value.id), eq(lossRecords.userId, access.userId))),
+      db.delete(rentalEvents).where(and(eq(rentalEvents.rentalId, value.id), eq(rentalEvents.userId, access.userId))),
+      db.delete(customerCreditLedger).where(and(eq(customerCreditLedger.sourceRentalId, value.id), eq(customerCreditLedger.userId, access.userId))),
+      db.delete(receivableBills).where(and(eq(receivableBills.rentalId, value.id), eq(receivableBills.userId, access.userId))),
     )
   }
   statements.push(
