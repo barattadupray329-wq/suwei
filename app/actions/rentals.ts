@@ -237,15 +237,12 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   const orderBy = value.sort === 'due' || value.sort === 'due_desc'
     ? [order, desc(rentals.id)]
     : [asc(businessPriority), order, desc(rentals.id)]
-  // 列表加载时主动补算逾期账期，避免必须进入详情页后汇总才更新；但只针对「当前页可见的合同」做
-  // 有界补算，绝不再对全店铺在租合同做全量扫描——全量扫描的 JS 计算量会随数据量/逾期积压线性放大，
-  // 撑爆 Cloudflare Worker 单请求 CPU 资源限制（Error 1102）。当前页之外的合同由每天 01:00 的
-  // 定时任务全量兜底。
-  if (value.lifecycleStatus === 'active') {
-    const pageIdRows = await db.select({ id: rentals.id }).from(rentals).where(where).orderBy(...orderBy).limit(value.pageSize).offset(offset)
-    const pageIds = pageIdRows.map((row) => row.id)
-    if (pageIds.length) await ensureOverdueRentBillsSafely(userId, undefined, pageIds)
-  }
+  // 列表页是全站访问量最高、且会被 Next.js 链接预取并发拉取的路由，必须保持「纯读取」——绝不能在
+  // 这里同步跑写入型逾期自愈。哪怕只补算当前页 20 条合同，长时间未访问后需要回补多个月账期时，
+  // overdueRentPeriods × remainingQuantityAsOf 的叠加计算加上批量写入仍会撑爆 Cloudflare Worker
+  // 单请求 CPU 预算（Error 1102，「放久了就超限」）。逾期账单是持久记录：由每天 01:00 的定时任务
+  // 全量兜底补算，收款/退租/买断等写操作各自针对涉及合同实时补算，进入合同详情页时再单合同自愈；
+  // 列表汇总用这些已持久化的账单按 SQL 统计即可，无需在读路径上生成账单。
   const [[summaryRow], rows] = await Promise.all([
     db.select({
       count: sql<number>`count(*)`,
