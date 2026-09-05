@@ -706,70 +706,55 @@ export function RentalRecords({
                 </tbody>
               </table>
             </div>
-            <div className="flex flex-col gap-3 p-3 md:hidden">
+            <div className="flex flex-col gap-2.5 p-3 md:hidden">
               {rows.map((row) => (
-                <article
+                <Link
                   key={row.id}
-                  className={`rounded-xl border p-4 ${rowTone(displayStatus(row))}`}
+                  href={`/rentals?rental=${row.id}`}
+                  prefetch={false}
+                  className={`block rounded-xl border p-3.5 ${rowTone(displayStatus(row))}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="flex flex-wrap items-center gap-2 font-semibold">
-                        {row.contractNo}
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-xs font-medium text-muted-foreground">
+                          {row.contractNo}
+                        </span>
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                           {row.orderType === "official"
                             ? "正式"
                             : row.orderType === "draft"
                               ? "草稿"
                               : "测试"}
                         </span>
-                      </p>
-                      <p className="flex flex-wrap items-center gap-2 text-sm">
-                        {row.customerCompany || row.customerName}
+                      </div>
+                      <p className="mt-1 flex items-center gap-1.5 text-base font-bold">
+                        <span className="truncate">{row.customerCompany || row.customerName}</span>
                         {row.headerRemark ? (
-                          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground ring-1 ring-inset ring-border">
+                          <span className="shrink-0 rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground">
                             {row.headerRemark}
                           </span>
                         ) : null}
                       </p>
                     </div>
-                    <span
-                      className={`rounded-full px-2 py-1 text-xs font-medium ${statusTone(displayStatus(row))}`}
-                    >
-                      {displayStatus(row)}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground">联系电话</p>
-                      <p>{row.customerPhone}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">到期日</p>
-                      <p>{row.endDate}</p>
-                      {dueReminder(row) && (
-                        <p className={`text-xs ${dueReminder(row)!.tone}`}>
-                          {dueReminder(row)!.label}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">合同金额</p>
-                      <p className="font-semibold">{money(row.totalRent)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">负责人</p>
-                      <p>{row.assigneeName || "未分配"}</p>
+                    <div className="shrink-0 text-right">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusTone(displayStatus(row))}`}
+                      >
+                        {displayStatus(row)}
+                      </span>
+                      <p className="mt-1 text-lg font-bold">{money(row.totalRent)}</p>
                     </div>
                   </div>
-                  <Link
-                    className="secondary-button mt-4 w-full"
-                    href={`/rentals?rental=${row.id}`}
-                    prefetch={false}
-                  >
-                    查看合同详情
-                  </Link>
-                </article>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{row.customerPhone}</span>
+                    <span>到期 {row.endDate}</span>
+                    {dueReminder(row) && (
+                      <span className={dueReminder(row)!.tone}>{dueReminder(row)!.label}</span>
+                    )}
+                    <span>负责人 {row.assigneeName || "未分配"}</span>
+                  </div>
+                </Link>
               ))}
             </div>
           </>
