@@ -106,7 +106,14 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   ])
   const groupByRental = <T extends { rentalId: number }>(records: T[]) => {
     const grouped = new Map<number, T[]>()
-    for (const record of records) grouped.set(record.rentalId, [...(grouped.get(record.rentalId) ?? []), record])
+    // 原地 push，不要每加一条就把已有数组整体展开复制一遍——那样是 O(n²)，
+    // 当某合同的账单/收款/分摊/账务记录随时间积压变多时会平方级放大 CPU，
+    // 是「操作久了详情页突然 Error 1102」的主因之一。
+    for (const record of records) {
+      const bucket = grouped.get(record.rentalId)
+      if (bucket) bucket.push(record)
+      else grouped.set(record.rentalId, [record])
+    }
     return grouped
   }
   const itemMap = groupByRental(items)
@@ -122,7 +129,9 @@ export async function getRentals(query = '', status = '全部', limit?: number) 
   const allocationsByBill = new Map<number, typeof allocations>()
   for (const allocation of allocations) {
     if (reversedPaymentIds.has(allocation.paymentRecordId)) continue
-    allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+    const bucket = allocationsByBill.get(allocation.billId)
+    if (bucket) bucket.push(allocation)
+    else allocationsByBill.set(allocation.billId, [allocation])
   }
   const billsWithAllocations = bills.map((bill) => ({ ...bill, allocations: allocationsByBill.get(bill.id) ?? [] }))
   const billMap = groupByRental(billsWithAllocations)
@@ -259,9 +268,17 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     ? await db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd, dueDate: receivableBills.dueDate, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount, status: receivableBills.status }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rows.map((row) => row.id)), ne(receivableBills.status, '已冲正')))
     : []
   const itemsByRental = new Map<number, typeof itemRows>()
-  for (const item of itemRows) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
+  for (const item of itemRows) {
+    const bucket = itemsByRental.get(item.rentalId)
+    if (bucket) bucket.push(item)
+    else itemsByRental.set(item.rentalId, [item])
+  }
   const billsByRental = new Map<number, typeof billRows>()
-  for (const bill of billRows) billsByRental.set(bill.rentalId, [...(billsByRental.get(bill.rentalId) ?? []), bill])
+  for (const bill of billRows) {
+    const bucket = billsByRental.get(bill.rentalId)
+    if (bucket) bucket.push(bill)
+    else billsByRental.set(bill.rentalId, [bill])
+  }
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
@@ -1004,7 +1021,11 @@ export async function reversePayment(paymentId: number, reason: string) {
   const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rental.id), inArray(receivableBills.id, billIds)))
   if (bills.length !== billIds.length) throw new Error('原收款的账单分配记录不完整，禁止冲正')
   const allocationsByBill = new Map<number, typeof allocations>()
-  for (const allocation of allocations) allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+  for (const allocation of allocations) {
+    const bucket = allocationsByBill.get(allocation.billId)
+    if (bucket) bucket.push(allocation)
+    else allocationsByBill.set(allocation.billId, [allocation])
+  }
 
   const discount = discounts[0]
   const nextContract = reversedContractAmounts({ total: rental.totalRent, paid: rental.paidAmount, payments: [payment], discountAmount: discount?.amount })
@@ -1059,7 +1080,9 @@ export async function reverseAllPayments(rentalId: number, reason: string) {
   const allocationsByBill = new Map<number, typeof activeAllocations>()
   for (const allocation of activeAllocations) {
     if (!billsById.has(allocation.billId)) throw new Error(`收款 #${allocation.paymentRecordId} 的账单分配无效，全部冲正已停止，未修改任何数据`)
-    allocationsByBill.set(allocation.billId, [...(allocationsByBill.get(allocation.billId) ?? []), allocation])
+    const bucket = allocationsByBill.get(allocation.billId)
+    if (bucket) bucket.push(allocation)
+    else allocationsByBill.set(allocation.billId, [allocation])
   }
   const discountCents = activeDiscounts.reduce((sum, discount) => sum + moneyToCents(discount.amount), 0)
   const nextContract = reversedContractAmounts({ total: rental.totalRent, paid: rental.paidAmount, payments: activePayments, discountAmount: centsToMoney(discountCents) })

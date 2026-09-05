@@ -68,7 +68,9 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   const existingOverduePeriodsByRental = new Map<number, typeof existingBills>()
   for (const bill of existingBills) {
     if (!bill.billType.includes('逾期')) continue
-    existingOverduePeriodsByRental.set(bill.rentalId, [...(existingOverduePeriodsByRental.get(bill.rentalId) ?? []), bill])
+    const bucket = existingOverduePeriodsByRental.get(bill.rentalId)
+    if (bucket) bucket.push(bill)
+    else existingOverduePeriodsByRental.set(bill.rentalId, [bill])
   }
   const disposals: RentalDisposal[] = [...buyouts, ...returns, ...losses]
   // remainingQuantityAsOf 每次调用都会对传入的数组做一次 filter + reduce。这里是"全店铺扫描"，
