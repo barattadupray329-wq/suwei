@@ -1334,7 +1334,7 @@ canViewFinance={canViewFinance}
                   maxLength={200}
                   value={deleteReason}
                   onChange={(event) => setDeleteReason(event.target.value)}
-                    placeholder="例如：重复录入 / 录错了设备和租期"
+                    placeholder="例如：重复录入 / 录错了设备和日期"
                   className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
                 />
               </label>
@@ -1607,9 +1607,9 @@ canViewFinance={canViewFinance}
           <BuyoutForm
             rental={selected}
             pending={pending}
-            submit={(values, settlement) =>
+            submit={(values, settlement, forgiveExcessRent) =>
               runInDetail(
-                () => buyoutRentalItems(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId), settlement),
+                () => buyoutRentalItems(validateBusinessBatch(values.map((value) => ({ ...value, rentalId: selected.id })), (value) => value.itemId), settlement, forgiveExcessRent),
                 "买断已登记",
               )
             }
@@ -4769,6 +4769,7 @@ function BuyoutForm({
   submit: (
     values: Array<{ itemId: number; quantity: number; price: number; date: string; notes: string }>,
     settlement: SettlementInput,
+    forgiveExcessRent: boolean,
   ) => void;
   pending: boolean;
 }) {
@@ -4781,6 +4782,7 @@ function BuyoutForm({
   const [date, setDate] = useState(today());
   const [settlement, setSettlement] = useState<SettlementInput>({ timing: "now", date: today(), method: "微信" });
   const [notes, setNotes] = useState("");
+  const [forgiveExcessRent, setForgiveExcessRent] = useState(true);
   const selected = Object.values(rows);
   const allSelected = available.length > 0 && selected.length === available.length;
   const defaultRow = (item: Item): BuyoutRow => ({ itemId: item.id, quantity: item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity, price, date, notes });
@@ -4793,7 +4795,7 @@ function BuyoutForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(selected, settlement);
+        submit(selected, settlement, forgiveExcessRent);
       }}
       className="flex flex-col gap-4"
     >
@@ -4829,6 +4831,10 @@ function BuyoutForm({
         </div>
       </section>
       <div className="rounded-xl bg-muted p-4"><p className="text-xs text-muted-foreground">本次买断汇总</p><p className="mt-1 text-lg font-semibold">{totalQuantity} 台 · {money(totalAmount)}</p></div>
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4">
+        <input type="checkbox" checked={forgiveExcessRent} onChange={(e) => setForgiveExcessRent(e.target.checked)} className="mt-0.5 size-4 accent-primary" />
+        <span className="min-w-0 flex-1 text-sm"><strong>免除买断日之后的租金账单</strong><span className="block text-xs leading-5 text-muted-foreground">买断即拥有，勾选后将免除买断日之后仍未收款的租金账单（含横跨买断日的当期账单）。整单买断时该期归零减免，部分买断则只保留剩余设备的租金。已收款的账单不受影响。</span></span>
+      </label>
       <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
       <button
         disabled={pending || !selected.length || selected.some((row) => { const item = available.find((current) => current.id === row.itemId); const max = item ? item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity : 0; return !Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > max || row.price <= 0 || !row.date; })}

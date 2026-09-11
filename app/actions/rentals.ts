@@ -21,7 +21,7 @@ import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } fro
 import { activePositivePayments, billsReceivableCents, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
 import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
-import { matchRenewalPeriodsToOverdueBills, recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
+import { isRentBillType, matchRenewalPeriodsToOverdueBills, recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
   return (await getAccessContext('租赁操作')).userId
@@ -1157,7 +1157,7 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
 
 export type BuyoutBatchInput = { rentalId:number; itemId:number; quantity:number; price:number; date:string; notes?:string }
 
-export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInput: SettlementInput) {
+export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInput: SettlementInput, forgiveExcessRent = true) {
   const access=await getAccessContext('租赁操作'),userId=access.userId,settlement=settlementSchema.parse(settlementInput)
   const values=z.array(z.object({rentalId:z.number().int().positive(),itemId:z.number().int().positive(),quantity:z.number().int().positive(),price:z.number().positive(),date:z.string().min(1),notes:z.string().optional()})).min(1).max(100).parse(input),rentalId=values[0].rentalId
   if(values.some((v)=>v.rentalId!==rentalId))throw new Error('批量买断必须属于同一合同');if(new Set(values.map((v)=>v.itemId)).size!==values.length)throw new Error('同一设备不能重复提交')
@@ -1181,6 +1181,20 @@ export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInp
   for (const { bill, nextAmountCents, reductionCents } of recomputeUnpaidRentBills(items, bills, disposals, latestBuyoutDate)) {
     futureBillReductionCents += reductionCents
     statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；设备买断后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+  }
+  // 开关开启时（默认），免除"横跨买断日"的未收租金账单：账期从买断日之前开始、却延续到买断日之后
+  // （periodStart < 买断日 < periodEnd）的账单不会被上面的重算覆盖（重算只处理 periodStart >= 买断日）。
+  // 这类账单按买断后各设备剩余数量重算——整单买断即归零减免，部分买断则只保留剩余设备的租金。
+  if (forgiveExcessRent) {
+    for (const bill of bills) {
+      if (!isRentBillType(bill.billType) || toCents(bill.paidAmount) !== 0) continue
+      if (bill.periodStart >= latestBuyoutDate || bill.periodEnd <= latestBuyoutDate) continue
+      const currentCents = toCents(bill.amount)
+      const nextAmountCents = items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, latestBuyoutDate, disposals), 0)
+      if (nextAmountCents === currentCents) continue
+      futureBillReductionCents += Math.max(0, currentCents - nextAmountCents)
+      statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；买断后免除买断日之后的租期` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+    }
   }
   const totalCents=toCents(rental.totalRent)+amountCents-futureBillReductionCents,paidCents=toCents(rental.paidAmount)+(settlement.timing==='now'?amountCents:0)
   if(totalCents<0)throw new Error('买断调整后合同总额不能小于 0')
