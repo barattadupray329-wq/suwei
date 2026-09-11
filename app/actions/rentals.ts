@@ -362,9 +362,11 @@ export async function getRentalById(id: number) {
   const userId = await getUserId()
   const [row] = await db.select({ contractNo: rentals.contractNo }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, id))).limit(1)
   if (!row) return null
-  // 详情页是纯读取路径，不再做写入型逾期自愈：长期积压需要回补多个月账期时，即便只扫这一张合同，
-  // 自愈计算叠加批量写入仍可能超出 Worker 单请求 CPU 预算（Error 1102）。逾期账单由每天 01:00 的
-  // 定时任务全量补算，以及收款/退租/买断等写操作各自针对涉及合同实时补算来保证新鲜。
+  // 打开一张合同详情时，只针对这一张合同做逾期账单自愈（inArray 单 id，成本有界）。
+  // 全店铺批量自愈才会撑爆 Worker CPU（Error 1102）；单合同回补通常仅 1~数期，开销很小，
+  // 且详情页已跳过 getDashboard 的全表设备扫描，净开销低于此前触发 1102 的版本。
+  // 用不抛错版本：万一失败也不影响详情读取，另有每天 01:00 定时任务兜底全量补算。
+  await ensureOverdueRentBillsSafely(userId, undefined, id)
   return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
@@ -729,7 +731,7 @@ export async function changeRentFromPeriod(input: PeriodRentChangeInput) {
   ])
   if (!rental || !item) throw new Error('合同或设备不存在')
   assertOfficialRental(rental)
-  if (rental.billingType !== 'monthly') throw new Error('按期调租仅适用于月租合同')
+  if (rental.billingType !== 'monthly') throw new Error('按期续租仅适用于月租合同')
   const availableCount = availableQuantity(item)
   if (availableCount <= 0) throw new Error('该设备当前暂无在租数量')
   const previousRentCents = toCents(item.monthlyRent)
