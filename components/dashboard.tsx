@@ -2914,7 +2914,11 @@ function DetailFinance({
   const adjustmentCents = adjustmentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
   const totalReceivable = Math.max(0, grossRentCents + adjustmentCents);
   const totalPaid = Math.round(Number(rental.paidAmount) * 100);
-  const totalOutstanding = Math.max(0, totalReceivable - totalPaid);
+  // 租金待收按各期账单自身状态逐笔汇总：已结清/已减免的账期即使没有现金到账也不再计欠款，
+  // 与顶部"待收金额"和逐行"待收"口径一致。不能用"净应收 - 合同现金已收"裸算——
+  // 那样会把"跟着收款走的减免"（记在账单 paidAmount 上、未计入合同现金已收）错当成欠款。
+  const totalOutstanding = rentBills.reduce((sum, bill) => sum + Math.max(0, Math.round(Number(bill.amount) * 100) - Math.round(Number(bill.paidAmount) * 100)), 0);
+  const forgivenCents = Math.max(0, totalReceivable - totalPaid - totalOutstanding);
   const accountBalance = Math.max(0, totalPaid - totalReceivable);
   // "已抵扣"判断依赖 rental.paidAmount（合同总已收）与"各期账单已收金额之和"严格一致这个前提——
   // 只有当合同总已收确实比逐期账单已知的已收总和多出一块钱（说明这块钱被减免/账户余额顶掉了、
@@ -2949,7 +2953,7 @@ function DetailFinance({
         </div>
         <div className="grid grid-cols-3 border-b bg-muted/40 text-center">
           <div className="p-3"><p className="text-xs text-muted-foreground">净租金应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{adjustmentCents < 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 减免 {money(centsToMoney(Math.abs(adjustmentCents)))}</p>}</div>
-          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}</div>
+          <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}{forgivenCents > 0 && <p className="mt-1 text-xs text-muted-foreground">另减免 {money(centsToMoney(forgivenCents))}</p>}</div>
           <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
         </div>
         {rentBills.length > 0 ? (
@@ -4608,7 +4612,7 @@ function ChangeForm({
           </div>
         )}
         {mode === "config" && <Field
-          label="赠送天数"
+          label="赠送台数"
           type="number"
           value={value.giftDays}
           onChange={(next) => update("giftDays", Math.max(0, Math.floor(Number(next))))}
