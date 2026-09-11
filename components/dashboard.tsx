@@ -2377,7 +2377,7 @@ function RentalForm({
         <div className="flex flex-col gap-5">
           <section className="rounded-xl border border-warning/40 bg-warning/10 p-4">
             <h3 className="font-semibold">请操作员逐项核对后再创建正式合同</h3>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">正式合同创建后会立即生成应收账单；勾选即时收款后，还会同步生成不可随意删除的收款与资金流水。</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">正式合同创建后会立即生成应收账单；勾选即时收款后则还会同步生成不可随意删除的收款与资金流水。</p>
           </section>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border bg-card p-4"><p className="text-xs text-muted-foreground">起租日期</p><p className="mt-2 font-semibold">{form.startDate}</p></div>
@@ -3826,7 +3826,7 @@ function PaymentForm({ submit, pending, bills, target }: { submit: (value: Payme
     {value.feeType !== "押金" && settlementAmount > 0 && <section className="rounded-xl bg-muted p-4"><div className="grid grid-cols-3 gap-3 border-b pb-4"><Info l="实际到账" v={money(value.amount)} /><Info l="优惠减免" v={money(value.discountAmount)} /><Info l="合计核销" v={money(settlementAmount)} /></div><h3 className="mt-4 font-semibold">本次分配预览</h3>{previewError ? <p className="mt-2 text-sm text-destructive">{previewError}</p> : <div className="mt-3 flex flex-col gap-2">{preview.map((allocation) => { const bill = billMap.get(allocation.billId)!; return <div key={allocation.billId} className="flex justify-between gap-3 text-sm"><span>{bill.periodStart} 至 {bill.periodEnd}</span><span className="text-right">核销 {money(centsToMoney(allocation.amountCents))}<span className="block text-xs text-muted-foreground">核销后待收 {money(centsToMoney(allocation.balanceAfterCents))}</span></span></div>; })}</div>}</section>}
     {value.feeType === "押金" && value.discountAmount > 0 && <p className="text-sm text-destructive">押金收取不能使用优惠，请将优惠金额改为 0。</p>}
     <label className="flex flex-col gap-2 text-sm font-medium">{value.discountAmount > 0 ? "备注 / 优惠原因（必填）" : "备注"}<textarea required={value.discountAmount > 0} minLength={value.discountAmount > 0 ? 2 : undefined} className="min-h-20 rounded-lg border bg-background p-3" value={value.notes || ""} onChange={(e) => setValue({ ...value, notes: e.target.value })} placeholder={value.discountAmount > 0 ? "例如：抹零优惠、老客户优惠" : undefined} /></label>
-    <button disabled={pending || value.amount <= 0 || Boolean(previewError) || (value.discountAmount > 0 && ((value.notes?.trim().length ?? 0) < 2 || value.feeType === "押金"))} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : "确认收款"}</button>
+    <button disabled={pending || settlementAmount <= 0 || Boolean(previewError) || (value.discountAmount > 0 && ((value.notes?.trim().length ?? 0) < 2 || value.feeType === "押金"))} className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50">{pending ? "处理中" : (value.amount <= 0 && value.discountAmount > 0 ? "确认减免" : "确认收款")}</button>
   </form>;
 }
 function CustomerHistory({ phone }: { phone: string }) {
