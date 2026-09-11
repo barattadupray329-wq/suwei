@@ -16,7 +16,7 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
 
   if (opensWorkspace) {
     const [summary, linkedRental, access, assignees] = await Promise.all([
-      getDashboard(),
+      getDashboard({ includeDeviceCounts: false }),
       !isNew ? getRentalById(rentalId) : null,
       getAccessContext('租赁操作'),
       getRentalAssignees(),

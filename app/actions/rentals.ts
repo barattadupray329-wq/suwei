@@ -368,14 +368,20 @@ export async function getRentalById(id: number) {
   return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
-export async function getDashboard() {
+export async function getDashboard(options: { includeDeviceCounts?: boolean } = {}) {
   const userId = await getUserId()
+  // 「在租设备」按类型统计需要扫描全部在租正式合同的设备项，是这个聚合里最重的一条子查询。
+  // 单合同工作台（management 模式）隐藏了该区块，打开一张订单详情时无需这条扫描——跳过它
+  // 可显著减少详情页这条高频路径的 Worker CPU/内存开销（Error 1102 防线）。
+  const includeDeviceCounts = options.includeDeviceCounts !== false
   // 看板同样不再做被动的全店铺自愈扫描（原因见 getRentals 顶部注释）：真正改变账期状态的操作
   // 会各自针对涉及的合同调用 ensureOverdueRentBills，其余合同靠每天 01:00 的定时任务兜底全量补算。
   const [[summary], [draftSummary], deviceRows] = await Promise.all([
     db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
-    db.select({ deviceType: rentalItems.deviceType, count: sql<number>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity})), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), sql`${rentalItems.rentalId} in (select id from rentals where userId = ${userId} and orderType = 'official' and lifecycleStatus = 'active')`)).groupBy(rentalItems.deviceType),
+    includeDeviceCounts
+      ? db.select({ deviceType: rentalItems.deviceType, count: sql<number>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity})), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), sql`${rentalItems.rentalId} in (select id from rentals where userId = ${userId} and orderType = 'official' and lifecycleStatus = 'active')`)).groupBy(rentalItems.deviceType)
+      : Promise.resolve([] as { deviceType: string; count: number }[]),
   ])
   return { ...summary, draft: draftSummary?.draft ?? 0, deviceCounts: Object.fromEntries(deviceRows.map((row) => [row.deviceType, Number(row.count)])) }
 }
