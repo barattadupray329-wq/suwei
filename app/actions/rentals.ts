@@ -20,7 +20,7 @@ import { assertOfficialRentalDeletable } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { activePositivePayments, billsReceivableCents, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
-import { ensureOverdueRentBills } from '@/lib/overdue-rent-billing'
+import { ensureOverdueRentBills, ensureOverdueRentBillsSafely } from '@/lib/overdue-rent-billing'
 import { isRentBillType, matchRenewalPeriodsToOverdueBills, recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
@@ -509,6 +509,14 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
     const cause = typeof error === 'object' && error && 'cause' in error ? error.cause : error
     if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${numbers.contractNo}”已存在，请更换后缀保存`)
     throw error
+  }
+  // 补录历史合同的场景：正式月租合同若到期日已是过去，说明设备到期后仍在租，应立即生成「逾期续租
+  // 租金」账单。逾期自愈已从详情页/列表页读路径移除（避免 Error 1102），若这里不触发，新录的历史
+  // 合同要等到次日 01:00 定时任务才会长出账单。这里只扫这一张新合同、且用不抛错版本，失败也不影响
+  // 合同创建本身（大不了等定时任务兜底）。
+  if (orderType === 'official' && value.billingType === 'monthly') {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+    if (value.endDate < today) await ensureOverdueRentBillsSafely(userId, today, rentalId)
   }
   // 创建页成功后会导航到租赁列表并读取最新数据；这里不主动刷新当前 RSC，避免同一次请求重复渲染。
   return rentalId
