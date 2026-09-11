@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  backfillOverdueRentBills,
   buyoutRentalItem,
   changeStatus,
   changeRentFromPeriod,
@@ -1334,7 +1335,7 @@ canViewFinance={canViewFinance}
                   maxLength={200}
                   value={deleteReason}
                   onChange={(event) => setDeleteReason(event.target.value)}
-                    placeholder="例如：重复录入 / 录错了设备和日期"
+                    placeholder="例如：重复录入 / 录错了设备和租期"
                   className="min-h-24 resize-y rounded-lg border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
                 />
               </label>
@@ -2905,6 +2906,18 @@ function DetailFinance({
   onReverseAll: () => void;
   }) {
   const [showReversalHistory, setShowReversalHistory] = useState(false);
+  const financeRouter = useRouter();
+  const [backfilling, startBackfill] = useTransition();
+  const runBackfill = () => startBackfill(async () => {
+    try {
+      const result = await backfillOverdueRentBills(rental.id);
+      if (result.created > 0) toast.success(`已补算 ${result.created} 期逾期续租账单，合计 ${money(result.amount)}`);
+      else toast.info("当前无需补算逾期账单");
+      financeRouter.refresh();
+    } catch (error) {
+      toast.error(userErrorMessage(error));
+    }
+  });
   const today = new Date().toISOString().slice(0, 10);
   const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
   const rentBills = rental.bills.filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType));
@@ -2947,6 +2960,7 @@ function DetailFinance({
             <p className="mt-1 text-sm text-muted-foreground">按账期核对约定还款、实际到账和未收金额</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={backfilling} onClick={runBackfill} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">{backfilling ? "补算中…" : "补算逾期账单"}</button>
             <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
             <button type="button" disabled={!hasOutstanding} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部待收</button>
           </div>

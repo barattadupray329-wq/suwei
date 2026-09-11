@@ -370,6 +370,17 @@ export async function getRentalById(id: number) {
   return (await getRentals(row.contractNo, '全部', 1))[0] ?? null
 }
 
+// 详情页「补算逾期账单」按钮调用：只针对这一张合同，用不吞异常的版本——
+// 若生产环境写入真的失败，异常会冒泡到前端 toast 暴露真实原因，而不是像被动自愈那样静默跳过。
+// 成本有界（inArray 单 id），不会触发全店铺扫描的 Error 1102。
+export async function backfillOverdueRentBills(rentalId: number) {
+  const userId = await getUserId()
+  const result = await ensureOverdueRentBills(userId, undefined, rentalId)
+  revalidatePath('/')
+  revalidatePath('/rentals')
+  return result
+}
+
 export async function getDashboard(options: { includeDeviceCounts?: boolean } = {}) {
   const userId = await getUserId()
   // 「在租设备」按类型统计需要扫描全部在租正式合同的设备项，是这个聚合里最重的一条子查询。
@@ -1476,7 +1487,7 @@ export type DraftConfirmOutcome = { id: number; contractNo: string | null; messa
 export async function confirmDraftsAsOfficial(ids: number[]) {
   return toActionResult('批量转正式合同', async () => {
     const access = await getAccessContext('租赁操作')
-    const unique = [...new Set(z.array(z.coerce.number().int().positive()).min(1, '请先勾选草稿').max(DRAFT_IMPORT_LIMIT).parse(ids))]
+    const unique = [...new Set(z.array(z.coerce.number().int().positive()).min(1, '请勾选草稿').max(DRAFT_IMPORT_LIMIT).parse(ids))]
     const succeeded: DraftConfirmOutcome[] = []
     const failed: DraftConfirmOutcome[] = []
     for (const id of unique) {
