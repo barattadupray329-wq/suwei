@@ -34,6 +34,7 @@ import {
   confirmDraftsAsOfficial,
   correctRenewalPrice,
   createRental,
+  updateDraft,
   deleteTestRental,
   getCustomerHistory,
   getCustomerOfferSuggestion,
@@ -354,6 +355,51 @@ const emptyRental = (): RentalInput => {
     items: [emptyItem()],
   };
 };
+// 把一张草稿合同（含设备明细）还原成登记向导用的 RentalInput，供“编辑草稿”整单改写。
+// 以 emptyItem() 为底再覆盖，避免个别字段缺失；草稿沿用自身合同号/设备编号，转正式时才换正式流水号。
+const draftToRentalInput = (rental: Rental): RentalInput => ({
+  contractNo: rental.contractNo,
+  customerCompany: rental.customerCompany || "",
+  customerName: rental.customerName || "",
+  customerPhone: rental.customerPhone || "",
+  customerAddress: rental.customerAddress || "",
+  billingType: rental.billingType === "daily" ? "daily" : "monthly",
+  duration: rental.duration || 1,
+  startDate: rental.startDate,
+  startDateReason: (rental.startDateReason || undefined) as RentalInput["startDateReason"],
+  endDate: rental.endDate,
+  deposit: Number(rental.deposit) || 0,
+  notes: rental.notes || "",
+  items: rental.items.length
+    ? rental.items.map((item) => ({
+        ...emptyItem(),
+        deviceName: item.deviceName,
+        deviceType: item.deviceType as RentalItemInput["deviceType"],
+        deviceCode: item.deviceCode || "",
+        deviceConfig: item.deviceConfig || "",
+        quantity: item.quantity,
+        monthlyRent: Number(item.monthlyRent) || 0,
+        totalRent: Number(item.totalRent) || 0,
+        cpu: item.cpu || "",
+        motherboard: item.motherboard || "",
+        memory: item.memory || "",
+        storage: item.storage || "",
+        graphicsCard: item.graphicsCard || "",
+        powerSupply: item.powerSupply || "",
+        caseModel: item.caseModel || "",
+        monitorInfo: item.monitorInfo || "",
+        screenSize: item.screenSize || "",
+        screenResolution: item.screenResolution || "",
+        refreshRate: item.refreshRate || "",
+        panelType: item.panelType || "",
+        ports: item.ports || "",
+        batteryInfo: item.batteryInfo || "",
+        adapterInfo: item.adapterInfo || "",
+        accessories: item.accessories || "",
+        colorGamut: item.colorGamut || "",
+      }))
+    : [emptyItem()],
+});
 
 export function BusinessOverview({ summary, canViewFinance }: { summary: Summary; canViewFinance: boolean }) {
   const deviceTypes = ["台式机", "笔记本", "一体机", "显示器"];
@@ -366,7 +412,7 @@ export function BusinessOverview({ summary, canViewFinance }: { summary: Summary
   return <main className="bg-background p-4 md:p-6"><div className="mx-auto flex max-w-7xl flex-col gap-4 md:gap-6">
     <header className="hidden md:block"><p className="text-sm font-medium text-primary">经营分析中心</p><h1 className="mt-1 text-2xl font-bold text-balance">经营总览</h1><p className="mt-1 text-sm text-muted-foreground">查看财务、在租设备、合同状态和经营提醒；点击卡片可进入对应明细。</p></header>
     <section aria-label="待收汇总" className="rounded-2xl bg-primary p-4 text-primary-foreground shadow-sm md:hidden"><div className="flex items-center justify-between"><p className="text-sm font-medium opacity-90">全部待收</p>{canViewFinance ? <Link href="/finance" className="text-xs opacity-90">资金流水 ›</Link> : null}</div><Link href="/rentals?receivable=outstanding&sort=outstanding" className="mt-1 block text-3xl font-bold">{money(summary.receivable)}</Link><div className="mt-3 grid grid-cols-3 gap-2 border-t border-primary-foreground/20 pt-3 text-center"><Link href="/rentals?receivable=overdue&sort=outstanding" className="min-w-0"><p className="truncate text-base font-bold">{money(summary.overdueReceivable)}</p><p className="mt-0.5 text-xs opacity-80">已到期</p></Link><Link href="/rentals?receivable=upcoming&sort=due" className="min-w-0"><p className="truncate text-base font-bold">{money(summary.upcomingReceivable)}</p><p className="mt-0.5 text-xs opacity-80">未到期</p></Link><Link href="/rentals?status=逾期" className="min-w-0"><p className="text-base font-bold">{summary.overdue}</p><p className="mt-0.5 text-xs opacity-80">逾期单</p></Link></div></section>
-    <section aria-label="经营指标" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <section aria-label="经营指���" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       <Link href="/rentals" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-primary md:p-4"><Stat label="正式合同" value={summary.total} icon={<Monitor />} /></Link>
       <Link href="/rentals/drafts" className="min-w-0 rounded-xl border border-primary/30 bg-primary/5 p-3 transition-colors hover:border-primary md:p-4"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-xs font-medium text-primary md:text-sm">待审核草稿</p><p className="mt-2 text-xl font-bold md:text-2xl">{summary.draft}</p></div><ClipboardPenLine className="size-5 shrink-0 text-primary" /></div></Link>
       <Link href="/rentals?status=在租" className="min-w-0 rounded-xl border bg-card p-3 transition-colors hover:border-primary md:p-4"><Stat label="在租合同" value={summary.active} icon={<LayoutDashboard />} /></Link>
@@ -438,6 +484,7 @@ export function Dashboard({
   | "change-guide"
   | "delete-confirm"
   | "confirm-draft"
+  | "edit-draft"
     | null
   >(initialNew ? "new" : linkedRental ? "detail" : null);
   const [selected, setSelected] = useState<Rental | null>(linkedRental);
@@ -1143,6 +1190,35 @@ export function Dashboard({
         />
       </Dialog>
       <Dialog
+        open={dialog === "edit-draft"}
+        title="编辑草稿"
+        wide
+        onClose={() => setDialog("detail")}
+      >
+        {selected && (
+          <RentalForm
+            form={form}
+            setForm={setForm}
+            pending={pending}
+            currentActorName={currentActorName}
+            assignees={assignees}
+            allowTest={role !== "employee"}
+            editingDraftId={selected.id}
+            submit={(value) => start(async () => {
+              const result = await updateDraft(selected.id, value);
+              if (!result.ok) {
+                if (handleAuthExpired(result.message)) return;
+                toast.error(result.message);
+                return;
+              }
+              toast.success("草稿已更新");
+              setDialog("detail");
+              router.refresh();
+            })}
+          />
+        )}
+      </Dialog>
+      <Dialog
         open={dialog === "detail"}
         title={selected?.contractNo || "租赁详情"}
         wide
@@ -1180,6 +1256,11 @@ canViewFinance={canViewFinance}
   setDialog("delete-confirm");
 }}
             onConfirmDraft={() => setDialog("confirm-draft")}
+            onEditDraft={() => {
+              if (!selected) return;
+              setForm(draftToRentalInput(selected));
+              setDialog("edit-draft");
+            }}
             onRentalChange={() => setDialog("change-guide")}
             onPayment={(target) => {
               setPaymentTarget(target);
@@ -1773,6 +1854,7 @@ function RentalForm({
   currentActorName,
   assignees,
   allowTest,
+  editingDraftId,
   }: {
   form: RentalInput;
   setForm: React.Dispatch<React.SetStateAction<RentalInput>>;
@@ -1781,7 +1863,11 @@ function RentalForm({
   currentActorName: string;
   assignees: RentalAssignee[];
   allowTest: boolean;
+  editingDraftId?: number;
   }) {
+  // 编辑已有草稿时：不做“新登记”的临时草稿恢复/暂存，也不重新生成合同号与设备编号
+  // （草稿沿用自身编号，转正式时才换正式流水号），只让操作员自由改写整单资料。
+  const isEditing = editingDraftId != null;
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [sendNoticeNow, setSendNoticeNow] = useState(true);
@@ -1798,6 +1884,7 @@ function RentalForm({
   const [historySuggestions, setHistorySuggestions] = useState<Awaited<ReturnType<typeof getRentalFormSuggestions>>>({ contacts: [], configurations: {} });
   const draftReady = useRef(false);
   useEffect(() => {
+    if (isEditing) return;
     document.documentElement.dataset.unsavedRental = "true";
     try {
       const saved = sessionStorage.getItem("suwei:new-rental-draft");
@@ -1811,14 +1898,15 @@ function RentalForm({
       sessionStorage.removeItem("suwei:new-rental-draft");
     }
     return () => { delete document.documentElement.dataset.unsavedRental; };
-  }, [setForm]);
+  }, [setForm, isEditing]);
   useEffect(() => {
+    if (isEditing) return;
     if (!draftReady.current) {
       draftReady.current = true;
       return;
     }
     sessionStorage.setItem("suwei:new-rental-draft", JSON.stringify({ form, step }));
-  }, [form, step]);
+  }, [form, step, isEditing]);
   useEffect(() => {
     let active = true;
     getRentalFormSuggestions().then((value) => { if (active) setHistorySuggestions(value); }).catch(() => {});
@@ -1843,6 +1931,7 @@ function RentalForm({
   const suggestedTotal = (item: RentalItemInput) =>
     Math.max(0, item.quantity * item.monthlyRent * duration);
   useEffect(() => {
+    if (isEditing) return;
     let active = true;
     const startDate = form.startDate;
     const itemNumbers = form.items.map((item) => ({
@@ -2420,7 +2509,13 @@ function RentalForm({
         <span className="text-sm text-muted-foreground">
           第 {step + 1} / 4 步
         </span>
-        {step < 2 ? (
+        {isEditing ? (
+          step < 2 ? (
+            <button type="button" onClick={next} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground">下一步</button>
+          ) : (
+            <button type="button" disabled={pending} onClick={() => confirmSubmit("draft")} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-60">{pending ? "正在保存…" : "保存修改"}</button>
+          )
+        ) : step < 2 ? (
           <button type="button" onClick={next} className="h-10 rounded-lg bg-primary px-5 font-medium text-primary-foreground">下一步</button>
         ) : step === 2 ? (
           <div className="flex flex-wrap justify-end gap-2">
@@ -2500,6 +2595,7 @@ type DetailProps = {
   onUpdateRemark: (remark: string) => void;
   onDelete: () => void;
   onConfirmDraft: () => void;
+  onEditDraft: () => void;
   onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
@@ -2533,6 +2629,7 @@ function Detail(props: DetailProps) {
     onUpdateRemark,
     onDelete,
     onConfirmDraft,
+    onEditDraft,
     onRentalChange,
     onPayment,
     onRenew,
@@ -2680,15 +2777,24 @@ function Detail(props: DetailProps) {
         ) : (
           <p className="mt-3 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary">当前暂无待办事项</p>
         )}
-        {isDraft && (
-          <button
-            type="button"
-            onClick={onConfirmDraft}
-            className="mt-3 h-10 w-full rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto"
-          >
-            转为正式合同
-          </button>
-        )}
+  {isDraft && (
+  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+  <button
+  type="button"
+  onClick={onEditDraft}
+  className="h-10 w-full rounded-lg border border-primary/40 bg-primary/5 px-5 text-sm font-semibold text-primary hover:bg-primary/10 sm:w-auto"
+  >
+  编辑草稿
+  </button>
+  <button
+  type="button"
+  onClick={onConfirmDraft}
+  className="h-10 w-full rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto"
+  >
+  转为正式合同
+  </button>
+  </div>
+  )}
       </section>
 
       <div className="sticky top-0 z-10 -mx-1 mt-4 flex gap-1 overflow-x-auto border-b bg-background px-1 pb-px">
@@ -2983,7 +3089,7 @@ function DetailFinance({
   const cashState = billState(bill.amount, bill.paidAmount, bill.dueDate, today);
   const state = cashState;
                   return <tr key={bill.id} className={cashState === "逾期" ? "bg-destructive/5" : "hover:bg-muted/20"}>
-                    <td className="px-3 py-3 align-top"><strong>第 {index + 1} {periodUnitLabel}</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期 · 独立账单</p></td>
+                    <td className="px-3 py-3 align-top"><strong>第 {index + 1} {periodUnitLabel}</strong><p className="mt-1 text-xs text-muted-foreground">共 {rentBills.length} 期 · 独���账单</p></td>
                     <td className="px-3 py-3 align-top"><p>{billCoverageLabel(bill.periodStart, bill.periodEnd)}</p><p className="mt-1 text-xs text-muted-foreground">{bill.billType}</p></td>
                     <td className="px-3 py-3 align-top"><strong>{money(bill.amount)}</strong><p className="mt-1 text-xs text-muted-foreground">到账 {money(bill.paidAmount)}{offsetCents > 0 ? ` · 减免/余额抵扣 ${money(centsToMoney(offsetCents))}` : ""}{outstanding > 0 ? ` · 待收 ${money(centsToMoney(outstanding))}` : ""}</p></td>
                     <td className="px-3 py-3 align-top">{bill.dueDate}</td>
@@ -3137,6 +3243,7 @@ function LegacyDetail({
   onAssignee,
   onDelete,
   onConfirmDraft,
+  onEditDraft,
   onRentalChange,
   onPayment,
   onRenew,
@@ -3162,6 +3269,7 @@ function LegacyDetail({
   onAssignee: (assigneeId: string) => void;
   onDelete: () => void;
   onConfirmDraft: () => void;
+  onEditDraft: () => void;
   onRentalChange: () => void;
   onPayment: (target: number | "all" | null) => void;
   onRenew: () => void;
@@ -3192,9 +3300,14 @@ function LegacyDetail({
               <p className="mt-1 text-sm leading-6 text-muted-foreground">草稿不计入经营数据、收款和应收账单。核对客户、设备、租期和金额后，再转为正式合同。</p>
             </div>
           </div>
-          <button type="button" onClick={onConfirmDraft} className="h-11 shrink-0 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
-            转为正式合同
-          </button>
+  <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+  <button type="button" onClick={onEditDraft} className="h-11 rounded-xl border border-primary/40 bg-primary/5 px-5 text-sm font-semibold text-primary hover:bg-primary/10">
+  编辑草稿
+  </button>
+  <button type="button" onClick={onConfirmDraft} className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
+  转为正式合同
+  </button>
+  </div>
         </section>
       )}
       {role !== "employee" && canManageContracts && (
@@ -4468,7 +4581,7 @@ function RentChangeForm({ rental, submit, pending }: { rental: Rental; submit: (
         <Info l="原月租" v={`${money(Number(item.monthlyRent))}/月`} />
         <Info l="新月租" v={`${money(newMonthlyRent)}/月`} />
         <Info l="影响期数" v={`${affectedPeriods} 期`} />
-        <Info l="预计应收变化" v={money(estimatedDifference)} />
+        <Info l="预计���收变化" v={money(estimatedDifference)} />
         <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-4">未收账单直接重算；已收账单如涨价生成补收，如降价转为客户余额。未来自动生成的账单继续使用新月租。</p>
       </section>
       <section className="rounded-xl border" aria-label="本次关联的受影响账单">

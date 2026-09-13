@@ -390,7 +390,7 @@ export async function getDashboard(options: { includeDeviceCounts?: boolean } = 
   // 看板同样不再做被动的全店铺自愈扫描（原因见 getRentals 顶部注释）：真正改变账期状态的操作
   // 会各自针对涉及的合同调用 ensureOverdueRentBills，其余合同靠每天 01:00 的定时任务兜底全量补算。
   const [[summary], [draftSummary], deviceRows] = await Promise.all([
-    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
+    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在��', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
     includeDeviceCounts
       ? db.select({ deviceType: rentalItems.deviceType, count: sql<number>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity})), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), sql`${rentalItems.rentalId} in (select id from rentals where userId = ${userId} and orderType = 'official' and lifecycleStatus = 'active')`)).groupBy(rentalItems.deviceType)
@@ -531,7 +531,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
   }
   // 补录历史合同的场景：正式月租合同若到期日已是过去，说明设备到期后仍在租，应立即生成「逾期续租
   // 租金」账单。逾期自愈已从详情页/列表页读路径移除（避免 Error 1102），若这里不触发，新录的历史
-  // 合同要等到次日 01:00 定时任务才会长出账单。这里只扫这一张新合同、且用不抛错版本，失败也不影响
+  // 合同要等到次日 01:00 定时任务才会长出账单。这里只扫这一张��合同、且用不抛错版本，失败也不影响
   // 合同创建本身（大不了等定时任务兜底）。
   if (orderType === 'official' && value.billingType === 'monthly') {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -543,6 +543,58 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
 
 export async function createRental(input: RentalInput, orderType: RentalOrderType = 'official', initialCollection?: InitialCollectionInput) {
   return toActionResult('创建租赁合同', () => createRentalOperation(input, orderType, initialCollection))
+}
+
+// 草稿尚未转正式，不产生任何账单/收款/分配记录，因此整单资料都可以自由改写：
+// 只需覆盖 rentals 主表字段并整体重建 rental_items。合同号沿用草稿自身的临时号（不重新生成），
+// 设备编号按草稿号派生保持稳定；转正式时才会统一换成正式流水号。
+async function updateDraftOperation(rentalId: number, input: RentalInput) {
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
+  const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')))
+  if (!rental) throw new Error('草稿不存在或已删除')
+  if (rental.orderType !== 'draft') throw new Error('只有未转正式的草稿才能整单编辑')
+  const value = rentalSchema.parse(input)
+  const assignee = await resolveRentalAssignee(access, value.assigneeUserId)
+  const startDateReason = normalizeStartDateReason(value.startDate, value.startDateReason)
+  const itemError = value.items.map(validateRentalItemFields).find(Boolean)
+  if (itemError) throw new Error(itemError)
+  const expectedEndDate = rentalEndDate(value.startDate, value.duration, value.billingType)
+  if (value.endDate !== expectedEndDate) throw new Error('到期日期与计费方式、起租日期或租赁时间不一致')
+  const contractNo = rental.contractNo || `CG-${Date.now()}`
+  const stamp = contractNo.replace(/^CG-/, '')
+  const normalizedItems = value.items.map((item, index) => ({
+    ...item,
+    deviceName: normalizeDeviceName(item.deviceType, item.deviceName),
+    deviceCode: `CG-SB-${stamp}-${index + 1}`,
+    totalRent: Math.round(item.quantity * item.monthlyRent * value.duration * 100) / 100,
+  }))
+  const first = normalizedItems[0]
+  const quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0)
+  const monthlyRent = normalizedItems.reduce((sum, item) => sum + item.monthlyRent * item.quantity, 0)
+  const totalRent = normalizedItems.reduce((sum, item) => sum + item.totalRent, 0)
+  const notes = [`计费方式：${value.billingType === 'daily' ? '日租' : '月租'}；租赁时间：${value.duration}${value.billingType === 'daily' ? '天' : '个月'}`, value.notes?.trim()].filter(Boolean).join('\n')
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = [
+    db.update(rentals).set({
+      assignedEmployeeId: assignee.id, assigneeUserId: assignee.id, assigneeName: assignee.name,
+      customerCompany: value.customerCompany?.trim() || null, customerName: value.customerName, customerPhone: value.customerPhone, customerAddress: value.customerAddress,
+      startDate: value.startDate, startDateReason, endDate: value.endDate, billingType: value.billingType, duration: value.duration, deposit: String(value.deposit), notes,
+      deviceName: normalizedItems.map((item) => item.deviceName).join('、'), deviceType: normalizedItems.length > 1 ? '多设备' : first.deviceType, deviceCode: first.deviceCode, deviceConfig: first.deviceConfig,
+      quantity, monthlyRent: String(monthlyRent), totalRent: String(totalRent), updatedAt: new Date(),
+    }).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))),
+    db.delete(rentalItems).where(and(eq(rentalItems.rentalId, rentalId), eq(rentalItems.userId, userId))),
+    ...buildChunkedInserts(rentalItems, normalizedItems.map((item) => ({ ...item, userId, rentalId, startDate: value.startDate, endDate: value.endDate, monthlyRent: String(item.monthlyRent), totalRent: String(item.totalRent) }))),
+    db.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: access.actorName, action: '修改', resourceType: '租赁合同', resourceId: String(rentalId), summary: `编辑草稿 ${contractNo}（${value.customerCompany || value.customerName}）`, metadata: { totalRent, quantity } }),
+  ]
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+  revalidatePath('/rentals')
+  revalidatePath('/rentals/drafts')
+  return rentalId
+}
+
+export async function updateDraft(rentalId: number, input: RentalInput) {
+  return toActionResult('保存草稿修改', () => updateDraftOperation(rentalId, input))
 }
 
 export async function updateRentalAssignee(rentalId: number, assigneeUserId: string) {
@@ -1046,7 +1098,7 @@ export async function reversePayment(paymentId: number, reason: string) {
 
   const billIds = [...new Set(allocations.map((allocation) => allocation.billId))]
   const bills = await db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rental.id), inArray(receivableBills.id, billIds)))
-  if (bills.length !== billIds.length) throw new Error('原收款的账单分配记录不完整，禁止冲正')
+  if (bills.length !== billIds.length) throw new Error('原收��的账单分配记录不完整，禁止冲正')
   const allocationsByBill = new Map<number, typeof allocations>()
   for (const allocation of allocations) {
     const bucket = allocationsByBill.get(allocation.billId)
@@ -1209,7 +1261,7 @@ export async function buyoutRentalItems(input: BuyoutBatchInput[], settlementInp
     futureBillReductionCents += reductionCents
     statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', updatedAt: new Date(), notes: `${bill.notes ?? ''}；设备买断后按剩余设备数量重算` }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
   }
-  // 开关开启时（默认），免除"横跨买断日"的未收租金账单：账期从买断日之前开始、却延续到买断日之后
+  // 开关开启时（默认），免除"横跨���断日"的未收租金账单：账期从买断日之前开始、却延续到买断日之后
   // （periodStart < 买断日 < periodEnd）的账单不会被上面的重算覆盖（重算只处理 periodStart >= 买断日）。
   // 这类账单按买断后各设备剩余数量重算——整单买断即归零减免，部分买断则只保留剩余设备的租金。
   if (forgiveExcessRent) {
@@ -1370,7 +1422,7 @@ export async function moveRentalToTrash(input: number | z.input<typeof trashRent
 
   const statements: Array<Parameters<typeof db.batch>[0][number]> = []
   if (rental.orderType === 'official') {
-    // 删除录错正式订单：连带撤销本单的续租/退租/买断/报损/维修/变更及其收款、账务与账单。
+    // 删除录错正��订单：连带撤销本单的续租/退租/买断/报损/维修/变更及其收款、账务与账单。
     // 所有删除条件都按 rentalId + userId（信用流水按 sourceRentalId）精确限定，只清理本单，不影响其他订单。
     statements.push(
       db.delete(paymentAllocations).where(and(eq(paymentAllocations.rentalId, value.id), eq(paymentAllocations.userId, access.userId))),
