@@ -1466,6 +1466,12 @@ async function confirmDraftOperation(id: number, access: Awaited<ReturnType<type
     if (typeof cause === 'object' && cause && 'code' in cause && cause.code === '23505') throw new Error(`合同编号“${numbers.contractNo}”已存在，请重试`)
     throw error
   }
+  // 草稿转正式后，若这是一张"补录的已过期"月租合同，立即对这一张合同做单合同逾期账单自愈，
+  // 否则它要一直等到有人点开详情或每晚定时任务才会补出逾期续租账单（历史搁浅缺口）。
+  if (!isDaily) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+    if (rental.endDate < today) await ensureOverdueRentBillsSafely(access.userId, today, id)
+  }
   revalidatePath('/')
   revalidatePath('/rentals')
   return numbers.contractNo
