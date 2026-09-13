@@ -1177,7 +1177,7 @@ export function Dashboard({
                     try {
                       const notice = await sendRentalCreatedNotice(created.data);
                       if (notice.ok) toast.success("正式合同已创建，初始租赁通知已发送");
-                      else toast.error(`正式合同已创建，但短信未发送：${notice.message}`);
+                      else toast.error(`正式合同���创建，但短信未发送：${notice.message}`);
                     } catch (error) {
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
@@ -2123,7 +2123,7 @@ function RentalForm({
               <p className="text-xs text-muted-foreground">订单来源人</p>
               <p className="mt-1 font-medium">{currentActorName}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                创建后固定保留，便于���绩追溯
+                创建后固定保留，便于�����绩追溯
               </p>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
@@ -2576,7 +2576,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
       <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
       <Field label="费用差额（补收填正数，减免/退款填负数）" type="number" value={feeAdjustment} onChange={setFeeAdjustment} />
     </div>
-    <label className="flex flex-col gap-2 text-sm font-medium"><span>变更原因 <span className="text-destructive">*</span></span><textarea required value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：客户临时调整���目人员安排" /></label>
+    <label className="flex flex-col gap-2 text-sm font-medium"><span>变更原因 <span className="text-destructive">*</span></span><textarea required value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-24 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" placeholder="例如：客户临时���整���目人员安排" /></label>
     <label className="flex flex-col gap-2 text-sm font-medium"><span>费用处理说明 <span className="text-destructive">*</span></span><textarea required value={feeNote} onChange={(e) => setFeeNote(e.target.value)} className="min-h-20 rounded-lg border bg-background p-3 outline-none focus:ring-2 focus:ring-primary" /></label>
     <label className="flex items-start gap-3 rounded-xl border p-4 text-sm"><input type="checkbox" checked={customerConfirmed} onChange={(e) => setCustomerConfirmed(e.target.checked)} className="mt-1 size-4 accent-primary" /><span><strong className="block">客户已确认本次变更</strong><span className="mt-1 block text-muted-foreground">未确认也可登记，但变更记录会明确标注“客户未确认”。</span></span></label>
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm leading-6"><strong>提交后：</strong>生成不可删除的变更记录；费用差额进入独立账务流水；原合同签订资料不被覆盖。</div>
@@ -2711,7 +2711,7 @@ function Detail(props: DetailProps) {
   else onRentalChange();
   };
 
-  if (wizardOpen) {
+  if (wizardOpen && !isDraft) {
     return (
       <RentalOperationWizard
         embedded
@@ -4965,7 +4965,7 @@ function BuyoutForm({
       <div className="rounded-xl bg-muted p-4"><p className="text-xs text-muted-foreground">本次买断汇总</p><p className="mt-1 text-lg font-semibold">{totalQuantity} 台 · {money(totalAmount)}</p></div>
       <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4">
         <input type="checkbox" checked={forgiveExcessRent} onChange={(e) => setForgiveExcessRent(e.target.checked)} className="mt-0.5 size-4 accent-primary" />
-        <span className="min-w-0 flex-1 text-sm"><strong>免除买断日之后的租金账单</strong><span className="block text-xs leading-5 text-muted-foreground">买断即拥有，勾选后将免除买断日之后仍未收款的租金账单（含横跨买断日的当期账单）。整单买断时该期归零减免，部分买断则只保留剩余设备的租金。已收款的账单不受影响。</span></span>
+        <span className="min-w-0 flex-1 text-sm"><strong>免除买断日之后的租金账单</strong><span className="block text-xs leading-5 text-muted-foreground">买断即拥有，勾选后将免除买断日之后仍未收��的租金账单（含横跨买断日的当期账单）。整单买断时该期归零减免，部分买断则只保留剩余设备的租金。已收款的账单不受影响。</span></span>
       </label>
       <SettlementFields label="买断费收款" value={settlement} onChange={setSettlement} />
       <button
