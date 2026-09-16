@@ -4753,7 +4753,7 @@ function ChangeForm({
           </div>
         )}
         {mode === "config" && <Field
-          label="赠送台数"
+          label="赠送天数"
           type="number"
           value={value.giftDays}
           onChange={(next) => update("giftDays", Math.max(0, Math.floor(Number(next))))}
