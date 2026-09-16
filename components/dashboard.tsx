@@ -498,7 +498,7 @@ export function Dashboard({
     router.refresh();
   }, [linkedRental, router]);
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<number | "all" | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<number | "all" | "deposit" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [renewalReversalReason, setRenewalReversalReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -2597,7 +2597,7 @@ type DetailProps = {
   onConfirmDraft: () => void;
   onEditDraft: () => void;
   onRentalChange: () => void;
-  onPayment: (target: number | "all" | null) => void;
+  onPayment: (target: number | "all" | "deposit" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
   onReverseRenewals: () => void;
@@ -3007,7 +3007,7 @@ function DetailFinance({
   }: {
   rental: Rental;
   canViewFinance: boolean;
-  onPayment: (target: number | "all" | null) => void;
+  onPayment: (target: number | "all" | "deposit" | null) => void;
   onReverse: (paymentId: number) => void;
   onReverseAll: () => void;
   }) {
@@ -3115,7 +3115,7 @@ function DetailFinance({
         ) : <p className="p-6 text-center text-sm text-muted-foreground">暂无租金账单</p>}
       </section>
       {adjustmentBills.length > 0 && <section><h3 className="mb-3 font-semibold">减免与账务调整</h3><div className="flex flex-col gap-2">{adjustmentBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">{bill.dueDate} · 减少应收 {money(centsToMoney(Math.abs(Math.round(Number(bill.amount) * 100))))}</p>{bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}</div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">已调整</span></div>)}</div></section>}
-      {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 待收 {money(bill.paidAmount)} · 约定日 {bill.dueDate}</p></div><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} /></div>)}</div></section>}
+      {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => { const otherOutstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - Math.round(Number(bill.paidAmount) * 100)); return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(otherOutstanding))} · 约定日 {bill.dueDate}</p></div><div className="flex items-center gap-3"><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} />{otherOutstanding > 0 && <button type="button" onClick={() => onPayment(bill.billType === "押金" ? "deposit" : null)} className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收款</button>}</div></div>; })}</div></section>}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -3282,7 +3282,7 @@ function LegacyDetail({
   onConfirmDraft: () => void;
   onEditDraft: () => void;
   onRentalChange: () => void;
-  onPayment: (target: number | "all" | null) => void;
+  onPayment: (target: number | "all" | "deposit" | null) => void;
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
   onBuyout: () => void;
@@ -3943,11 +3943,13 @@ function RenewalForm({
     </form>
   );
 }
-function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | null }) {
+function PaymentForm({ submit, pending, bills, target }: { submit: (value: PaymentInput) => void; pending: boolean; bills: Bill[]; target: number | "all" | "deposit" | null }) {
   const eligibleBills = bills.filter(isOpenRentBill);
+  const depositBill = bills.find((bill) => bill.billType === "押金" && billOutstandingCents(bill) > 0);
+  const depositOutstandingCents = depositBill ? billOutstandingCents(depositBill) : 0;
   const targetBill = typeof target === "number" ? eligibleBills.find((bill) => bill.id === target) : undefined;
-  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : 0;
-  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), discountAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: "原合同租金", billId: targetBill?.id, notes: "" });
+  const defaultAmountCents = targetBill ? billOutstandingCents(targetBill) : target === "all" ? eligibleBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0) : target === "deposit" ? depositOutstandingCents : 0;
+  const [value, setValue] = useState<PaymentInput>({ amount: Number(centsToMoney(defaultAmountCents)), discountAmount: 0, paymentDate: today(), paymentMethod: "微信", feeType: target === "deposit" ? "押金" : "原合同租金", billId: targetBill?.id, notes: "" });
   const settlementAmount = value.amount + value.discountAmount;
   let preview: ReturnType<typeof allocatePayment> = [];
   let previewError = "";
@@ -3958,6 +3960,7 @@ function PaymentForm({ submit, pending, bills, target }: { submit: (value: Payme
   return <form onSubmit={(e) => { e.preventDefault(); submit(value); }} className="flex flex-col gap-4">
     {targetBill && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取本期账单</p><p className="mt-1 text-sm text-muted-foreground">{targetBill.periodStart} 至 {targetBill.periodEnd} · 待收 {money(centsToMoney(billOutstandingCents(targetBill)))}</p></div>}
     {target === "all" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取全部待收账单</p><p className="mt-1 text-sm text-muted-foreground">将按到期日从早到晚结清 {preview.length || eligibleBills.filter((bill) => billOutstandingCents(bill) > 0).length} 笔账单</p></div>}
+    {target === "deposit" && <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">收取押金</p><p className="mt-1 text-sm text-muted-foreground">待收 {money(centsToMoney(depositOutstandingCents))} · 押金单独记账，不参与租金分配</p></div>}
     <div className="grid gap-4 sm:grid-cols-2">
       <Field label="实际收款（元）" type="number" value={value.amount} onChange={(amount) => setValue({ ...value, amount: Number(amount) })} />
       <Field label="优惠金额（元）" type="number" value={value.discountAmount} onChange={(discountAmount) => setValue({ ...value, discountAmount: Math.max(0, Number(discountAmount)) })} />
