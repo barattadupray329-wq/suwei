@@ -198,12 +198,15 @@ export async function getRentalPage(input: RentalListQuery = {}) {
   else if (value.status === '未到期') filters.push(sql`(${isExpired}) and not (${hasOutstanding})`)
   else if (value.status === '已买断') filters.push(inArray(rentals.status, ['买断', '已买断']))
   else if (value.status === '已退租') filters.push(inArray(rentals.status, ['已退租', '已退回']))
+  // 「在租」= 客户手上还有没退完的设备就算在租：纯在租，以及部分买断/部分退租/部分丢失/丢失
+  // 这些仍有设备在客户处的合同都算进来（和经营总览「在租合同」计数口径一致），逾期的仍归「逾期」分组。
+  else if (value.status === '在租') filters.push(and(inArray(rentals.status, ['在租', '部分买断', '部分退租', '部分丢失', '丢失']), sql`not (${isExpired})`)!)
   else if (value.status !== '全部') filters.push(and(eq(rentals.status, value.status), sql`not (${isExpired})`)!)
-  // 「退租」这里特指设备已经不再产生正常租金现金流的合同：整单/部分买断、整单/部分退租、
-  // 已结束（买断和退租混合处理完）。丢失（含部分丢失）不算，因为丢失赔偿款还在追收、
-  // 合同本身没有主动终止，业务上仍当在租跟进——这个分组和「逾期/已到期」是两件独立的事，
+  // 「退租」这里特指客户手上设备已经全部退完/终止的合同：整单买断、整单退租、已结束/已关闭/已完成。
+  // 部分买断、部分退租、部分丢失、丢失都不算——只要客户还有没退完的设备（哪怕只剩 1 台），业务上仍当在租跟进，
+  // 这跟经营总览「在租合同」计数口径一致。这个分组和「逾期/已到期」是两件独立的事，
   // 一份逾期未收的在租合同依然属于「在租」，不会因为逾期就被划进「退租」。
-  const occupancyReturnedStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成', '部分退租']
+  const occupancyReturnedStatuses = ['买断', '已买断', '已退租', '已退回', '已结束', '已关闭', '已完成']
   if (value.occupancy === 'returned') filters.push(inArray(rentals.status, occupancyReturnedStatuses))
   else if (value.occupancy === 'active') filters.push(sql`${rentals.status} not in (${sql.join(occupancyReturnedStatuses.map((status) => sql`${status}`), sql`, `)})`)
   if (value.receivable === 'outstanding') filters.push(hasOutstanding)
@@ -390,7 +393,7 @@ export async function getDashboard(options: { includeDeviceCounts?: boolean } = 
   // 看板同样不再做被动的全店铺自愈扫描（原因见 getRentals 顶部注释）：真正改变账期状态的操作
   // 会各自针对涉及的合同调用 ensureOverdueRentBills，其余合同靠每天 01:00 的定时任务兜底全量补算。
   const [[summary], [draftSummary], deviceRows] = await Promise.all([
-    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在��', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
+    db.select({ total: sql<number>`count(*)`, active: sql<number>`coalesce(sum(case when ${rentals.status} in ('在租', '逾期', '部分买断', '部分退租', '部分丢失', '丢失') then 1 else 0 end), 0)`, overdue: sql<number>`coalesce(sum(case when ${rentals.status} = '逾期' or (${rentals.endDate} < current_date and ${rentals.status} in ('在���', '部分买断', '部分退租', '部分丢失')) then 1 else 0 end), 0)`, dueSoon: sql<number>`coalesce(sum(case when ${rentals.endDate} between current_date and date(current_date, '+7 days') and ${rentals.status} in ('在租', '部分买断', '部分退租', '部分丢失') then 1 else 0 end), 0)`, repairPending: sql<number>`coalesce(sum(case when ${rentals.status} = '维修中' then 1 else 0 end), 0)`, boughtOut: sql<number>`coalesce(sum(case when ${rentals.status} in ('买断', '已买断') then 1 else 0 end), 0)`, returned: sql<number>`coalesce(sum(case when ${rentals.status} = '已退租' then 1 else 0 end), 0)`, revenue: sql<string>`coalesce(sum(${rentals.paidAmount}), 0)`, receivable: sql<string>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, overdueReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} < current_date and ${rentals.status} not in ('买断', '已买断', '已退租', '已结束', '已关闭', '已完成', '丢失') and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, upcomingReceivable: sql<string>`coalesce(sum(case when ${rentals.endDate} >= current_date and cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then cast(${rentals.totalRent} as real) - cast(${rentals.paidAmount} as real) else 0 end), 0)`, receivableContracts: sql<number>`coalesce(sum(case when cast(${rentals.paidAmount} as real) < cast(${rentals.totalRent} as real) then 1 else 0 end), 0)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'official'), eq(rentals.lifecycleStatus, 'active'))),
     db.select({ draft: sql<number>`count(*)` }).from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.orderType, 'draft'), eq(rentals.lifecycleStatus, 'active'))),
     includeDeviceCounts
       ? db.select({ deviceType: rentalItems.deviceType, count: sql<number>`coalesce(sum(max(0, ${rentalItems.quantity} - ${rentalItems.boughtOutQuantity} - ${rentalItems.returnedQuantity} - ${rentalItems.lostQuantity})), 0)` }).from(rentalItems).where(and(eq(rentalItems.userId, userId), sql`${rentalItems.rentalId} in (select id from rentals where userId = ${userId} and orderType = 'official' and lifecycleStatus = 'active')`)).groupBy(rentalItems.deviceType)
@@ -553,7 +556,7 @@ async function updateDraftOperation(rentalId: number, input: RentalInput) {
   const userId = access.userId
   const [rental] = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId), eq(rentals.lifecycleStatus, 'active')))
   if (!rental) throw new Error('草稿不存在或已删除')
-  if (rental.orderType !== 'draft') throw new Error('只有未转正式的草稿才能整单编辑')
+  if (rental.orderType !== 'draft') throw new Error('只有未转正式的草稿才能整单���辑')
   const value = rentalSchema.parse(input)
   const assignee = await resolveRentalAssignee(access, value.assigneeUserId)
   const startDateReason = normalizeStartDateReason(value.startDate, value.startDateReason)
@@ -610,7 +613,7 @@ export async function updateRentalAssignee(rentalId: number, assigneeUserId: str
   revalidatePath('/dashboard')
 }
 
-// 合同详情头部的"随手备注"：用于记录实际使用人和合同签约人不一致等临时说明，可随时修改/清空。
+// 合同详情头部的"随手备注"：用于记录实际使用人和合同签约人不一致等临时说明，可随时修改/清��。
 // 和创建合同时录入的业务备注 notes 分开存（headerRemark 列），互不覆盖。这是一个轻量说明性字段，
 // 不涉及金额或权限，所以员工也可以改；但仍按 userId 严格限定范围，只能改本商户自己的合同。
 export async function updateRentalHeaderRemark(rentalId: number, remark: string) {
@@ -739,7 +742,7 @@ export async function renewRentalItems(rentalId: number, inputs: RenewalInput[],
         }
       }
       if (settlement.timing === 'now') {
-        // 本次实际再收到的钱只针对"还欠部分"，避免对已收过的月份二次收款。
+        // 本次实际再收到的钱只针对"还欠部���"，避免对已收过的月份二次收款。
         const collectCents = renewalBills.reduce((sum, bill) => sum + bill.outstandingCents, 0)
         if (collectCents > 0) {
           const [payment] = await tx.insert(paymentRecords).values({ userId, rentalId, renewalRecordId: renewal.id, amount: String(fromCents(collectCents)), paymentDate: settlement.date, paymentMethod: settlement.method, feeType: '续租费', operatorName: access.actorName, notes: `${item.deviceName} ${value.quantity} 台续租即时收款` }).returning({ id: paymentRecords.id })
