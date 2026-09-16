@@ -471,6 +471,7 @@ export function Dashboard({
     | "renew"
     | "correct-renewal"
     | "reverse-renewals"
+    | "gift"
     | "payment"
     | "buyout"
     | "history"
@@ -1280,6 +1281,7 @@ canViewFinance={canViewFinance}
             onReturn={() => setDialog("return")}
             onLoss={() => setDialog("loss")}
   onChange={() => setDialog("change")}
+  onGift={() => setDialog("gift")}
   onRentChange={() => setDialog("rent-change")}
   onRepair={() => setDialog("repair")}
             onDeposit={() => setDialog("deposit")}
@@ -1603,6 +1605,27 @@ canViewFinance={canViewFinance}
               runInDetail(
                 () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
                 "配置变更已登记",
+              )
+            }
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "gift"}
+        title="赠送天数（免费延长租期）"
+        wide
+        embedded={Boolean(linkedRental)}
+        onClose={() => setDialog("detail")}
+      >
+        {selected && (
+          <ChangeForm
+            rental={selected}
+            pending={pending}
+            mode="gift"
+            submit={(values) =>
+              runInDetail(
+                () => changeRentalItems(validateBusinessBatch(values, (value) => value.itemId)),
+                "赠送天数已登记",
               )
             }
           />
@@ -2536,7 +2559,7 @@ type ChangeScenario = "客户资料变更" | "租期调整";
 function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
   rental: Rental;
   pending: boolean;
-  onNavigate: (target: "return" | "exchange" | "change" | "rent-change" | "renew" | "delete-confirm") => void;
+  onNavigate: (target: "return" | "exchange" | "change" | "rent-change" | "renew" | "gift" | "delete-confirm") => void;
   submit: (value: ContractChangeInput) => void;
 }) {
   const [scenario, setScenario] = useState<ChangeScenario | null>(null);
@@ -2561,6 +2584,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
       {routes.map((item) => <button key={item.title} type="button" onClick={item.action} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>{item.title}</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">{item.detail}</span></button>)}
       <button type="button" onClick={() => setScenario("租期调整")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>租期缩短或整体日期更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">修改合同及所有设备的起租、到期日期，并单独登记账务差额。</span></button>
       <button type="button" onClick={() => onNavigate("rent-change")} className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-left hover:border-primary hover:bg-primary/10"><strong>租金变更</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">只调整设备月租，配置和数量保持不变；系统会按账期登记补差或减免。</span></button>
+      <button type="button" onClick={() => onNavigate("gift")} className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-left hover:border-primary hover:bg-primary/10"><strong>赠送天数（免费延长租期）</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">只填要赠送的天数，把到期日往后顺延，不改月租、不产生任何费用。</span></button>
       <button type="button" onClick={() => setScenario("客户资料变更")} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-muted"><strong>姓名或电话号码更换</strong><span className="mt-2 block text-sm leading-6 text-muted-foreground">更新后续联系资料，签约时的合同快照仍然保留。</span></button>
     </div>
     <Link href="/guide" className="text-sm font-medium text-primary underline-offset-4 hover:underline">不确定怎么选？查看完整操作指南</Link>
@@ -2606,6 +2630,7 @@ type DetailProps = {
   onReturn: () => void;
   onLoss: () => void;
   onChange: () => void;
+  onGift: () => void;
   onRentChange: () => void;
   onRepair: () => void;
   onDeposit: () => void;
@@ -2640,6 +2665,7 @@ function Detail(props: DetailProps) {
     onReturn,
     onLoss,
     onChange,
+    onGift,
     onRentChange,
     onRepair,
     onDeposit,
@@ -3264,6 +3290,7 @@ function LegacyDetail({
   onReturn,
   onLoss,
   onChange,
+  onGift,
   onRentChange,
   onRepair,
   onDeposit,
@@ -3290,6 +3317,7 @@ function LegacyDetail({
   onReturn: () => void;
   onLoss: () => void;
   onChange: () => void;
+  onGift: () => void;
   onRentChange: () => void;
   onRepair: () => void;
   onDeposit: () => void;
@@ -3633,6 +3661,12 @@ function LegacyDetail({
           className="rounded-lg border px-3 py-2 text-sm font-medium"
         >
           配置变更
+        </button>
+        <button
+          onClick={onGift}
+          className="rounded-lg border px-3 py-2 text-sm font-medium"
+        >
+          赠送天数
         </button>
         <button
           onClick={onRentalChange}
@@ -4633,7 +4667,7 @@ function ChangeForm({
   rental: Rental;
   submit: (values: RentalChangeInput[]) => void;
   pending: boolean;
-  mode?: "config" | "rent";
+  mode?: "config" | "rent" | "gift";
 }) {
   const available = rental.items.filter((item) => item.quantity - item.boughtOutQuantity - item.returnedQuantity - item.lostQuantity > 0);
   const first = available[0];
@@ -4666,16 +4700,25 @@ function ChangeForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        if (mode === "gift") {
+          submit(selected.map((row) => {
+            const item = available.find((current) => current.id === row.itemId) ?? first;
+            const endDate = item.endDate || rental.endDate;
+            return { ...row, eventDate: endDate, reason: row.reason.trim() || "赠送天数", monthlyRent: Number(item.monthlyRent), quantity: item.quantity, feeAdjustment: 0, totalRent: Number(item.monthlyRent) * item.quantity };
+          }));
+          return;
+        }
         submit(selected.map(finalize));
       }}
       className="flex flex-col gap-4"
     >
       <section className="flex flex-col gap-3" aria-label="选择配置变更设置变更">
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，每项可单独修改配置和月租</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm text-muted-foreground">已选 {selected.length}/{available.length} 项，{mode === "gift" ? "每台设备可单独设置赠送天数" : "每项可单独修改配置和月租"}</span><button type="button" onClick={toggleAll} className="h-9 rounded-lg border px-4 text-sm font-medium hover:bg-muted">{allSelected ? "取消全选" : "全选全部设备"}</button></div>
         <div className="grid gap-2 sm:grid-cols-2">{available.map((item) => <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${rows[item.id] ? "border-primary bg-primary/5" : ""}`}><input type="checkbox" checked={Boolean(rows[item.id])} onChange={() => toggleItem(item)} className="size-4 accent-primary" /><button type="button" onClick={() => setActiveId(item.id)} disabled={!rows[item.id]} className="min-w-0 flex-1 text-left disabled:opacity-60"><strong className="block truncate text-sm">{item.deviceType} · {item.deviceName}</strong><span className="block truncate text-xs text-muted-foreground">{item.deviceCode || "未编号"}{activeId === item.id && rows[item.id] ? " · 正在编辑" : ""}</span></button></div>)}</div>
       </section>
       {!selected.length && <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">请选择要变更的设备。不同设备的配置、月租和赠送天数可以分别填写。</p>}
       <div className="grid gap-4 sm:grid-cols-2">
+        {mode !== "gift" && <>
         <Field
           label="变更日期"
           type="date"
@@ -4687,6 +4730,7 @@ function ChangeForm({
           value={value.reason}
           onChange={(next) => update("reason", next)}
         />
+        </>}
         {mode === "config" && <>
         <label className="flex flex-col gap-2 text-sm font-medium">
           设备类型
@@ -4740,19 +4784,25 @@ function ChangeForm({
           />
         )}
         </>}
-        {mode === "rent" ? (
+        {mode === "rent" && (
           <Field
             label="调整后月租（元）"
             type="number"
             value={value.monthlyRent}
             onChange={(next) => update("monthlyRent", Number(next))}
           />
-        ) : (
+        )}
+        {mode === "config" && (
           <div className="sm:col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
             本流程只修改设备配置，当前月租保持 {money(Number(selectedItem.monthlyRent))} 不变。
           </div>
         )}
-        {mode === "config" && <Field
+        {mode === "gift" && (
+          <div className="sm:col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+            赠送天数只把到期日往后顺延，不改变月租、不产生任何费用。填写要赠送的天数即可。
+          </div>
+        )}
+        {mode !== "rent" && <Field
           label="赠送天数"
           type="number"
           value={value.giftDays}
@@ -4764,7 +4814,7 @@ function ChangeForm({
         <Info l="调整后月租" v={money(Number(value.monthlyRent))} />
         <Info l="本次配置补差" v={money(calculatedAdjustment)} />
         <Info l="调整后到期日" v={adjustedEndDate} />
-        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">补差按变更日起至原到期日共 {remainingDays} 天、每月 30 天折算；赠送 {Number(value.giftDays || 0)} 天不计费，后续续租将从 {adjustedEndDate} 之后开始。</p>
+        <p className="text-pretty text-xs leading-5 text-muted-foreground sm:col-span-3">{mode === "gift" ? `原到期日 ${currentEndDate}，赠送 ${Number(value.giftDays || 0)} 天后顺延至 ${adjustedEndDate}，不产生任何费用。` : `补差按变更日起至原到期日共 ${remainingDays} 天、每月 30 天折算；赠送 ${Number(value.giftDays || 0)} 天不计费，后续续租将从 ${adjustedEndDate} 之后开始。`}</p>
       </section>
       <label className="flex flex-col gap-2 text-sm font-medium">
         备注
@@ -4775,10 +4825,10 @@ function ChangeForm({
         />
       </label>
       <button
-        disabled={pending || !selected.length || selected.some((row) => !row.reason.trim() || !row.eventDate || Number(row.monthlyRent) < 0)}
+        disabled={pending || !selected.length || selected.some((row) => mode === "gift" ? !(Number(row.giftDays) > 0) : (!row.reason.trim() || !row.eventDate || Number(row.monthlyRent) < 0))}
         className="h-10 self-end rounded-lg bg-primary px-5 font-medium text-primary-foreground disabled:opacity-50"
       >
-        {pending ? "处理中" : `确认变更 ${selected.length} 项`}
+        {pending ? "处理中" : mode === "gift" ? `确认赠送 ${selected.length} 台设备天数` : `确认变更 ${selected.length} 项`}
       </button>
     </form>
   );
