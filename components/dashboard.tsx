@@ -1177,7 +1177,7 @@ export function Dashboard({
                     try {
                       const notice = await sendRentalCreatedNotice(created.data);
                       if (notice.ok) toast.success("正式合同已创建，初始租赁通知已发送");
-                      else toast.error(`正式合同���创建，但短信未发送：${notice.message}`);
+                      else toast.error(`正式合同�����创建，但短信未发送：${notice.message}`);
                     } catch (error) {
                       toast.error(`正式合同已创建，但短信未发送：${error instanceof Error ? error.message : "请稍后在合同详情中补发"}`);
                     }
@@ -2123,7 +2123,7 @@ function RentalForm({
               <p className="text-xs text-muted-foreground">订单来源人</p>
               <p className="mt-1 font-medium">{currentActorName}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                创建后固定保留，便于�����绩追溯
+                创建后固定保留，���于�����绩追溯
               </p>
             </div>
             <label className="flex flex-col gap-2 text-sm font-medium">
@@ -3026,7 +3026,18 @@ function DetailFinance({
   });
   const today = new Date().toISOString().slice(0, 10);
   const excludedRentTypes = ["押金", "赔偿", "维修费", "买断款", "其他"];
-  const rentBills = rental.bills.filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType));
+  // 账期从早到晚展示：rental.bills 来自查询按约定还款日排序，续租补出的账单还款日与起租相同，
+  // 会把靠后的账期挤到前面（表现为“第2期是9月、第4期反而是8月”）。这里统一按账期口径
+  // periodStart → periodEnd → dueDate → id 重新排序，只改显示、不动任何金额与数据，
+  // 让期数编号与真实月份先后一致，且对所有订单生效。
+  const rentBills = rental.bills
+    .filter((bill) => Number(bill.amount) > 0 && !excludedRentTypes.includes(bill.billType))
+    .sort((a, b) =>
+      a.periodStart.localeCompare(b.periodStart) ||
+      a.periodEnd.localeCompare(b.periodEnd) ||
+      a.dueDate.localeCompare(b.dueDate) ||
+      String(a.id).localeCompare(String(b.id)),
+    );
   const adjustmentBills = rental.bills.filter((bill) => Number(bill.amount) < 0 && bill.billType !== "押金");
   const otherBills = rental.bills.filter((bill) => !rentBills.includes(bill) && !adjustmentBills.includes(bill));
   const grossRentCents = rentBills.reduce((sum, bill) => sum + Math.round(Number(bill.amount) * 100), 0);
@@ -3194,7 +3205,7 @@ function DetailManage({
         </button>
         <button type="button" onClick={onSendNotice} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
           <BellRing className="size-4 text-primary" />
-          发送初始租赁通知
+          发送初始租���通知
         </button>
         <button type="button" onClick={onDeposit} className="inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium hover:bg-muted">
           <WalletCards className="size-4 text-primary" />
@@ -4324,7 +4335,7 @@ function DepositForm({
       className="flex flex-col gap-4"
     >
       <p className="rounded-lg bg-muted p-3 text-sm">
-        当前可用押金余额：<strong>{money(balance)}</strong>
+        ��前可用押金余额：<strong>{money(balance)}</strong>
       </p>
       <label className="flex flex-col gap-2 text-sm font-medium">
         处理类型
