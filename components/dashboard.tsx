@@ -3204,6 +3204,7 @@ function DetailFinance({
             <p className="mt-1 text-sm text-muted-foreground">按账期核对约定还款、实际到账和未收金额</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <a href={`/statements/${rental.id}`} target="_blank" rel="noopener" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">生成对账单</a>
             <button type="button" disabled={backfilling} onClick={runBackfill} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">{backfilling ? "补算中…" : "补算逾期账单"}</button>
             <button type="button" onClick={() => onPayment(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">登记其他金额</button>
             <button type="button" disabled={!hasOutstanding} onClick={() => onPayment("all")} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">收全部待收</button>
