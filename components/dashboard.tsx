@@ -128,6 +128,7 @@ type Item = {
   colorGamut: string | null;
 };
 type Buyout = {
+  createdAt?: Date | string | number | null;
   id: number;
   rentalItemId: number;
   quantity: number;
@@ -148,6 +149,7 @@ type RenewalAdjustment = {
   createdAt: Date | string;
 };
 type Renewal = {
+  createdAt?: Date | string | number | null;
   id: number;
   rentalId: number;
   sourceRentalItemId: number;
@@ -179,6 +181,23 @@ type Payment = {
   feeType: string;
   notes: string | null;
 };
+function toRecordedDate(value: Date | string | number | null | undefined) {
+  if (value == null || value === "") return null;
+  const date = new Date(typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function recordedTime(value: Date | string | number | null | undefined) {
+  return toRecordedDate(value)?.getTime() ?? 0;
+}
+const recordedAtFormatter = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+function formatRecordedAt(value: Date | string | number | null | undefined) {
+  const date = toRecordedDate(value);
+  return date ? recordedAtFormatter.format(date).replace(/\//g, "-") : "";
+}
+function isBackdated(businessDate: string, recordedAt: Date | string | number | null | undefined) {
+  const recorded = formatRecordedAt(recordedAt).slice(0, 10);
+  return Boolean(recorded && businessDate && recorded > businessDate);
+}
 type RentalEvent = {
   id: number;
   eventType: string;
@@ -196,6 +215,7 @@ type RentalEvent = {
   completedDate: string | null;
   operatorName: string;
   notes: string | null;
+  createdAt?: Date | string | number | null;
 };
 type BillAllocation = {
   id: number;
@@ -238,6 +258,8 @@ type Rental = {
   assigneeUserId: string | null;
   assigneeName: string | null;
   contractNo: string;
+  createdAt?: Date | string | number | null;
+
   customerCompany: string | null;
   customerName: string;
   customerPhone: string;
@@ -3235,14 +3257,33 @@ function DetailRecords({
   onUndoReturn: (event: RentalEvent) => void;
 }) {
   const activeRenewals = rental.renewalRecords.filter((record) => record.status !== "已冲正");
+  const linkedEventIds = new Set<number>();
+  const linkEvent = (type: string, itemId: number | null | undefined, date: string) => {
+    const match = rental.events.find((event) => event.eventType === type && !linkedEventIds.has(event.id) && event.eventDate === date && (itemId == null || event.itemId == null || event.itemId === itemId));
+    if (match) linkedEventIds.add(match.id);
+    return match;
+  };
   const records = [
+    {
+      key: `create-${rental.id}`,
+      date: rental.startDate,
+      type: "新建租赁",
+      title: `合同 ${rental.contractNo}`,
+      detail: `起租日 ${rental.startDate}${rental.assigneeName ? ` · 负责人 ${rental.assigneeName}` : ""}`,
+      operator: rental.sourceName || "—",
+      recordedAt: rental.createdAt ?? null,
+      status: "已完成",
+      renewal: null,
+      event: null,
+    },
     ...rental.renewalRecords.map((record) => {
       const item = rental.items.find((row) => row.id === record.renewedRentalItemId) || rental.items.find((row) => row.id === record.sourceRentalItemId);
-      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}${record.status === "已冲正" && record.reversalReason ? ` · 冲正原因：${record.reversalReason}` : ""}`, operator: "系统记录", status: record.status === "已冲正" ? "已冲正" : "已完成", renewal: record, event: null };
+      const linked = linkEvent("续租", record.renewedRentalItemId ?? record.sourceRentalItemId, record.renewalDate);
+      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}${record.status === "已冲正" && record.reversalReason ? ` · 冲正原因：${record.reversalReason}` : ""}`, operator: linked?.operatorName || "系统记录", recordedAt: linked?.createdAt ?? record.createdAt ?? null, status: record.status === "已冲正" ? "已冲正" : "已完成", renewal: record, event: null };
     }),
-    ...rental.events.map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, status: event.status, renewal: null, event })),
-    ...rental.buyoutRecords.map((record) => ({ key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: "系统记录", status: "已完成", renewal: null, event: null })),
-  ].sort((left, right) => right.date.localeCompare(left.date));
+    ...rental.buyoutRecords.map((record) => { const linked = linkEvent("买断", record.rentalItemId, record.buyoutDate); return { key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: linked?.operatorName || "系统记录", recordedAt: linked?.createdAt ?? record.createdAt ?? null, status: "已完成", renewal: null, event: null }; }),
+    ...rental.events.filter((event) => !linkedEventIds.has(event.id)).map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, recordedAt: event.createdAt ?? null, status: event.status, renewal: null, event })),
+  ].sort((left, right) => right.date.localeCompare(left.date) || recordedTime(right.recordedAt) - recordedTime(left.recordedAt));
   if (!records.length) return <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无续租、变更、维修或买断记录</p>;
   return (
     <section>
@@ -3253,7 +3294,7 @@ function DetailRecords({
         )}
       </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">
-        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && record.renewal.status !== "已冲正" && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}{record.event?.eventType === "退租" && record.event.status === "已完成" && role !== "employee" && rental.lifecycleStatus === "active" && <button type="button" onClick={() => onUndoReturn(record.event!)} className="mt-3 rounded-lg border border-destructive px-3 py-2 text-xs font-semibold text-destructive">撤销退租</button>}</div></article>)}
+        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><div className="flex flex-col items-end gap-1 text-right"><time className="text-sm text-muted-foreground" dateTime={record.date}>业务日期 {record.date}</time>{isBackdated(record.date, record.recordedAt) && <span className="rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground">补录</span>}</div></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"} · 操作时间：{formatRecordedAt(record.recordedAt) || "早期记录未保存"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && record.renewal.status !== "已冲正" && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}{record.event?.eventType === "退租" && record.event.status === "已完成" && role !== "employee" && rental.lifecycleStatus === "active" && <button type="button" onClick={() => onUndoReturn(record.event!)} className="mt-3 rounded-lg border border-destructive px-3 py-2 text-xs font-semibold text-destructive">撤销退租</button>}</div></article>)}
       </div>
     </section>
   );
