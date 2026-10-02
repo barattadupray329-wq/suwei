@@ -48,7 +48,8 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
   const visibleContracts = data.contracts
     .map((contract) => ({ ...contract, bills: contract.bills.filter((bill) => includeUpcoming || bill.dueDate <= data.today) }))
     .filter((contract) => contract.bills.length > 0)
-  const customerTitle = data.customer.company ? `${data.customer.company}（${data.customer.name}）` : data.customer.name
+  const customerNames = data.customer.names.join('、')
+  const customerTitle = data.customer.company ? `${data.customer.company}（${customerNames}）` : customerNames
   const otherScope = data.scope === 'customer' ? 'contract' : 'customer'
 
   const copyText = async () => {
@@ -83,7 +84,7 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
             {data.scope === 'customer' ? '只看当前合同' : '查看该客户全部合同'}
           </a>
           <span className="text-muted-foreground">
-            {data.scope === 'customer' ? '当前：该客户（同手机号）全部合同' : '当前：仅本合同'}
+            {data.scope === 'customer' ? `当前：该客户（手机号 ${data.customer.phone}）名下全部 ${data.contractCount} 份合同` : '当前：仅本合同'}
           </span>
         </div>
       </div>
@@ -99,6 +100,7 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
           <p><span className="text-muted-foreground">联系电话：</span>{data.customer.phone}</p>
           <p><span className="text-muted-foreground">对账日期：</span>{data.today}</p>
           <p><span className="text-muted-foreground">生成时间：</span>{data.generatedAt}</p>
+          <p className="col-span-2"><span className="text-muted-foreground">对账范围：</span>{data.scope === 'customer' ? `名下全部合同（共 ${data.contractCount} 份，仅列出有未付账单的合同）` : '仅当前合同'}</p>
         </section>
 
         <section className="grid grid-cols-2 gap-3" aria-label="金额汇总">

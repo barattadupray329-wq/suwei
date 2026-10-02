@@ -35,7 +35,8 @@ export type CustomerStatement = {
   generatedAt: string
   scope: 'customer' | 'contract'
   currentRentalId: number
-  customer: { name: string; company: string | null; phone: string }
+  customer: { name: string; names: string[]; company: string | null; phone: string }
+  contractCount: number
   lessor: { storeName: string; lessorName: string; contactName: string; phone: string; paymentInfo: string }
   contracts: StatementContract[]
   dueTotal: number
@@ -113,7 +114,13 @@ export async function getCustomerStatement(rentalId: number, scope: 'customer' |
     generatedAt: shanghaiDateTime(),
     scope,
     currentRentalId: current.id,
-    customer: { name: current.customerName, company: current.customerCompany, phone: current.customerPhone },
+    customer: {
+      name: current.customerName,
+      names: Array.from(new Set([current.customerName, ...officialRows.map((row) => row.customerName)].filter(Boolean))),
+      company: current.customerCompany,
+      phone: current.customerPhone,
+    },
+    contractCount: officialRows.length,
     lessor: {
       storeName: settings?.storeName || '速维租赁',
       lessorName: settings?.lessorName || '',

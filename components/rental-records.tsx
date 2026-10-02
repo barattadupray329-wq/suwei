@@ -702,13 +702,23 @@ export function RentalRecords({
                       </td>
                       <td className="p-3">{row.assigneeName || "未分配"}</td>
                       <td className="p-3 text-right">
-                        <Link
-                          className="font-semibold text-primary hover:underline"
-                          href={`/rentals?rental=${row.id}`}
-                          prefetch={false}
-                        >
-                          查看详情
-                        </Link>
+                        <div className="flex flex-col items-end gap-1">
+                          <Link
+                            className="font-semibold text-primary hover:underline"
+                            href={`/rentals?rental=${row.id}`}
+                            prefetch={false}
+                          >
+                            查看详情
+                          </Link>
+                          <a
+                            className="text-xs text-muted-foreground hover:text-primary hover:underline"
+                            href={`/statements/${row.id}`}
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            客户对账单
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   ))}
