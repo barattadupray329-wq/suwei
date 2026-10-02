@@ -114,6 +114,8 @@ const overdueDays = (row: Row) => {
 const outstanding = (row: Row) => Math.max(0, Number(row.outstandingAmount ?? 0));
 const overdueOutstanding = (row: Row) =>
   Math.max(0, Number(row.overdueOutstandingAmount ?? 0));
+const upcomingOutstanding = (row: Row) =>
+  Math.max(0, outstanding(row) - overdueOutstanding(row));
 // 整单终态：这些状态下合同已经没有在租设备了（整单买断/退租/丢失/关闭等），不应再显示到期提醒。
 // 与后端保持一致（app/actions/rentals.ts 的 terminalStatuses、app/api/sync-state 的逾期排除集）。
 // 注意：不包含"部分买断/部分退租/部分丢失"——那些还有设备在租，仍要正常显示到期提醒。
@@ -628,12 +630,12 @@ export function RentalRecords({
                           <span className="text-muted-foreground"> · </span>
                           <span
                             className={
-                              row.unpaidPeriodCount > 0
+                              row.unpaidPeriodCount > 0 && overdueOutstanding(row) > 0
                                 ? "text-destructive"
                                 : "text-muted-foreground"
                             }
                           >
-                            未付 {row.unpaidPeriodCount}{" "}
+                            {overdueOutstanding(row) > 0 ? "未付" : "待付"} {row.unpaidPeriodCount}{" "}
                             {row.billingUnit === "daily" ? "天" : "期"}
                           </span>
                         </p>
@@ -667,11 +669,18 @@ export function RentalRecords({
                               逾期待收 {money(String(overdueOutstanding(row)))}
                             </p>
                           ) : (
-                          outstanding(row) > 0 && (
-                            <p className="mt-1 text-xs font-semibold text-destructive">
-                              待收 {money(String(outstanding(row)))}
-                            </p>
-                          )
+                          <>
+                            {overdueOutstanding(row) > 0 && (
+                              <p className="mt-1 text-xs font-semibold text-destructive">
+                                待收 {money(String(overdueOutstanding(row)))}
+                              </p>
+                            )}
+                            {upcomingOutstanding(row) > 0 && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                未到期 {money(String(upcomingOutstanding(row)))}
+                              </p>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="p-3">
