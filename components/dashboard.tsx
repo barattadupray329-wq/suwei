@@ -2939,6 +2939,7 @@ function Detail(props: DetailProps) {
   onPayment={onPayment}
   onReverse={onReverse}
   onReverseAll={onReverseAll}
+  onDeposit={onDeposit}
   />
         )}
         {tab === "records" && (
@@ -3110,12 +3111,14 @@ function DetailFinance({
   onPayment,
   onReverse,
   onReverseAll,
+  onDeposit,
   }: {
   rental: Rental;
   canViewFinance: boolean;
   onPayment: (target: number | "all" | "deposit" | null) => void;
   onReverse: (paymentId: number) => void;
   onReverseAll: () => void;
+  onDeposit: () => void;
   }) {
   const [showReversalHistory, setShowReversalHistory] = useState(false);
   const financeRouter = useRouter();
@@ -3225,7 +3228,7 @@ function DetailFinance({
         ) : <p className="p-6 text-center text-sm text-muted-foreground">暂无租金账单</p>}
       </section>
       {adjustmentBills.length > 0 && <section><h3 className="mb-3 font-semibold">减免与账务调整</h3><div className="flex flex-col gap-2">{adjustmentBills.map((bill) => <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">{bill.dueDate} · 减少应收 {money(centsToMoney(Math.abs(Math.round(Number(bill.amount) * 100))))}</p>{bill.notes && <p className="mt-1 text-xs text-muted-foreground">{bill.notes}</p>}</div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">已调整</span></div>)}</div></section>}
-      {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => { const otherOutstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - Math.round(Number(bill.paidAmount) * 100)); return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(otherOutstanding))} · 约定日 {bill.dueDate}</p></div><div className="flex items-center gap-3"><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} />{otherOutstanding > 0 && <button type="button" onClick={() => onPayment(bill.billType === "押金" ? "deposit" : null)} className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收款</button>}</div></div>; })}</div></section>}
+      {otherBills.length > 0 && <section><h3 className="mb-3 font-semibold">押金与其他费用</h3><div className="flex flex-col gap-2">{otherBills.map((bill) => { const otherOutstanding = Math.max(0, Math.round(Number(bill.amount) * 100) - Math.round(Number(bill.paidAmount) * 100)); return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><strong>{bill.billType}</strong><p className="mt-1 text-muted-foreground">应收 {money(bill.amount)} · 已收 {money(bill.paidAmount)} · 待收 {money(centsToMoney(otherOutstanding))} · 约定日 {bill.dueDate}</p></div><div className="flex items-center gap-3"><BillingStatus value={billState(bill.amount, bill.paidAmount, bill.dueDate, today)} />{otherOutstanding > 0 && <button type="button" onClick={() => onPayment(bill.billType === "押金" ? "deposit" : null)} className="rounded-lg border border-primary px-3 py-1.5 font-semibold text-primary hover:bg-primary hover:text-primary-foreground">收款</button>}{bill.billType === "押金" && Number(bill.paidAmount) > 0 && <button type="button" onClick={onDeposit} className="rounded-lg border px-3 py-1.5 font-semibold hover:bg-muted">退押金 / 抵扣</button>}</div></div>; })}</div></section>}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>

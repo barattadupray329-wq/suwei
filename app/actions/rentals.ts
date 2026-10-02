@@ -1200,7 +1200,9 @@ export async function reverseAllPayments(rentalId: number, reason: string) {
 }
 
 export async function recordDepositAction(rentalId: number, entryType: '押金退还' | '押金抵扣欠租' | '押金抵扣赔偿', amount: number, entryDate: string, notes = '') {
-  const userId = await getUserId()
+  const access = await getAccessContext('租赁操作')
+  const userId = access.userId
+  const operator = access.actorName
   if (amount <= 0 || !entryDate) throw new Error('请填写有效金额和日期')
   { const tx = db
     const [[rental], entries] = await Promise.all([
@@ -1213,13 +1215,15 @@ export async function recordDepositAction(rentalId: number, entryType: '押金�
     const amountCents = moneyToCents(amount)
     if (amountCents > balanceCents) throw new Error(`可用押金余额不足，当前为 ${centsToMoney(balanceCents)} 元`)
     const statements: Array<Parameters<typeof db.batch>[0][number]> = [
-      tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: centsToMoney(-amountCents), entryDate, operatorName: '当前用户', notes }),
+      tx.insert(accountLedger).values({ userId, rentalId, entryType, amount: centsToMoney(-amountCents), entryDate, operatorName: operator, notes }),
+      tx.insert(rentalEvents).values({ userId, rentalId, eventType: entryType, status: '已完成', eventDate: entryDate, reason: notes || entryType, feeAdjustment: '0', operatorName: operator, notes: `${entryType} ${centsToMoney(amountCents)} 元，押金余额 ${centsToMoney(balanceCents)} → ${centsToMoney(balanceCents - amountCents)} 元` }),
+      tx.insert(auditLogs).values({ userId, actorUserId: access.actorId, actorName: operator, action: entryType, resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} ${entryType} ${centsToMoney(amountCents)} 元`, metadata: { amount: centsToMoney(amountCents), entryDate, balanceBefore: centsToMoney(balanceCents), notes } }),
     ]
     if (entryType !== '押金退还') {
       const bills = await tx.select().from(receivableBills).where(and(eq(receivableBills.rentalId, rentalId), eq(receivableBills.userId, userId), ne(receivableBills.billType, '押金'))).orderBy(receivableBills.dueDate)
       const allocations = allocatePayment(bills, centsToMoney(amountCents))
       const paymentId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000
-      statements.push(tx.insert(paymentRecords).values({ id: paymentId, userId, rentalId, amount: centsToMoney(amountCents), paymentDate: entryDate, paymentMethod: '其他', feeType: '其他', operatorName: '当前用户', notes: `${entryType}：${notes}` }))
+      statements.push(tx.insert(paymentRecords).values({ id: paymentId, userId, rentalId, amount: centsToMoney(amountCents), paymentDate: entryDate, paymentMethod: '其他', feeType: '其他', operatorName: operator, notes: `${entryType}：${notes}` }))
       for (const allocation of allocations) {
         const bill = bills.find((item) => item.id === allocation.billId)!
         const nextPaidCents = moneyToCents(bill.paidAmount) + allocation.amountCents
