@@ -15,6 +15,7 @@ const pages: Record<string, { label: string; icon: typeof LayoutDashboard }> = {
   '/dashboard': { label: '经营总览', icon: LayoutDashboard },
   '/rentals': { label: '租赁管理', icon: FileText },
   '/finance': { label: '资金流水', icon: Banknote },
+  '/statements': { label: '客户对账单', icon: Banknote },
   '/customer-portals': { label: '客户服务', icon: QrCode },
   '/rentals/drafts': { label: '草稿审核', icon: FileText },
   '/accounts': { label: '账号与权限', icon: Settings },

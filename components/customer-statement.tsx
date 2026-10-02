@@ -43,7 +43,7 @@ function buildText(data: CustomerStatement, includeUpcoming: boolean) {
   return lines.join('\n')
 }
 
-export function CustomerStatementView({ data }: { data: CustomerStatement }) {
+export function CustomerStatementView({ data, embedded = false }: { data: CustomerStatement; embedded?: boolean }) {
   const [includeUpcoming, setIncludeUpcoming] = useState(false)
   const visibleContracts = data.contracts
     .map((contract) => ({ ...contract, bills: contract.bills.filter((bill) => includeUpcoming || bill.dueDate <= data.today) }))
@@ -62,10 +62,10 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
   }
 
   return (
-    <main className="min-h-svh bg-muted p-4 print:bg-card print:p-0">
+    <div className={embedded ? 'print:bg-card' : 'min-h-svh bg-muted p-4 print:bg-card print:p-0'}>
       <div className="mx-auto mb-4 flex max-w-[210mm] flex-col gap-3 print:hidden">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <a href="/rentals" className="text-sm text-muted-foreground hover:text-foreground">返回租赁管理</a>
+          {embedded ? <span className="text-sm text-muted-foreground">该客户名下全部 {data.contractCount} 份合同</span> : <a href="/rentals" className="text-sm text-muted-foreground hover:text-foreground">返回租赁管理</a>}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={copyText} className="inline-flex items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm font-medium hover:bg-muted">
               <Copy className="size-4" aria-hidden="true" />复制文字版
@@ -80,9 +80,11 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
             <input type="checkbox" checked={includeUpcoming} onChange={(event) => setIncludeUpcoming(event.target.checked)} className="size-4 accent-primary" />
             包含未到期账单
           </label>
-          <a href={`/statements/${data.currentRentalId}?scope=${otherScope}`} className="font-medium text-primary hover:underline">
-            {data.scope === 'customer' ? '只看当前合同' : '查看该客户全部合同'}
-          </a>
+          {data.currentRentalId > 0 && (
+            <a href={`/statements/${data.currentRentalId}?scope=${otherScope}`} className="font-medium text-primary hover:underline">
+              {data.scope === 'customer' ? '只看当前合同' : '查看该客户全部合同'}
+            </a>
+          )}
           <span className="text-muted-foreground">
             {data.scope === 'customer' ? `当前：该客户（手机号 ${data.customer.phone}）名下全部 ${data.contractCount} 份合同` : '当前：仅本合同'}
           </span>
@@ -173,6 +175,6 @@ export function CustomerStatementView({ data }: { data: CustomerStatement }) {
           <p className="text-muted-foreground">账期结束日不含当天。如对账目有疑问，请及时与我们联系。</p>
         </footer>
       </article>
-    </main>
+    </div>
   )
 }

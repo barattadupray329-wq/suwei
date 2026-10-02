@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Banknote, BookOpenCheck, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
+import { Banknote, BookOpenCheck, ReceiptText, ClipboardCheck, ClipboardList, FileSearch, Globe2, HardDriveDownload, LayoutDashboard, LogOut, Menu, Monitor, Palette, QrCode, UserRoundCog, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '@/lib/auth-client'
 import { SafeSync } from '@/components/safe-sync'
@@ -21,6 +21,7 @@ const groups: NavGroup[] = [
     { href: '/dashboard', label: '经营总览', description: '财务、统计、催收与经营提醒', icon: LayoutDashboard, permission: '租赁操作' },
     { href: '/rentals', label: '租赁管理', description: '登记、修改与合同全生命周期操作', icon: FileSearch, permission: '租赁操作' },
     { href: '/finance', label: '资金流水', description: '收款、退款与应收', icon: Banknote, permission: '资金查看' },
+    { href: '/statements', label: '客户对账单', description: '按客户汇总全部未付账单', icon: ReceiptText, permission: '租赁操作' },
     { href: '/customer-portals', label: '客户服务', description: '查询入口与授权', icon: QrCode, permission: '合同管理' },
     { href: '/rentals/drafts', label: '草稿审核', description: '批量导入与转正式合同', icon: ClipboardCheck, permission: '租赁操作' },
   ] },
