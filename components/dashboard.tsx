@@ -2629,7 +2629,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     { title: "客户少要或部分不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
      { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
     { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
-    { title: "客户要���租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
+    { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
   if (!scenario) return <div className="flex flex-col gap-5">
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史项目，不要直接覆盖或删除正式业务记录。</p></div>
