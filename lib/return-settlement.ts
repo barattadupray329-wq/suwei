@@ -1,4 +1,44 @@
 export type ReturnRentMode = 'full_month' | 'daily' | 'waive'
+export type UnpaidPeriodMode = 'waive' | 'daily' | 'amount'
+
+export type UnpaidPeriodBill = { id: number; periodStart: string; periodEnd: string; amountCents: number; paidCents: number }
+
+// 退租时对勾选的未付款账期，只处理退还设备在这些账期里的那部分租金：
+// waive 不收任何费用；daily 按已用天数收；amount 按约定总额从最早一期开始分摊。
+// 减免只减未收部分，不会把已收金额变成退款。
+export function planUnpaidPeriodSettlement(input: {
+  bills: UnpaidPeriodBill[]
+  returnedMonthlyCents: number
+  returnDate: string
+  mode: UnpaidPeriodMode
+  amountCents?: number
+}) {
+  let remainingAmount = Math.max(0, Math.round(input.amountCents ?? 0))
+  const rows = [...input.bills]
+    .sort((left, right) => left.periodStart.localeCompare(right.periodStart))
+    .map((bill) => {
+      const periodDays = Math.max(1, Math.round((Date.parse(`${bill.periodEnd}T00:00:00+08:00`) - Date.parse(`${bill.periodStart}T00:00:00+08:00`)) / DAY_MS))
+      const months = Math.max(1, Math.round(periodDays / 30))
+      const totalDays = months * 30
+      const shareCents = Math.max(0, Math.min(bill.amountCents, input.returnedMonthlyCents * months))
+      const remainingDays = Math.max(0, Math.ceil((Date.parse(`${bill.periodEnd}T00:00:00+08:00`) - Date.parse(`${input.returnDate}T00:00:00+08:00`)) / DAY_MS))
+      const usedDays = Math.max(0, Math.min(totalDays, totalDays - remainingDays))
+      let plannedCharge = 0
+      if (input.mode === 'daily') plannedCharge = Math.min(shareCents, Math.round(shareCents * usedDays / totalDays))
+      if (input.mode === 'amount') { plannedCharge = Math.min(shareCents, remainingAmount); remainingAmount -= plannedCharge }
+      const unpaidCents = Math.max(0, bill.amountCents - bill.paidCents)
+      const reductionCents = Math.min(shareCents - plannedCharge, unpaidCents)
+      return { id: bill.id, periodStart: bill.periodStart, periodEnd: bill.periodEnd, shareCents, usedDays, totalDays, chargeCents: shareCents - reductionCents, reductionCents }
+    })
+  const totalShareCents = rows.reduce((sum, row) => sum + row.shareCents, 0)
+  return {
+    rows,
+    totalShareCents,
+    totalChargeCents: rows.reduce((sum, row) => sum + row.chargeCents, 0),
+    totalReductionCents: rows.reduce((sum, row) => sum + row.reductionCents, 0),
+    amountExceedsShare: input.mode === 'amount' && Math.round(input.amountCents ?? 0) > totalShareCents,
+  }
+}
 
 const DAY_MS = 86_400_000
 const cents = (value: number) => Math.round(value * 100)
