@@ -5,7 +5,7 @@ import { and, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { getAccessContext } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accountLedger, auditLogs, buyoutRecords, customerCreditLedger, lossRecords, paymentAllocations, paymentRecords, receivableBills, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, returnSettlements } from '@/lib/db/schema'
+import { accountLedger, auditLogs, buyoutRecords, customerCreditLedger, lossRecords, paymentAllocations, paymentRecords, receivableBills, renewalRecords, rentalEvents, rentalItems, rentalOperations, rentals, returnRecords, returnSettlements } from '@/lib/db/schema'
 import { availableQuantity, rentalLifecycleStatus } from '@/lib/rental-lifecycle'
 import { operationIdempotencyKey, operationNumber } from '@/lib/rental-operation-hub'
 import { dateOnly, fromCents, toCents } from '@/lib/rental-calculations'
@@ -139,6 +139,106 @@ async function performRentalItemReturn(input: ReturnInput[]) {
   if(rentRefundCents>0){const settlement=values[0].rentRefundSettlement;statements.push(db.insert(accountLedger).values({userId,rentalId,entryType:settlement.timing==='now'?'租金退款':'租金待退',amount:fromCents(-rentRefundCents),entryDate:latestReturnDate,operatorName:name,notes:`退租租金退款；${settlement.timing==='now'?`已通过${settlement.method}退还`:'约定以后退还'}`}))}
   statements.push(db.update(rentals).set({quantity:finalItems.reduce((sum,item)=>sum+availableQuantity(item),0),totalRent:fromCents(totalCents),paidAmount:fromCents(paidCents),paymentStatus:paymentStatusFromCents(totalCents,paidCents),status:rentalLifecycleStatus(finalItems),updatedAt:new Date()}).where(and(eq(rentals.userId,userId),eq(rentals.id,rentalId))))
   await db.batch(statements as [typeof statements[number],...Array<typeof statements[number]>]);revalidatePath('/');revalidatePath('/audit-logs')
+}
+
+export async function undoRentalReturn(eventId: number, reason: string) {
+  try {
+    await performUndoRentalReturn(eventId, reason)
+    return { ok: true as const }
+  } catch (error) {
+    console.error('[v0] 撤销退租失败', error)
+    const result = safeError(error, '撤销退租失败，请稍后重试')
+    return { ok: false as const, message: result.message }
+  }
+}
+
+const batchOf = (id: number) => Math.floor(id / 1000)
+
+// 撤销一次误操作的退租：设备回到在租、未收租金账单按恢复后的台数重算、合同金额与状态回滚。
+// 涉及资金流动（赔偿、退押金、退租金）的退租不在这里撤销，避免账面和实际收付脱节；
+// 同一合同只能从最新一次处置开始倒序撤销，否则后续退租/买断/丢失的计算基础会被破坏。
+async function performUndoRentalReturn(eventId: number, rawReason: string) {
+  const { userId, actorId, name } = await actor()
+  const id = z.number().int().positive().parse(eventId)
+  const reason = z.string().trim().min(1, '请填写撤销原因').max(500).parse(rawReason)
+  const [event] = await db.select().from(rentalEvents).where(and(eq(rentalEvents.userId, userId), eq(rentalEvents.id, id)))
+  if (!event || event.eventType !== '退租') throw new Error('找不到这条退租记录')
+  if (event.status !== '已完成') throw new Error('这条退租已撤销，无需重复操作')
+  const rentalId = event.rentalId
+  const before = (event.beforeSnapshot ?? {}) as { availableQuantity?: number }
+  const after = (event.afterSnapshot ?? {}) as { availableQuantity?: number }
+  const quantity = Number(before.availableQuantity ?? 0) - Number(after.availableQuantity ?? 0)
+  if (!event.itemId || quantity <= 0) throw new Error('这条退租记录缺少设备数量信息，无法自动撤销')
+
+  const [[rental], items, bills, returns, losses, buyouts, ledgerEntries, sameDayEvents, renewals] = await Promise.all([
+    db.select().from(rentals).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))),
+    db.select().from(rentalItems).where(and(eq(rentalItems.userId, userId), eq(rentalItems.rentalId, rentalId))),
+    db.select().from(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.rentalId, rentalId))),
+    db.select().from(returnRecords).where(and(eq(returnRecords.userId, userId), eq(returnRecords.rentalId, rentalId))),
+    db.select({ rentalItemId: lossRecords.rentalItemId, quantity: lossRecords.quantity, date: lossRecords.lossDate }).from(lossRecords).where(and(eq(lossRecords.userId, userId), eq(lossRecords.rentalId, rentalId))),
+    db.select({ rentalItemId: buyoutRecords.rentalItemId, quantity: buyoutRecords.quantity, date: buyoutRecords.buyoutDate }).from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), eq(buyoutRecords.rentalId, rentalId))),
+    db.select({ entryType: accountLedger.entryType, entryDate: accountLedger.entryDate }).from(accountLedger).where(and(eq(accountLedger.userId, userId), eq(accountLedger.rentalId, rentalId))),
+    db.select({ eventType: rentalEvents.eventType, eventDate: rentalEvents.eventDate, status: rentalEvents.status }).from(rentalEvents).where(and(eq(rentalEvents.userId, userId), eq(rentalEvents.rentalId, rentalId))),
+    db.select({ renewalDate: renewalRecords.renewalDate, status: renewalRecords.status }).from(renewalRecords).where(and(eq(renewalRecords.userId, userId), eq(renewalRecords.rentalId, rentalId))),
+  ])
+  if (!rental || rental.orderType !== 'official' || rental.lifecycleStatus !== 'active') throw new Error('仅正式有效合同可以撤销退租')
+  const record = returns
+    .filter((row) => row.rentalItemId === event.itemId && row.returnDate === event.eventDate && row.quantity === quantity)
+    .sort((left, right) => right.id - left.id)[0]
+  if (!record) throw new Error('找不到与这条时间轴对应的退租明细，无法自动撤销')
+  const item = items.find((row) => row.id === record.rentalItemId)
+  if (!item || item.returnedQuantity < record.quantity) throw new Error('设备已退数量与退租记录不一致，无法自动撤销')
+
+  if (toCents(record.deductionAmount) > 0 || toCents(record.depositRefund) > 0) throw new Error('这次退租登记了赔偿或退押金，涉及资金往来，请先冲正相关收付款后再联系管理员处理')
+  if (sameDayEvents.some((row) => row.eventType === '退租结算' && row.eventDate === record.returnDate && row.status === '已完成')) throw new Error('这次是「全部退租并本期不收」，已取消未收租金，不能自动撤销')
+  if (ledgerEntries.some((row) => (row.entryType === '租金退款' || row.entryType === '租金待退') && row.entryDate === record.returnDate)) throw new Error('这次退租产生了租金退款，涉及资金往来，不能自动撤销')
+  if (returns.some((row) => batchOf(row.id) > batchOf(record.id))) throw new Error('这之后还有更新的退租，请先撤销最新的那次退租')
+  if ([...losses, ...buyouts].some((row) => row.date >= record.returnDate)) throw new Error('退租之后还办理过丢失或买断，不能直接撤销这次退租')
+  if (renewals.some((row) => row.status !== '已冲正' && row.renewalDate >= record.returnDate)) throw new Error('退租之后办理过续租，请先冲正续租再撤销退租')
+
+  const liveBills = bills.filter((bill) => bill.status !== '已冲正' && bill.status !== '已取消')
+  const adjustmentBill = liveBills.find((bill) => bill.billNo === `RETURN-${rentalId}-${record.id}`)
+  const restoredPeriodCents = adjustmentBill ? Math.abs(toCents(adjustmentBill.amount)) : 0
+  const statements: Array<Parameters<typeof db.batch>[0][number]> = []
+
+  const currentBill = restoredPeriodCents > 0
+    ? liveBills
+      .filter((bill) => isRentBillType(bill.billType) && bill.periodStart <= record.returnDate && record.returnDate < bill.periodEnd)
+      .sort((left, right) => right.periodStart.localeCompare(left.periodStart))[0]
+    : undefined
+  if (restoredPeriodCents > 0 && !currentBill) throw new Error('找不到这次退租调整过的当期账单，无法自动撤销')
+  if (currentBill) {
+    const amountCents = toCents(currentBill.amount) + restoredPeriodCents
+    const paidCents = toCents(currentBill.paidAmount)
+    statements.push(db.update(receivableBills).set({ amount: fromCents(amountCents), status: paidCents >= amountCents ? '已结清' : paidCents > 0 ? '部分收款' : '待收', notes: `${currentBill.notes ? `${currentBill.notes}；` : ''}撤销退租，恢复本期租金`, updatedAt: new Date() }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, currentBill.id))))
+  }
+  if (adjustmentBill) statements.push(db.delete(receivableBills).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, adjustmentBill.id))))
+
+  const disposals: RentalDisposal[] = [
+    ...returns.filter((row) => row.id !== record.id).map((row) => ({ rentalItemId: row.rentalItemId, quantity: row.quantity, date: row.returnDate })),
+    ...losses,
+    ...buyouts,
+  ]
+  let futureDeltaCents = 0
+  for (const { bill, nextAmountCents } of recomputeUnpaidRentBills(items, liveBills, disposals, record.returnDate, currentBill ? new Set([currentBill.id]) : new Set())) {
+    futureDeltaCents += nextAmountCents - toCents(bill.amount)
+    statements.push(db.update(receivableBills).set({ amount: fromCents(nextAmountCents), status: nextAmountCents === 0 ? '已减免' : '待收', notes: `${bill.notes ? `${bill.notes}；` : ''}撤销退租后按恢复的设备数量重算`, updatedAt: new Date() }).where(and(eq(receivableBills.userId, userId), eq(receivableBills.id, bill.id))))
+  }
+
+  const finalItems = items.map((row) => row.id === item.id ? { ...row, returnedQuantity: row.returnedQuantity - record.quantity } : row)
+  const totalCents = toCents(rental.totalRent) + restoredPeriodCents + futureDeltaCents
+  const paidCents = toCents(rental.paidAmount)
+  statements.push(
+    db.update(rentalItems).set({ returnedQuantity: item.returnedQuantity - record.quantity, updatedAt: new Date() }).where(and(eq(rentalItems.userId, userId), eq(rentalItems.id, item.id))),
+    db.delete(returnRecords).where(and(eq(returnRecords.userId, userId), eq(returnRecords.id, record.id))),
+    db.update(rentalEvents).set({ status: '已撤销', notes: `${event.notes ? `${event.notes}；` : ''}已撤销：${reason}` }).where(and(eq(rentalEvents.userId, userId), eq(rentalEvents.id, event.id))),
+    db.insert(rentalEvents).values({ userId, rentalId, itemId: item.id, eventType: '撤销退租', status: '已完成', eventDate: new Date().toISOString().slice(0, 10), reason, beforeSnapshot: { availableQuantity: availableQuantity(item) }, afterSnapshot: { availableQuantity: availableQuantity(item) + record.quantity }, feeAdjustment: fromCents(restoredPeriodCents + futureDeltaCents), operatorName: name, notes: `撤销 ${record.returnDate} 的退租：${item.deviceName} ${record.quantity} 台恢复在租` }),
+    db.update(rentals).set({ quantity: finalItems.reduce((sum, row) => sum + availableQuantity(row), 0), totalRent: fromCents(totalCents), paymentStatus: paymentStatusFromCents(totalCents, paidCents), status: rentalLifecycleStatus(finalItems), updatedAt: new Date() }).where(and(eq(rentals.userId, userId), eq(rentals.id, rentalId))),
+    db.insert(auditLogs).values({ userId, actorUserId: actorId, actorName: name, action: '撤销退租', resourceType: '租赁合同', resourceId: String(rentalId), summary: `${rental.contractNo} 撤销 ${record.returnDate} 退租 ${item.deviceName} ${record.quantity} 台`, metadata: { returnRecordId: record.id, eventId: event.id, rentalItemId: item.id, quantity: record.quantity, restoredAmount: fromCents(restoredPeriodCents + futureDeltaCents), reason } }),
+  )
+  await db.batch(statements as [typeof statements[number], ...Array<typeof statements[number]>])
+  revalidatePath('/')
+  revalidatePath('/audit-logs')
 }
 
 export async function reportLostItems(input: LossInput[]) {

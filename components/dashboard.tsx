@@ -61,6 +61,7 @@ import {
   exchangeRentalItems,
   reportLostItems,
   returnRentalItems,
+  undoRentalReturn,
   type ExchangeInput,
   type LossInput,
   type ReturnInput,
@@ -471,6 +472,7 @@ export function Dashboard({
     | "renew"
     | "correct-renewal"
     | "reverse-renewals"
+    | "undo-return"
     | "gift"
     | "payment"
     | "buyout"
@@ -502,6 +504,8 @@ export function Dashboard({
   const [paymentTarget, setPaymentTarget] = useState<number | "all" | "deposit" | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [renewalReversalReason, setRenewalReversalReason] = useState("");
+  const [undoReturnEvent, setUndoReturnEvent] = useState<RentalEvent | null>(null);
+  const [undoReturnReason, setUndoReturnReason] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [form, setForm] = useState<RentalInput>(emptyRental());
   const todayValue = today();
@@ -1276,6 +1280,11 @@ canViewFinance={canViewFinance}
               setRenewalReversalReason("");
               setDialog("reverse-renewals");
             }}
+            onUndoReturn={(event) => {
+              setUndoReturnEvent(event);
+              setUndoReturnReason("");
+              setDialog("undo-return");
+            }}
             onBuyout={() => setDialog("buyout")}
             onHistory={() => setDialog("history")}
             onReturn={() => setDialog("return")}
@@ -1540,6 +1549,50 @@ canViewFinance={canViewFinance}
             <div className="flex justify-end gap-2">
               <button type="button" disabled={pending} onClick={() => setDialog("detail")} className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50">取消</button>
               <button type="submit" disabled={pending || renewalReversalReason.trim().length < 2} className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50">{pending ? "正在核对并冲正…" : "确认全部冲正"}</button>
+            </div>
+          </form>
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog === "undo-return"}
+        title="撤销退租"
+        onClose={() => !pending && setDialog("detail")}
+      >
+        {selected && undoReturnEvent && (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runInDetail(
+                () => undoRentalReturn(undoReturnEvent.id, undoReturnReason),
+                "退租已撤销，设备已恢复在租，账单已按台数重算",
+              );
+            }}
+          >
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+              <p className="font-semibold text-destructive">撤销 {undoReturnEvent.eventDate} 的这次退租</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                退回的设备会恢复为在租，之后的未收租金账单按恢复后的台数重新计算，合同金额与状态同步回滚。原退租记录保留并标记为“已撤销”，便于审计。
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                只能从最近一次退租开始倒序撤销；登记过赔偿、退押金或退租金的退租不能自动撤销。
+              </p>
+            </div>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              撤销原因
+              <textarea
+                required
+                minLength={2}
+                maxLength={200}
+                value={undoReturnReason}
+                onChange={(event) => setUndoReturnReason(event.target.value)}
+                placeholder="例如：选错设备误点退租"
+                className="min-h-24 rounded-xl border bg-background px-3 py-2 font-normal outline-none focus:border-primary"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={pending} onClick={() => setDialog("detail")} className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50">取消</button>
+              <button type="submit" disabled={pending || undoReturnReason.trim().length < 2} className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50">{pending ? "正在核对并撤销…" : "确认撤销退租"}</button>
             </div>
           </form>
         )}
@@ -2576,7 +2629,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     { title: "客户少要或部分不要设备", detail: "选择具体设备、数量和退租日期，原合同与收款记录保留。", action: () => onNavigate("return") },
      { title: "客户要更换电脑或配置", detail: "换整台设备走换机；只调整配置和租金走配置变更。", action: () => onNavigate("exchange") },
     { title: "只调整设备配置", detail: "只修改设备型号、编号、配置或数量，不改变租金。", action: () => onNavigate("change") },
-    { title: "客户要续租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
+    { title: "客户要���租", detail: "按设备办理续租，记录原到期日、新到期日和续租金额。", action: () => onNavigate("renew") },
   ];
   if (!scenario) return <div className="flex flex-col gap-5">
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4"><p className="font-semibold">客户现在发生了什么？</p><p className="mt-1 text-sm leading-6 text-muted-foreground">请选择真实情况，系统会保留原合同和历史项目，不要直接覆盖或删除正式业务记录。</p></div>
@@ -2625,6 +2678,7 @@ type DetailProps = {
   onRenew: () => void;
   onCorrectRenewal: (record: Renewal) => void;
   onReverseRenewals: () => void;
+  onUndoReturn: (event: RentalEvent) => void;
   onBuyout: () => void;
   onHistory: () => void;
   onReturn: () => void;
@@ -2660,6 +2714,7 @@ function Detail(props: DetailProps) {
     onRenew,
     onCorrectRenewal,
     onReverseRenewals,
+    onUndoReturn,
     onBuyout,
     onHistory,
     onReturn,
@@ -2870,6 +2925,7 @@ function Detail(props: DetailProps) {
             role={role}
             onCorrectRenewal={onCorrectRenewal}
             onReverseRenewals={onReverseRenewals}
+            onUndoReturn={onUndoReturn}
           />
         )}
         {tab === "manage" && (
@@ -3170,20 +3226,22 @@ function DetailRecords({
   role,
   onCorrectRenewal,
   onReverseRenewals,
+  onUndoReturn,
 }: {
   rental: Rental;
   role: "super_admin" | "admin" | "employee";
   onCorrectRenewal: (record: Renewal) => void;
   onReverseRenewals: () => void;
+  onUndoReturn: (event: RentalEvent) => void;
 }) {
   const activeRenewals = rental.renewalRecords.filter((record) => record.status !== "已冲正");
   const records = [
     ...rental.renewalRecords.map((record) => {
       const item = rental.items.find((row) => row.id === record.renewedRentalItemId) || rental.items.find((row) => row.id === record.sourceRentalItemId);
-      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}${record.status === "已冲正" && record.reversalReason ? ` · 冲正原因：${record.reversalReason}` : ""}`, operator: "系统记录", status: record.status === "已冲正" ? "已冲正" : "已完成", renewal: record };
+      return { key: `renewal-${record.id}`, date: record.renewalDate, type: "续租", title: `${item?.deviceName || "设备明细"} · ${record.quantity} 台 · 续租 ${record.renewalMonths || "—"} 个月`, detail: `${record.billingUnit === "day" ? "日租" : "月租"} ${money(record.unitPrice || record.newMonthlyRent)} · 到期日 ${record.oldEndDate} → ${record.newEndDate} · 应收 ${money(record.renewalAmount)}${record.status === "已冲正" && record.reversalReason ? ` · 冲正原因：${record.reversalReason}` : ""}`, operator: "系统记录", status: record.status === "已冲正" ? "已冲正" : "已完成", renewal: record, event: null };
     }),
-    ...rental.events.map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, status: event.status, renewal: null })),
-    ...rental.buyoutRecords.map((record) => ({ key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: "系统记录", status: "已完成", renewal: null })),
+    ...rental.events.map((event) => ({ key: `event-${event.id}`, date: event.eventDate, type: event.eventType, title: event.eventType === "维修" ? event.faultDescription || "设备维修" : event.reason || "设备与合同变更", detail: event.eventType === "维修" ? `维修成本 ${money(event.repairCost)} · 客户承担 ${money(event.customerCharge)}${event.resolution ? ` · ${event.resolution}` : ""}` : `应收调整 ${money(event.feeAdjustment)}${event.notes ? ` · ${event.notes}` : ""}`, operator: event.operatorName, status: event.status, renewal: null, event })),
+    ...rental.buyoutRecords.map((record) => ({ key: `buyout-${record.id}`, date: record.buyoutDate, type: "买断", title: `${record.quantity} 台设备买断`, detail: `单价 ${money(record.unitPrice)} · 合计 ${money(record.amount)}`, operator: "系统记录", status: "已完成", renewal: null, event: null })),
   ].sort((left, right) => right.date.localeCompare(left.date));
   if (!records.length) return <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无续租、变更、维修或买断记录</p>;
   return (
@@ -3195,7 +3253,7 @@ function DetailRecords({
         )}
       </div>
       <div className="relative flex flex-col gap-3 before:absolute before:bottom-4 before:left-[5px] before:top-4 before:w-px before:bg-border">
-        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && record.renewal.status !== "已冲正" && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}</div></article>)}
+        {records.map((record) => <article key={record.key} className="relative pl-6"><span className="absolute left-0 top-5 size-[11px] rounded-full border-2 border-background bg-primary" /><div className="rounded-xl border bg-card p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><strong>{record.type}</strong><Status value={record.status} /></div><p className="mt-2 font-medium">{record.title}</p></div><time className="text-sm text-muted-foreground">{record.date}</time></div><p className="mt-2 leading-6 text-muted-foreground">{record.detail}</p><p className="mt-2 text-xs text-muted-foreground">经办人：{record.operator || "—"}</p>{record.renewal?.adjustments.length ? <div className="mt-3 rounded-lg bg-muted p-3"><p className="font-medium">价格更正记录</p>{record.renewal.adjustments.map((adjustment) => <p key={adjustment.id} className="mt-1 text-xs leading-5 text-muted-foreground">{money(adjustment.previousUnitPrice)} → {money(adjustment.correctedUnitPrice)} · 差额 {money(adjustment.differenceAmount)} · {adjustment.reason} · {adjustment.operatorName}</p>)}</div> : null}{record.renewal && record.renewal.status !== "已冲正" && role === "admin" && <button type="button" onClick={() => onCorrectRenewal(record.renewal!)} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">更正续租价格</button>}{record.event?.eventType === "退租" && record.event.status === "已完成" && role !== "employee" && rental.lifecycleStatus === "active" && <button type="button" onClick={() => onUndoReturn(record.event!)} className="mt-3 rounded-lg border border-destructive px-3 py-2 text-xs font-semibold text-destructive">撤销退租</button>}</div></article>)}
       </div>
     </section>
   );
