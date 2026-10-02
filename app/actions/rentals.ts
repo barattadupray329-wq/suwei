@@ -299,7 +299,7 @@ export async function getRentalPage(input: RentalListQuery = {}) {
     // 「到期提醒」要提示的是最紧迫的那笔欠款该收钱的日子——是账单的「应收日」dueDate，
     // 不是账单覆盖的服务周期结束日 periodEnd。合同持续逾期时，系统每天会按月滚动预先生成
     // 下一期「逾期续租租金」账单（见 overdue-rent-billing.ts），这笔新账单的 dueDate 通常就是
-    // 上一期 periodEnd 的次日（本该续费的那天），但它的 periodEnd 是往后再推一整月——如果拿
+    // 上一期 periodEnd 的次日（本该续费的那天），但它的 periodEnd 是往后再推一整月——如果���
     // periodEnd 当"到期日"，会把一笔 dueDate 早就过了、其实正在被追收的欠款，显示成"还有大半个
     // 月才到期"，跟仪表盘上"逾期待收"统计（就是按 dueDate <= 今天 算的，见 overdueOutstandingAmount）
     // 自相矛盾。因此这里优先取未结清账单里 dueDate 最早的一笔；只有当账单全部结清时，才回退到
@@ -431,7 +431,7 @@ function buildBillInsertStatements<T extends Record<string, unknown>>(bills: T[]
 }
 
 // 月租起租预收按自然月拆成 duration 张独立账单（一张账单 = 一期，与 billPeriodRanges 的前提保持一致），
-// 约定还款日统一为起租日（一次性预收，只是分期记账，不是分期到期才收）；总金额按分拆分，余数计入最后一期。
+// 每期约定还款日为该期开始日，避免只收了首期时后续未开始的账期被误判逾期；总金额按分拆分，余数计入最后一期。
 function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: string, endDate: string, totalRent: number, duration: number) {
   if (duration <= 1) {
     return [{
@@ -458,7 +458,7 @@ function buildPrepaidRentBill(rentalId: number, contractNo: string, startDate: s
       billNo: `${contractNo}-${String(index + 1).padStart(3, '0')}`,
       periodStart,
       periodEnd,
-      dueDate: startDate,
+      dueDate: periodStart,
       amount: fromCents(cents),
       billType: '起租预收',
       status: '待收',
@@ -550,7 +550,7 @@ export async function createRental(input: RentalInput, orderType: RentalOrderTyp
 
 // 草稿尚未转正式，不产生任何账单/收款/分配记录，因此整单资料都可以自由改写：
 // 只需覆盖 rentals 主表字段并整体重建 rental_items。合同号沿用草稿自身的临时号（不重新生成），
-// 设备编号按草稿号派生保持稳定；转正式时才会统一换成正式流水号。
+// 设备编号按草稿号派生保持稳定；转正式时才会统一换成正式流���号。
 async function updateDraftOperation(rentalId: number, input: RentalInput) {
   const access = await getAccessContext('租赁操作')
   const userId = access.userId
