@@ -2594,7 +2594,7 @@ function RentalChangeGuide({ rental, pending, onNavigate, submit }: {
     submit({ rentalId: rental.id, changeType: scenario, effectiveDate, reason, customerName: scenario === "客户资料变更" ? customerName : undefined, customerPhone: scenario === "客户资料变更" ? customerPhone : undefined, startDate: scenario === "租期调整" ? startDate : undefined, endDate: scenario === "租期调整" ? endDate : undefined, feeAdjustment: Number(feeAdjustment), feeNote, customerConfirmed });
   };
   return <form onSubmit={submitChange} className="flex flex-col gap-5">
-    <div className="flex items-start justify-between gap-3 rounded-xl bg-muted p-4"><div><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div><button type="button" onClick={() => setScenario(null)} className="shrink-0 text-sm font-medium text-primary">更换情境</button></div>
+    <div className="flex items-start justify-between gap-3 rounded-xl bg-muted p-4"><div><p className="font-semibold">{scenario}</p><p className="mt-1 text-sm text-muted-foreground">原合同信息会作为历史快照保留，本次只更新当前有效资料。</p></div><button type="button" onClick={() => setScenario(null)} className="shrink-0 text-sm font-medium text-primary">更换场景</button></div>
     <div className="grid gap-4 sm:grid-cols-2">
       {scenario === "客户资料变更" ? <><Field label="新联系人姓名" value={customerName} onChange={setCustomerName} /><Field label="新联系电话" value={customerPhone} onChange={setCustomerPhone} /></> : <><Field label="新起租日期" type="date" value={startDate} onChange={setStartDate} /><Field label="新到期日期" type="date" value={endDate} onChange={setEndDate} /></>}
       <Field label="生效日期" type="date" value={effectiveDate} onChange={setEffectiveDate} />
@@ -2685,6 +2685,8 @@ function Detail(props: DetailProps) {
   const outstandingBills = rental.bills.filter(isOpenRentBill);
   const outstandingCents = outstandingBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const overdueBills = outstandingBills.filter((bill) => bill.dueDate <= currentDate);
+  // 待收只统计已到约定还款日的账单；未到期的账期属于"下次付款"，不提前算作待收。
+  const dueOutstandingCents = overdueBills.reduce((sum, bill) => sum + billOutstandingCents(bill), 0);
   const nextBill = nextOpenBill(outstandingBills);
   const settledBills = positiveRentBills.filter((bill) => !isOpenRentBill(bill))
     .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
@@ -2719,7 +2721,7 @@ function Detail(props: DetailProps) {
 
   const tabs: { key: DetailTab; label: string; badge?: string }[] = [
     { key: "overview", label: "概览" },
-    { key: "finance", label: "账务", badge: outstandingBills.length ? `${outstandingBills.length} 待收` : undefined },
+    { key: "finance", label: "账务", badge: overdueBills.length ? `${overdueBills.length} 待收` : undefined },
     { key: "records", label: "业务记录", badge: recordCount ? String(recordCount) : undefined },
     { key: "manage", label: "合同与管理" },
   ];
@@ -2780,7 +2782,7 @@ function Detail(props: DetailProps) {
           </div>
           <div className="grid w-full grid-cols-3 gap-2 rounded-lg bg-muted/40 p-2 text-center text-sm sm:w-auto sm:gap-4 sm:bg-transparent sm:p-0 sm:text-left">
             <Info l="剩余在租" v={`${remainingDevices} 台`} />
-            <Info l="待收金额" v={money(centsToMoney(outstandingCents))} />
+            <Info l="待收金额" v={money(centsToMoney(dueOutstandingCents))} />
             <Info l="下次付款" v={nextBill?.dueDate ?? "暂无待付"} />
           </div>
         </div>
@@ -3084,6 +3086,10 @@ function DetailFinance({
   // 因此这里用 recordedPaidSum 兜底：差额为 0 或负数时直接跳过摊派，全部按账单自己的 paidAmount 走。
   // 合同账户余额不代表某一期已完成抵扣；必须以账单自身记录为准。
   const hasOutstanding = totalOutstanding > 0;
+  const dueOutstanding = rentBills
+    .filter((bill) => bill.dueDate <= today)
+    .reduce((sum, bill) => sum + Math.max(0, Math.round(Number(bill.amount) * 100) - Math.round(Number(bill.paidAmount) * 100)), 0);
+  const upcomingOutstanding = Math.max(0, totalOutstanding - dueOutstanding);
   const billingUnit = normalizeBillingUnit(rental.billingType);
   const { ranges: periodRanges, total: totalPeriods } = billPeriodRanges(rentBills, { anchorDate: rental.startDate, unit: billingUnit });
   const periodUnitLabel = billingUnit === "daily" ? "天" : "期";
@@ -3111,7 +3117,7 @@ function DetailFinance({
         <div className="grid grid-cols-3 border-b bg-muted/40 text-center">
           <div className="p-3"><p className="text-xs text-muted-foreground">净租金应收</p><p className="mt-1 font-semibold">{money(centsToMoney(totalReceivable))}</p>{adjustmentCents < 0 && <p className="mt-1 text-xs text-muted-foreground">原应收 {money(centsToMoney(grossRentCents))} · 减免 {money(centsToMoney(Math.abs(adjustmentCents)))}</p>}</div>
           <div className="border-x p-3"><p className="text-xs text-muted-foreground">已收租金</p><p className="mt-1 font-semibold text-primary">{money(centsToMoney(totalPaid))}</p>{accountBalance > 0 && <p className="mt-1 text-xs text-primary">账户余额 {money(centsToMoney(accountBalance))}</p>}{forgivenCents > 0 && <p className="mt-1 text-xs text-muted-foreground">另减免 {money(centsToMoney(forgivenCents))}</p>}</div>
-          <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className="mt-1 font-semibold text-destructive">{money(centsToMoney(totalOutstanding))}</p></div>
+          <div className="p-3"><p className="text-xs text-muted-foreground">租金待收</p><p className={`mt-1 font-semibold ${dueOutstanding > 0 ? "text-destructive" : "text-foreground"}`}>{money(centsToMoney(dueOutstanding))}</p>{upcomingOutstanding > 0 && <p className="mt-1 text-xs text-muted-foreground">未到期 {money(centsToMoney(upcomingOutstanding))}</p>}</div>
         </div>
         {rentBills.length > 0 ? (
           <div className="scroll-x">
