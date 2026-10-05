@@ -38,7 +38,7 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
   const requestedType = value('orderType')
   const orderType = (['draft', 'test', 'official'].includes(requestedType) ? requestedType : 'all') as 'all' | 'draft' | 'test' | 'official'
   const requestedOccupancy = value('occupancy')
-  const occupancy = (['active', 'returned'].includes(requestedOccupancy) ? requestedOccupancy : 'all') as 'all' | 'active' | 'returned'
+  const occupancy = (['all', 'active', 'returned'].includes(requestedOccupancy) ? requestedOccupancy : 'active') as 'all' | 'active' | 'returned'
   const filters = {
     query: value('query'), status: value('status') || '全部', startDate: value('startDate'), endDate: value('endDate'), assignee: value('assignee'), orderType, occupancy, lifecycleStatus: 'active' as const, sort, receivable, page: Math.max(1, Number(value('page')) || 1),
   }

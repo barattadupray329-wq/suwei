@@ -222,7 +222,8 @@ export function RentalRecords({
     const values = new FormData(event.currentTarget);
     const params = new URLSearchParams();
     values.forEach((value, key) => {
-      if (value && value !== "全部" && value !== "all" && value !== "newest")
+      const keepAll = key === "occupancy" && value === "all";
+      if (value && value !== "全部" && (value !== "all" || keepAll) && value !== "newest")
         params.set(key, String(value));
     });
     navigate(`/rentals?${params}`);
