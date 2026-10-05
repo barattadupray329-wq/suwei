@@ -6,7 +6,8 @@ import { db } from '@/lib/db'
 import { auditLogs, rentalItems, rentals } from '@/lib/db/schema'
 import { businessSmsReadiness, sendBusinessSms, type BusinessSmsScene } from '@/lib/business-sms'
 import { maskCustomerPhone } from '@/lib/customer-phone-auth'
-import { beijingDate, hasRemainingRentalItems } from '@/lib/sms-reminder-rules'
+import { DUE_REMINDER_DAYS_AHEAD, beijingDate, hasRemainingRentalItems, isOverdueReminderDay } from '@/lib/sms-reminder-rules'
+import { getCustomerStatementSnapshot } from '@/lib/statement-snapshot'
 
 const MAX_BATCH = 20
 const ACTIVE_STATUSES = ['在租', '即将到期', '部分买断', '部分退租']
@@ -14,6 +15,26 @@ export type SmsReminderResult = { rentalId: number; contractNo: string; ok: bool
 
 async function logAudit(input: { userId: string; actorUserId: string; actorName: string; rentalId: number; contractNo: string; phone: string; scene: string; ok: boolean }) {
   await db.insert(auditLogs).values({ userId: input.userId, actorUserId: input.actorUserId, actorName: input.actorName, action: '发送业务短信', resourceType: '租赁合同', resourceId: String(input.rentalId), summary: `${input.ok ? '成功' : '失败'}发送${input.scene}至 ${maskCustomerPhone(input.phone)}`, metadata: { contractNo: input.contractNo, phone: maskCustomerPhone(input.phone), scene: input.scene, result: input.ok ? 'success' : 'failed' } })
+}
+
+async function recordAutoStatement(contract: { id: number; userId: string; contractNo: string; customerPhone: string; customerName: string }, scene: 'due-reminder' | 'overdue-reminder') {
+  try {
+    const snapshot = await getCustomerStatementSnapshot(contract.userId, contract.customerPhone)
+    if (!snapshot) return
+    const label = scene === 'due-reminder' ? '到期提醒' : '逾期提醒'
+    await db.insert(auditLogs).values({
+      userId: contract.userId,
+      actorUserId: contract.userId,
+      actorName: '系统自动',
+      action: '生成客户对账单',
+      resourceType: '客户对账单',
+      resourceId: contract.customerPhone,
+      summary: `${label}短信已发送，同步生成${contract.customerName}的对账单：已到期待付 ¥${snapshot.dueTotal.toFixed(2)}，下期待付 ¥${snapshot.upcomingTotal.toFixed(2)}`,
+      metadata: { contractNo: contract.contractNo, phone: maskCustomerPhone(contract.customerPhone), scene, dueTotal: snapshot.dueTotal, upcomingTotal: snapshot.upcomingTotal, contractCount: snapshot.contractCount },
+    })
+  } catch (error) {
+    console.error('[v0] Auto statement record failed:', error)
+  }
 }
 
 export async function getBusinessSmsStatus() {
@@ -88,14 +109,17 @@ export async function processAutomaticOverdueReminders() {
   const eligible = contracts.filter((contract) => {
     if (!hasRemainingRentalItems(itemsByRental.get(contract.id) ?? [])) return false
     const overdueDays = Math.floor((Date.parse(`${currentDate}T00:00:00Z`) - Date.parse(`${contract.endDate}T00:00:00Z`)) / 86400000)
-    return overdueDays === 1 || overdueDays % 3 === 0
+    return isOverdueReminderDay(overdueDays)
   })
   let sent = 0
   let failed = 0
   let skipped = contracts.length - eligible.length
   for (const contract of eligible) {
     const result = await sendBusinessSms({ userId: contract.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'overdue-reminder', triggerType: 'automatic', idempotencyKey: `${contract.userId}:${contract.id}:overdue-reminder:${currentDate}`, params: { customer: contract.customerName.slice(0, 20), contractNo: contract.contractNo, dueDate: contract.endDate } })
-    if (result.ok) sent += 1
+    if (result.ok) {
+      sent += 1
+      await recordAutoStatement(contract, 'overdue-reminder')
+    }
     else if (result.duplicate || result.skipped) skipped += 1
     else failed += 1
   }
@@ -103,7 +127,7 @@ export async function processAutomaticOverdueReminders() {
 }
 
 export async function processAutomaticDueReminders() {
-  const dueDate = beijingDate(3)
+  const dueDate = beijingDate(DUE_REMINDER_DAYS_AHEAD)
   if (!businessSmsReadiness('due-reminder').configured) {
     return { dueDate, scanned: 0, eligible: 0, sent: 0, failed: 0, skipped: 0, configurationSkipped: true }
   }
@@ -126,7 +150,10 @@ export async function processAutomaticDueReminders() {
   let skipped = contracts.length - eligibleContracts.length
   for (const contract of eligibleContracts) {
     const result = await sendBusinessSms({ userId: contract.userId, rentalId: contract.id, phone: contract.customerPhone, scene: 'due-reminder', triggerType: 'automatic', idempotencyKey: `${contract.userId}:${contract.id}:due-reminder:${dueDate}`, params: { customer: contract.customerName.slice(0, 20), dueDate } })
-    if (result.ok) sent += 1
+    if (result.ok) {
+      sent += 1
+      await recordAutoStatement(contract, 'due-reminder')
+    }
     else if (result.duplicate || result.skipped) skipped += 1
     else failed += 1
   }

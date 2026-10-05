@@ -29,3 +29,10 @@ export function remainingRentalQuantity(items: RentalItemQuantities[]) {
 export function hasRemainingRentalItems(items: RentalItemQuantities[]) {
   return remainingRentalQuantity(items) > 0
 }
+
+export const DUE_REMINDER_DAYS_AHEAD = 5
+export const OVERDUE_REMINDER_INTERVAL_DAYS = 10
+
+export function isOverdueReminderDay(overdueDays: number) {
+  return overdueDays > 0 && overdueDays % OVERDUE_REMINDER_INTERVAL_DAYS === 0
+}

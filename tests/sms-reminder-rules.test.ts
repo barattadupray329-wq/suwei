@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   beijingDate,
   hasRemainingRentalItems,
+  isOverdueReminderDay,
   remainingRentalQuantity,
 } from '../lib/sms-reminder-rules'
 
@@ -39,5 +40,11 @@ describe('remainingRentalQuantity', () => {
     expect(remainingRentalQuantity([
       { quantity: 1, boughtOutQuantity: 1, returnedQuantity: 1, lostQuantity: 0 },
     ])).toBe(0)
+  })
+})
+
+describe('isOverdueReminderDay', () => {
+  it('sends overdue reminders every 10 days', () => {
+    expect([1, 3, 5, 9, 10, 11, 20, 25, 30, 40].filter(isOverdueReminderDay)).toEqual([10, 20, 30, 40])
   })
 })
