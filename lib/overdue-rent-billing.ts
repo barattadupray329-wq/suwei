@@ -21,6 +21,8 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 // 合同才扫哪个合同"：真正会改变账期状态的收款/退租/报损/买断操作，都会在各自的写操作里直接调用
 // 不带节流的 ensureOverdueRentBills 并传入该合同的 rentalId；没被操作过的合同则依赖每天 01:00
 // 的定时任务逐个用户全量补算（cron 里同样是调用不带节流的 ensureOverdueRentBills）。
+export const BILL_LEAD_DAYS = 5
+
 export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number | number[]) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -88,7 +90,9 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   }
   const itemsByRental = new Map<number, typeof items>()
   for (const item of items) itemsByRental.set(item.rentalId, [...(itemsByRental.get(item.rentalId) ?? []), item])
-  const yesterday = addCalendarDays(today, -1)
+  // 下一期账单在应收日前 BILL_LEAD_DAYS 天就生成，与「到期前 5 天」短信提醒同步出账，
+  // 客户收到短信时对账单里已能看到下个月要付的这笔；应收日 dueDate 仍是 periodStart，未到日不算逾期。
+  const billingHorizon = addCalendarDays(today, BILL_LEAD_DAYS)
 
   const bills = contracts.flatMap((contract) => {
     const contractItems = itemsByRental.get(contract.id) ?? []
@@ -105,8 +109,8 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     const multiGroup = groups.size > 1
     const existingOverduePeriods = existingOverduePeriodsByRental.get(contract.id) ?? []
     return [...groups.entries()].flatMap(([key, group]) => {
-      if (group.effectiveEndDate > yesterday) return []
-      return overdueRentPeriods(group.effectiveEndDate, today).flatMap(({ periodStart, periodEnd }) => {
+      if (group.effectiveEndDate >= billingHorizon) return []
+      return overdueRentPeriods(group.effectiveEndDate, billingHorizon).flatMap(({ periodStart, periodEnd }) => {
         const billNo = multiGroup ? `OVERDUE-${contract.id}-${key}-${periodStart}` : `OVERDUE-${contract.id}-${periodStart}`
         const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.periodStart < periodEnd && bill.periodEnd > periodStart)
         if (existing.has(billNo) || overlapsExistingOverdue) return []
@@ -115,7 +119,9 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
         return [{
           userId, rentalId: contract.id, billNo, periodStart, periodEnd, dueDate: periodStart,
           billType: '逾期续租租金', amount: fromCents(amountCents), paidAmount: '0.00', status: '待收',
-          notes: `合同到期后继续使用，${periodStart} 至 ${periodEnd} 月租（周期结束日不含）`,
+          notes: periodStart > today
+            ? `下期月租，到期前 ${BILL_LEAD_DAYS} 天提前出账，${periodStart} 至 ${periodEnd}（周期结束日不含），应付日 ${periodStart}`
+            : `合同到期后继续使用，${periodStart} 至 ${periodEnd} 月租（周期结束日不含）`,
         }]
       })
     })

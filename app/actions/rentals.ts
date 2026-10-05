@@ -20,7 +20,7 @@ import { assertOfficialRentalDeletable } from '@/lib/rental-trash-policy'
 import { allocatePayment, billOutstandingCents, centsToMoney, moneyToCents } from '@/lib/payment-allocation'
 import { activePositivePayments, billsReceivableCents, nonDepositPaymentCents, normalizedBillStatus, paymentStatusFromCents, PRESERVED_BILL_STATUSES, reversedBillPaidCents, reversedContractAmounts } from '@/lib/rental-reconciliation'
 import { rentalDisplayStatus } from '@/lib/rental-display-status'
-import { ensureOverdueRentBills, ensureOverdueRentBillsSafely } from '@/lib/overdue-rent-billing'
+import { BILL_LEAD_DAYS, ensureOverdueRentBills, ensureOverdueRentBillsSafely } from '@/lib/overdue-rent-billing'
 import { isRentBillType, matchRenewalPeriodsToOverdueBills, recomputeUnpaidRentBills, remainingQuantityAsOf, type RentalDisposal } from '@/lib/overdue-rent'
 
 async function getUserId() {
@@ -538,7 +538,7 @@ async function createRentalOperation(input: RentalInput, orderType: RentalOrderT
   // 合同创建本身（大不了等定时任务兜底）。
   if (orderType === 'official' && value.billingType === 'monthly') {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-    if (value.endDate < today) await ensureOverdueRentBillsSafely(userId, today, rentalId)
+    if (value.endDate < addCalendarDays(today, BILL_LEAD_DAYS)) await ensureOverdueRentBillsSafely(userId, today, rentalId)
   }
   // 创建页成功后会导航到租赁列表并读取最新数据；这里不主动刷新当前 RSC，避免同一次请求重复渲染。
   return rentalId
@@ -1529,7 +1529,7 @@ async function confirmDraftOperation(id: number, access: Awaited<ReturnType<type
   // 否则它要一直等到有人点开详情或每晚定时任务才会补出逾期续租账单（历史搁浅缺口）。
   if (!isDaily) {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-    if (rental.endDate < today) await ensureOverdueRentBillsSafely(access.userId, today, id)
+    if (rental.endDate < addCalendarDays(today, BILL_LEAD_DAYS)) await ensureOverdueRentBillsSafely(access.userId, today, id)
   }
   revalidatePath('/')
   revalidatePath('/rentals')
