@@ -38,12 +38,12 @@ export async function getFinanceData(input: { query?: string; type?: string; met
   const now = new Date(); const day = now.toISOString().slice(0, 10); const month = day.slice(0, 7); const year = day.slice(0, 4)
   const [rows, [countRow], [summary], types] = await Promise.all([
     joined.where(where).orderBy(desc(paymentRecords.paymentDate), desc(paymentRecords.id)).limit(pageSize).offset((page - 1) * pageSize),
-    db.select({ count: sql<number>`count(*)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
+    db.select({ count: sql<number>`count(*)`, amount: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).innerJoin(rentals, and(eq(rentals.id, paymentRecords.rentalId), eq(rentals.userId, id))).where(where),
     db.select({ today: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} = ${day} then cast(${paymentRecords.amount} as real) else 0 end),0)`, month: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${month + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, year: sql<number>`coalesce(sum(case when ${paymentRecords.paymentDate} like ${year + '%'} then cast(${paymentRecords.amount} as real) else 0 end),0)`, all: sql<number>`coalesce(sum(cast(${paymentRecords.amount} as real)),0)` }).from(paymentRecords).where(eq(paymentRecords.userId, id)),
     db.select({ type: paymentRecords.feeType, amount: sql<number>`sum(cast(${paymentRecords.amount} as real))` }).from(paymentRecords).where(eq(paymentRecords.userId, id)).groupBy(paymentRecords.feeType),
   ])
   const total = Number(countRow?.count ?? 0)
-  return { rows, summary: { today: Number(summary?.today ?? 0), month: Number(summary?.month ?? 0), year: Number(summary?.year ?? 0), all: Number(summary?.all ?? 0) }, types: types.map((row) => [row.type, Number(row.amount)] as [string, number]), total, page, pageCount: Math.max(1, Math.ceil(total / pageSize)) }
+  return { rows, summary: { today: Number(summary?.today ?? 0), month: Number(summary?.month ?? 0), year: Number(summary?.year ?? 0), all: Number(summary?.all ?? 0) }, types: types.map((row) => [row.type, Number(row.amount)] as [string, number]), total, totalAmount: Math.round(Number(countRow?.amount ?? 0) * 100) / 100, page, pageCount: Math.max(1, Math.ceil(total / pageSize)) }
 }
 
 async function loadSettings(id:string){const [row]=await db.select().from(businessSettings).where(eq(businessSettings.userId,id));return row??{userId:id,storeName:'速维租赁管理',lessorType:'个人',lessorName:'',identityNo:'',contactName:'',phone:'',address:'',paymentInfo:'',contractTerms:DEFAULT_TERMS,themeMode:'system',themeColor:'green'}}
