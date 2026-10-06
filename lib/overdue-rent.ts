@@ -134,7 +134,7 @@ export function matchRenewalPeriodsToOverdueBills(
       if (usedBillIds.has(bill.id)) return false
       // 区间重叠：两段自然月只要起始日互相落在对方区间内就算同一期（避免"含尾/不含尾"边界误差）。
       const billInPeriod = bill.periodStart >= period.periodStart && bill.periodStart <= period.periodEnd
-      const periodInBill = period.periodStart >= bill.periodStart && period.periodStart < bill.periodEnd
+      const periodInBill = period.periodStart >= bill.periodStart && period.periodStart <= bill.periodEnd
       return billInPeriod || periodInBill
     })
     if (hit) usedBillIds.add(hit.id)

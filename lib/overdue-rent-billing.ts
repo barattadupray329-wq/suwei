@@ -22,6 +22,7 @@ import { overdueRentPeriods, remainingQuantityAsOf, type RentalDisposal } from '
 // 不带节流的 ensureOverdueRentBills 并传入该合同的 rentalId；没被操作过的合同则依赖每天 01:00
 // 的定时任务逐个用户全量补算（cron 里同样是调用不带节流的 ensureOverdueRentBills）。
 export const BILL_LEAD_DAYS = 5
+const VOID_OVERDUE_STATUSES = new Set(['已取消', '已冲正', '已作废', '作废'])
 
 export async function ensureOverdueRentBillsSafely(userId: string, today?: string, rentalId?: number | number[]) {
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -64,12 +65,12 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     db.select({ rentalItemId: buyoutRecords.rentalItemId, quantity: buyoutRecords.quantity, date: buyoutRecords.buyoutDate }).from(buyoutRecords).where(and(eq(buyoutRecords.userId, userId), inArray(buyoutRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: returnRecords.rentalItemId, quantity: returnRecords.quantity, date: returnRecords.returnDate }).from(returnRecords).where(and(eq(returnRecords.userId, userId), inArray(returnRecords.rentalId, rentalIds))),
     db.select({ rentalItemId: lossRecords.rentalItemId, quantity: lossRecords.quantity, date: lossRecords.lossDate }).from(lossRecords).where(and(eq(lossRecords.userId, userId), inArray(lossRecords.rentalId, rentalIds))),
-    db.select({ rentalId: receivableBills.rentalId, billNo: receivableBills.billNo, billType: receivableBills.billType, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
+    db.select({ id: receivableBills.id, rentalId: receivableBills.rentalId, billNo: receivableBills.billNo, billType: receivableBills.billType, status: receivableBills.status, periodStart: receivableBills.periodStart, periodEnd: receivableBills.periodEnd }).from(receivableBills).where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, rentalIds))),
   ])
-  const existing = new Set(existingBills.map((bill) => bill.billNo))
+  const existing = new Map(existingBills.map((bill) => [bill.billNo, bill]))
   const existingOverduePeriodsByRental = new Map<number, typeof existingBills>()
   for (const bill of existingBills) {
-    if (!bill.billType.includes('逾期')) continue
+    if (!bill.billType.includes('逾期') || VOID_OVERDUE_STATUSES.has(bill.status)) continue
     const bucket = existingOverduePeriodsByRental.get(bill.rentalId)
     if (bucket) bucket.push(bill)
     else existingOverduePeriodsByRental.set(bill.rentalId, [bill])
@@ -93,6 +94,7 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
   // 下一期账单在应收日前 BILL_LEAD_DAYS 天就生成，与「到期前 5 天」短信提醒同步出账，
   // 客户收到短信时对账单里已能看到下个月要付的这笔；应收日 dueDate 仍是 periodStart，未到日不算逾期。
   const billingHorizon = addCalendarDays(today, BILL_LEAD_DAYS)
+  const reactivateIds: number[] = []
 
   const bills = contracts.flatMap((contract) => {
     const contractItems = itemsByRental.get(contract.id) ?? []
@@ -110,28 +112,42 @@ export async function ensureOverdueRentBills(userId: string, today = new Intl.Da
     const existingOverduePeriods = existingOverduePeriodsByRental.get(contract.id) ?? []
     return [...groups.entries()].flatMap(([key, group]) => {
       if (group.effectiveEndDate >= billingHorizon) return []
-      return overdueRentPeriods(group.effectiveEndDate, billingHorizon).flatMap(({ periodStart, periodEnd }) => {
+      return overdueRentPeriods(group.effectiveEndDate, billingHorizon).flatMap(({ periodStart, periodEnd: nextPeriodStart }) => {
+        // 账单 periodEnd 与起租/续租账单一致，存「含当天」的最后一天；界面会 +1 天显示为「（不含）」。
+        const periodEnd = addCalendarDays(nextPeriodStart, -1)
         const billNo = multiGroup ? `OVERDUE-${contract.id}-${key}-${periodStart}` : `OVERDUE-${contract.id}-${periodStart}`
-        const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.periodStart < periodEnd && bill.periodEnd > periodStart)
-        if (existing.has(billNo) || overlapsExistingOverdue) return []
+        const overlapsExistingOverdue = existingOverduePeriods.some((bill) => bill.periodStart <= periodEnd && bill.periodEnd >= periodStart)
+        const sameBill = existing.get(billNo)
+        if (overlapsExistingOverdue) return []
         const amountCents = group.items.reduce((sum, item) => sum + toCents(item.monthlyRent) * remainingQuantityAsOf(item.quantity, item.id, periodStart, disposalsByItem.get(item.id) ?? []), 0)
         if (amountCents <= 0) return []
+        if (sameBill) {
+          // 曾被续租吸收而作废、续租又被冲正后，这期账单必须恢复，否则账期会出现断档。
+          if (VOID_OVERDUE_STATUSES.has(sameBill.status)) reactivateIds.push(sameBill.id)
+          return []
+        }
         return [{
           userId, rentalId: contract.id, billNo, periodStart, periodEnd, dueDate: periodStart,
           billType: '逾期续租租金', amount: fromCents(amountCents), paidAmount: '0.00', status: '待收',
           notes: periodStart > today
-            ? `下期月租，到期前 ${BILL_LEAD_DAYS} 天提前出账，${periodStart} 至 ${periodEnd}（周期结束日不含），应付日 ${periodStart}`
-            : `合同到期后继续使用，${periodStart} 至 ${periodEnd} 月租（周期结束日不含）`,
+            ? `下期月租，到期前 ${BILL_LEAD_DAYS} 天提前出账，${periodStart} 至 ${periodEnd}（含），应付日 ${periodStart}`
+            : `合同到期后继续使用，${periodStart} 至 ${periodEnd}（含）月租`,
         }]
       })
     })
   })
-  if (!bills.length) return { created: 0, amount: '0.00' }
+  if (!bills.length && !reactivateIds.length) return { created: 0, amount: '0.00' }
 
   const insertStatements = chunkRowsForD1(bills).map((chunk) => db.insert(receivableBills).values(chunk).onConflictDoNothing())
   if (insertStatements.length) await db.batch(insertStatements as [typeof insertStatements[number], ...Array<typeof insertStatements[number]>])
+  if (reactivateIds.length) {
+    await db.update(receivableBills)
+      .set({ status: '待收', paidAmount: '0.00', updatedAt: new Date() })
+      .where(and(eq(receivableBills.userId, userId), inArray(receivableBills.id, reactivateIds)))
+  }
 
-  const affectedIds = [...new Set(bills.map((bill) => bill.rentalId))]
+  const reactivatedRentalIds = existingBills.filter((bill) => reactivateIds.includes(bill.id)).map((bill) => bill.rentalId)
+  const affectedIds = [...new Set([...bills.map((bill) => bill.rentalId), ...reactivatedRentalIds])]
   const contractBills = await db.select({ rentalId: receivableBills.rentalId, amount: receivableBills.amount, billType: receivableBills.billType })
     .from(receivableBills)
     .where(and(eq(receivableBills.userId, userId), inArray(receivableBills.rentalId, affectedIds)))
