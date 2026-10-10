@@ -83,7 +83,7 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
                 <p className="mt-1 text-[11px] text-muted-foreground">{contract.paidThroughDate ? `已付至 ${contract.paidThroughDate}` : `至 ${contract.endDate} 到期`}{contract.nextDueDate && Number(contract.dueAmount) <= 0 ? ` · 下期 ${contract.nextDueDate} 应付 ${money(contract.upcomingAmount)}` : ''}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待���付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
+                <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待支付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
                 <ChevronRight className="size-4 text-muted-foreground" />
               </div>
             </button>
