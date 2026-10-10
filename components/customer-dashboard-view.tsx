@@ -93,7 +93,7 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
       </section> : <section className="rounded-2xl border border-dashed bg-card p-10 text-center"><Monitor className="mx-auto size-10 text-muted-foreground" /><h2 className="mt-4 font-semibold">暂无当前在租信息</h2><p className="mt-2 text-sm text-muted-foreground">已退租或已结束的合同不会在这里显示。</p></section>}
     </div>
 
-    {/* 点击某一行后打开的完整明细：不是��窗浮层，而是整块顶替当前内容的详情页（类似手机端"点进去看"的
+    {/* 点击某一行后打开的完整明细：不是弹窗浮层，而是整块顶替当前内容的详情页（类似手机端"点进去看"的
         钻取导航），避免在已经是预览弹窗的场景里出现"弹窗叠弹窗"的悬浮卡片。 */}
     {selectedContract && <ContractDetailPage contract={selectedContract} items={itemsFor(selectedContract.id)} onClose={() => setSelectedId(null)} />}
   </main>
