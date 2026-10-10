@@ -81,6 +81,7 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
                 <div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-semibold">{contract.contractNo}</span><span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{deviceBreakdown}{configSummary ? ` · ${configSummary}` : ''}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">{contract.paidThroughDate ? `已付至 ${contract.paidThroughDate}` : `至 ${contract.endDate} 到期`}{contract.nextDueDate && Number(contract.dueAmount) <= 0 ? ` · 下期 ${contract.nextDueDate} 应付 ${money(contract.upcomingAmount)}` : ''}</p>
+                {contract.headerRemark ? <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-[11px] text-accent-foreground"><ReceiptText className="size-3 shrink-0" /><span className="truncate">备注：{contract.headerRemark}</span></p> : null}
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待支付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
@@ -92,7 +93,7 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
       </section> : <section className="rounded-2xl border border-dashed bg-card p-10 text-center"><Monitor className="mx-auto size-10 text-muted-foreground" /><h2 className="mt-4 font-semibold">暂无当前在租信息</h2><p className="mt-2 text-sm text-muted-foreground">已退租或已结束的合同不会在这里显示。</p></section>}
     </div>
 
-    {/* 点击某一行后打开的完整明细：不是弹窗浮层，而是整块顶替当前内容的详情页（类似手机端"点进去看"的
+    {/* 点击某一行后打开的完整明细：不是��窗浮层，而是整块顶替当前内容的详情页（类似手机端"点进去看"的
         钻取导航），避免在已经是预览弹窗的场景里出现"弹窗叠弹窗"的悬浮卡片。 */}
     {selectedContract && <ContractDetailPage contract={selectedContract} items={itemsFor(selectedContract.id)} onClose={() => setSelectedId(null)} />}
   </main>
@@ -122,6 +123,7 @@ function ContractDetailPage({ contract, items, onClose }: { contract: Contract; 
       <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-bold">合同 {contract.contractNo}</h2><span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div><p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{contract.startDate} 至 {contract.endDate}</p></div>
     </div>
     <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 py-4">
+      {contract.headerRemark ? <p className="mb-3 flex items-start gap-2 rounded-xl border bg-accent p-3 text-sm text-accent-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>备注：{contract.headerRemark}</span></p> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Summary label="月租金" value={money(contract.monthlyRent)} /><Summary label="合同总额" value={money(contract.totalRent)} /><Summary label="已支付" value={money(contract.paidAmount)} /><Summary label="押金" value={money(contract.deposit)} /></div>
       <section className="mt-4 flex flex-col gap-3"><h3 className="flex items-center gap-2 font-semibold"><Layers className="size-4 text-primary" />设备明细</h3>{items.length ? items.map((item) => <div key={item.id} className="rounded-xl border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.deviceName}</p><p className="mt-1 text-sm text-muted-foreground">{item.deviceType}{item.deviceCode ? ` · 设备编号 ${item.deviceCode}` : ''}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-sm">× {item.quantity}</span></div><p className="mt-3 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(item) || '配置详情请联系负责人'}</p><div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>租期：{item.startDate || contract.startDate} 至 {item.endDate || contract.endDate}</span><span>月租：{money(item.monthlyRent)}</span><span>合计：{money(item.totalRent)}</span></div></div>) : <div className="rounded-xl border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><p className="font-medium">{contract.deviceName} · {contract.deviceType} · 共 {contract.quantity} 台</p></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{formatDeviceConfig(contract) || '配置详情请联系负责人'}</p></div>}</section>
       {contract.notes ? <footer className="mt-4 flex items-start gap-2 rounded-xl border bg-muted/50 p-4 text-sm text-muted-foreground"><ReceiptText className="mt-0.5 size-4 shrink-0" /><span>{contract.notes}</span></footer> : null}
