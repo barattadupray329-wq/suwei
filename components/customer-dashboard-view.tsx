@@ -11,7 +11,7 @@ type Contract = CustomerDashboardData['contracts'][number]
 type RentalItem = CustomerDashboardData['items'][number]
 
 const money = (value: string) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(Number(value))
-const outstanding = (contract: Contract) => Math.max(0, Number(contract.totalRent) - Number(contract.paidAmount))
+const outstanding = (contract: Contract) => Number(contract.dueAmount)
 const statusTone = (status: string) => status === '逾期' ? 'border-destructive/30 bg-destructive/10 text-destructive' : status === '即将到期' ? 'border-accent/40 bg-accent/15 text-foreground' : 'border-primary/30 bg-primary/10 text-primary'
 
 // mode="live"：客户本人通过短信验证码登录后看到的真实页面（/customer）。
@@ -80,10 +80,10 @@ export function CustomerDashboardView({ data, mode = 'live' }: { data: CustomerD
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-semibold">{contract.contractNo}</span><span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone(contract.status)}`}>{contract.status}</span></div>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{deviceBreakdown}{configSummary ? ` · ${configSummary}` : ''}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">至 {contract.endDate} 到期</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{contract.paidThroughDate ? `已付至 ${contract.paidThroughDate}` : `至 ${contract.endDate} 到期`}{contract.nextDueDate && Number(contract.dueAmount) <= 0 ? ` · 下期 ${contract.nextDueDate} 应付 ${money(contract.upcomingAmount)}` : ''}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待支付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
+                <div className="text-right"><p className="text-[11px] text-muted-foreground">{owed > 0 ? '待���付' : '付款状态'}</p><p className={`text-sm font-bold ${owed > 0 ? 'text-destructive' : 'text-primary'}`}>{owed > 0 ? money(String(owed)) : contract.paymentStatus}</p></div>
                 <ChevronRight className="size-4 text-muted-foreground" />
               </div>
             </button>

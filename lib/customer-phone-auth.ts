@@ -3,7 +3,8 @@ import { and, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { sendAliyunSms } from '@/lib/aliyun-sms'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
+import { accountProfiles, customerOtpChallenges, customerPhoneSessions, customerPortals, organizationMembers, receivableBills, rentalItems, rentals, session, shops, user } from '@/lib/db/schema'
+import { PRESERVED_BILL_STATUSES } from '@/lib/rental-reconciliation'
 
 const COOKIE = 'customer_phone_session'
 const ACTIVE_STATUSES = ['在租', '即将到期', '逾期']
@@ -34,7 +35,7 @@ export class CustomerOtpError extends Error {
 export const maskCustomerPhone = (phone: string) => phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
 
 async function ensureEligibleCustomerProfiles(phone: string) {
-  const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES)))
+  const contracts = await db.select({ ownerId: rentals.userId, customerName: rentals.customerName }).from(rentals).where(and(eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES), isNull(rentals.deletedAt)))
   if (!contracts.length) return []
   const existing = await db.select().from(customerPortals).where(eq(customerPortals.phone, phone))
   if (existing.length) return existing.filter((portal) => portal.status === 'active')
@@ -243,11 +244,37 @@ async function buildActiveRentalsPayload(shopId: string, phone: string) {
     customer.assigneeUserId ? db.select({ name: user.name, phone: user.phoneNumber }).from(user).where(eq(user.id, customer.assigneeUserId)).limit(1) : Promise.resolve([]),
   ])
   // deviceConfig 及各规格列同样补全，供没有明细行（rentalItems 为空）的老合同兜底展示配置。
-  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, deviceConfig: rentals.deviceConfig, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes, cpu: rentals.cpu, motherboard: rentals.motherboard, memory: rentals.memory, storage: rentals.storage, graphicsCard: rentals.graphicsCard, powerSupply: rentals.powerSupply, caseModel: rentals.caseModel, monitorInfo: rentals.monitorInfo, screenSize: rentals.screenSize, screenResolution: rentals.screenResolution, refreshRate: rentals.refreshRate, panelType: rentals.panelType, ports: rentals.ports, batteryInfo: rentals.batteryInfo, adapterInfo: rentals.adapterInfo, accessories: rentals.accessories, colorGamut: rentals.colorGamut }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES))).orderBy(desc(rentals.id))
+  const contracts = await db.select({ id: rentals.id, userId: rentals.userId, contractNo: rentals.contractNo, customerCompany: rentals.customerCompany, customerName: rentals.customerName, customerAddress: rentals.customerAddress, deviceName: rentals.deviceName, deviceType: rentals.deviceType, deviceConfig: rentals.deviceConfig, quantity: rentals.quantity, startDate: rentals.startDate, endDate: rentals.endDate, monthlyRent: rentals.monthlyRent, totalRent: rentals.totalRent, deposit: rentals.deposit, paidAmount: rentals.paidAmount, paymentStatus: rentals.paymentStatus, status: rentals.status, notes: rentals.notes, cpu: rentals.cpu, motherboard: rentals.motherboard, memory: rentals.memory, storage: rentals.storage, graphicsCard: rentals.graphicsCard, powerSupply: rentals.powerSupply, caseModel: rentals.caseModel, monitorInfo: rentals.monitorInfo, screenSize: rentals.screenSize, screenResolution: rentals.screenResolution, refreshRate: rentals.refreshRate, panelType: rentals.panelType, ports: rentals.ports, batteryInfo: rentals.batteryInfo, adapterInfo: rentals.adapterInfo, accessories: rentals.accessories, colorGamut: rentals.colorGamut }).from(rentals).where(and(eq(rentals.userId, shopId), eq(rentals.customerPhone, phone), inArray(rentals.status, ACTIVE_STATUSES), isNull(rentals.deletedAt))).orderBy(desc(rentals.id))
   const ids = contracts.map((contract) => contract.id)
+  const bills = ids.length ? await db.select({ rentalId: receivableBills.rentalId, billType: receivableBills.billType, amount: receivableBills.amount, paidAmount: receivableBills.paidAmount, status: receivableBills.status, dueDate: receivableBills.dueDate, periodEnd: receivableBills.periodEnd }).from(receivableBills).where(and(eq(receivableBills.userId, shopId), inArray(receivableBills.rentalId, ids))) : []
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  // 客户端和后台「租赁管理」统一以应收账单为准：续租/逾期续租只会新增账单而不改合同 endDate，
+  // 合同上的 totalRent - paidAmount 也不区分是否已到应收日，直接用会和后台对不上。
+  const syncedContracts = contracts.map((contract) => {
+    const contractBills = bills.filter((bill) => bill.rentalId === contract.id && Number(bill.amount) > 0 && !PRESERVED_BILL_STATUSES.has(bill.status))
+    const unpaid = contractBills.map((bill) => ({ ...bill, owed: Math.max(0, Number(bill.amount) - Number(bill.paidAmount)) })).filter((bill) => bill.owed > 0)
+    const dueAmount = unpaid.filter((bill) => bill.dueDate <= today).reduce((sum, bill) => sum + bill.owed, 0)
+    const upcoming = unpaid.filter((bill) => bill.dueDate > today).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    const rentBills = contractBills.filter((bill) => bill.billType !== '押金')
+    const paidThroughDate = rentBills.filter((bill) => Number(bill.paidAmount) >= Number(bill.amount)).map((bill) => bill.periodEnd).sort().at(-1) ?? null
+    const endDate = [contract.endDate, ...rentBills.map((bill) => bill.periodEnd)].filter(Boolean).sort().at(-1) ?? contract.endDate
+    const hasOverdue = unpaid.some((bill) => bill.dueDate < today)
+    const daysToEnd = Math.round((Date.parse(endDate) - Date.parse(today)) / 86_400_000)
+    const status = hasOverdue ? '逾期' : daysToEnd <= 5 ? '即将到期' : '在租'
+    return {
+      ...contract,
+      endDate,
+      status,
+      paidThroughDate,
+      dueAmount: dueAmount.toFixed(2),
+      upcomingAmount: upcoming.reduce((sum, bill) => sum + bill.owed, 0).toFixed(2),
+      nextDueDate: upcoming[0]?.dueDate ?? null,
+      paymentStatus: unpaid.length ? (dueAmount > 0 ? '待支付' : '本期已付') : '已结清',
+    }
+  })
   // 之前这里只选了 deviceConfig（一个自由文本兜底字段），没有选 cpu/内存/硬盘等具体规格列，
   // 导致 formatDeviceConfig 在台式机/笔记本/显示器/一体机上永远拿不到值，
   // 客户端页面只能显示「配置详情请联系负责人」。这里补全所有规格列，让真实配置能显示出来。
   const items = ids.length ? await db.select({ id: rentalItems.id, rentalId: rentalItems.rentalId, deviceName: rentalItems.deviceName, deviceType: rentalItems.deviceType, deviceCode: rentalItems.deviceCode, deviceConfig: rentalItems.deviceConfig, quantity: rentalItems.quantity, startDate: rentalItems.startDate, endDate: rentalItems.endDate, monthlyRent: rentalItems.monthlyRent, totalRent: rentalItems.totalRent, cpu: rentalItems.cpu, motherboard: rentalItems.motherboard, memory: rentalItems.memory, storage: rentalItems.storage, graphicsCard: rentalItems.graphicsCard, powerSupply: rentalItems.powerSupply, caseModel: rentalItems.caseModel, monitorInfo: rentalItems.monitorInfo, screenSize: rentalItems.screenSize, screenResolution: rentalItems.screenResolution, refreshRate: rentalItems.refreshRate, panelType: rentalItems.panelType, ports: rentalItems.ports, batteryInfo: rentalItems.batteryInfo, adapterInfo: rentalItems.adapterInfo, accessories: rentalItems.accessories, colorGamut: rentalItems.colorGamut }).from(rentalItems).where(and(eq(rentalItems.userId, shopId), inArray(rentalItems.rentalId, ids))) : []
-  return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts, items }
+  return { phone, shopName: shop?.name ?? '所属店铺', customerName: customer.name, assignee: assignee ?? null, contracts: syncedContracts, items }
 }
